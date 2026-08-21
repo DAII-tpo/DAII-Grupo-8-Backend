@@ -33,7 +33,25 @@ src/main/java/com/citypass/movilidad/
 
 ## Cómo correr localmente
 
-Variables de entorno (todas tienen default para desarrollo local):
+### 1. Base de datos MySQL
+
+Si no tenés MySQL corriendo local, levantalo con Docker:
+
+```bash
+docker run --name movilidad-mysql \
+  -e MYSQL_ROOT_PASSWORD=root \
+  -e MYSQL_DATABASE=movilidad \
+  -p 3306:3306 \
+  -d mysql:8.0
+```
+
+Eso crea un contenedor con usuario `root` / password `root` y la base `movilidad` ya creada — coincide con los defaults de abajo, así que no hace falta configurar nada más.
+
+Si ya tenés un MySQL propio corriendo (con otro usuario/password/puerto, por ejemplo un contenedor compartido con otros proyectos), no hace falta recrearlo: solo asegurate de que exista la base `movilidad` (`CREATE DATABASE IF NOT EXISTS movilidad;`) y pasá tus credenciales reales por variables de entorno al correr la app (ver tabla abajo). **No hardcodees tu password real en ningún archivo del repo.**
+
+### 2. Variables de entorno
+
+Todas tienen default para desarrollo local (pensados para el contenedor Docker de arriba):
 
 | Variable | Default | Descripción |
 |---|---|---|
@@ -44,6 +62,16 @@ Variables de entorno (todas tienen default para desarrollo local):
 | `DB_PASSWORD` | `root` | Password de MySQL |
 | `AUTH_JWK_SET_URI` | `http://localhost:9000/.well-known/jwks.json` | JWKS del auth-simulator (Grupo 1) |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker de Kafka |
+
+Si tu MySQL local tiene otras credenciales, sobreescribí las variables al correr:
+
+```bash
+DB_USERNAME=miusuario DB_PASSWORD=mipassword ./gradlew bootRun
+```
+
+O en IntelliJ: Run Configuration → Environment variables → agregá `DB_PASSWORD=miPassword` (no lo commitees, queda solo en tu config local del IDE).
+
+### 3. Levantar la app
 
 ```bash
 ./gradlew bootRun
