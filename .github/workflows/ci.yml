@@ -38,4 +38,4 @@ jobs:
         run: ./gradlew test
 
       - name: Verificar cobertura
-        run: ./gradlew jacocoTestCoverageVerificationpile
+        run: ./gradlew jacocoTestCoverageVerification
