@@ -12,7 +12,7 @@ Backend del módulo **Movilidad Urbana Inteligente** (Grupo 8) del proyecto **Ci
 | Event Bus | Apache Kafka (gestionado por el Grupo 1, vía Event Gateway HTTP para publicar) |
 | Auth | JWT (Spring Security + `NimbusJwtDecoder`, contra el auth-simulator del Grupo 1) |
 | Testing | JUnit 5, Mockito, Testcontainers, spring-kafka-test, Jacoco |
-| CI/CD | GitHub Actions |
+| CI/CD | GitHub Actions, Sonarqube |
 
 Se usa Spring Boot 3.5.x (no 4.x) porque el Grupo 1 reportó incompatibilidad entre Jackson 3 (usado por Spring Boot 4.x) y el serializador Avro de Confluent. Ver la decisión completa en MOV-004.
 
