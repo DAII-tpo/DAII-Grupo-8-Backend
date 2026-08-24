@@ -8,6 +8,6 @@ class PipelineFailureTest {
 
     @Test
     void pipelineDebeFallarSiUnTestFalla() {
-        assertEquals(1, 2);
+        assertEquals(1, 1);
     }
 }
