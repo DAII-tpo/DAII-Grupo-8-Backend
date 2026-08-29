@@ -3,6 +3,7 @@ plugins {
     id 'org.springframework.boot' version '3.5.16'
     id 'io.spring.dependency-management' version '1.1.7'
     id 'jacoco'
+    id "org.sonarqube" version "7.3.1.8318"
 }
 
 group = 'com.citypass'
@@ -75,4 +76,10 @@ jacocoTestCoverageVerification {
 
 tasks.named('check') {
     dependsOn jacocoTestCoverageVerification
+}
+sonar {
+    properties {
+        property "sonar.projectKey", "DAII-tpo_DAII-Grupo-8-Backend"
+        property "sonar.organization", "daii-tpo"
+    }
 }
