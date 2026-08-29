@@ -1,32 +1,43 @@
-name: CI
+name: Backend CI
 
 on:
-  push:
-    branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches:
+      - main
 
 jobs:
-  build:
+  backend-ci:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Dar permisos de ejecución a gradlew
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+
+      - name: Dar permisos al Gradle Wrapper
         run: chmod +x gradlew
 
-      - name: Build y tests
-        run: ./gradlew build
+      - name: Compilar proyecto
+        run: ./gradlew clean compileJava
 
-      - name: Publicar reporte de cobertura (Jacoco)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jacoco-report
-          path: build/reports/jacoco/test/html
+      - name: Ejecutar tests
+        run: ./gradlew test
+
+      - name: Verificar cobertura
+        run: ./gradlew jacocoTestCoverageVerification
+
+      - name: Analizar calidad con SonarQube
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./gradlew sonar -Dsonar.token=$SONAR_TOKEN -Dsonar.qualitygate.wait=true
+
