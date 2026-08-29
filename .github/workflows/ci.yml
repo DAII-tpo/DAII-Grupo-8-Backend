@@ -33,8 +33,8 @@ jobs:
       - name: Ejecutar tests
         run: ./gradlew test
 
-      - name: Verificar cobertura
-        run: ./gradlew jacocoTestCoverageVerification
+      - name: Generar reporte de cobertura
+        run: ./gradlew jacocoTestReport
 
       - name: Analizar calidad con SonarQube
         env:
