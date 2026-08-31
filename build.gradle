@@ -52,7 +52,6 @@ dependencyManagement {
 
 tasks.named('test') {
     useJUnitPlatform()
-    finalizedBy jacocoTestReport
 }
 
 jacocoTestReport {
@@ -62,24 +61,11 @@ jacocoTestReport {
         html.required = true
     }
 }
-
-jacocoTestCoverageVerification {
-    dependsOn test
-    violationRules {
-        rule {
-            limit {
-                minimum = 0.80
-            }
-        }
-    }
-}
-
-tasks.named('check') {
-    dependsOn jacocoTestCoverageVerification
-}
 sonar {
     properties {
         property "sonar.projectKey", "DAII-tpo_DAII-Grupo-8-Backend"
         property "sonar.organization", "daii-tpo"
+        property "sonar.coverage.jacoco.xmlReportPaths",
+                "build/reports/jacoco/test/jacocoTestReport.xml"
     }
 }
