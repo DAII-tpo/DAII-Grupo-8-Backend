@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.citypass'
-version = '0.1.0-SNAPSHOT'
+version = '0.1.1'
 
 java {
     toolchain {
@@ -67,6 +67,8 @@ sonar {
     properties {
         property "sonar.projectKey", "DAII-tpo_DAII-Grupo-8-Backend"
         property "sonar.organization", "daii-tpo"
+        property "sonar.coverage.exclusions",
+                "**/model/**"
         property "sonar.coverage.jacoco.xmlReportPaths",
                 "build/reports/jacoco/test/jacocoTestReport.xml"
     }
