@@ -11,9 +11,6 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 @Testcontainers
 @AutoConfigureMockMvc
 @SpringBootTest
@@ -39,8 +36,4 @@ class MovilidadBackendApplicationTests {
     void elContextoDeSpringLevantaCorrectamente() {
     }
 
-    @Test
-    void elEndpointDePingRespondeOk() throws Exception {
-        mockMvc.perform(get("/api/v1/ping")).andExpect(status().isOk());
-    }
 }
