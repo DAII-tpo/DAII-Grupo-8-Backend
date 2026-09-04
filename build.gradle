@@ -77,7 +77,7 @@ sonar {
     properties {
         property "sonar.projectKey", "DAII-tpo_DAII-Grupo-8-Backend"
         property "sonar.organization", "daii-tpo"
-        property "sonar.coverage.exclusions", "**/model/**", "**/dto/**", "**/controller/**"
+        property "sonar.coverage.exclusions", "**/model/**,**/dto/**,**/controller/**"
         property "sonar.coverage.jacoco.xmlReportPaths",
                 "build/reports/jacoco/test/jacocoTestReport.xml"
     }
