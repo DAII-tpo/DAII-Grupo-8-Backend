@@ -50,4 +50,27 @@ class EcobiciStationMapperTest {
         assertThatThrownBy(() -> mapper.toStation(row))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void mapsBlankOptionalAddressAsNull() {
+        EcobiciStationRow row = new EcobiciStationRow(
+                "2", "RETIRO I", " ", "-34.592424", "-58.374710", "0");
+
+        assertThat(mapper.toStation(row).getAddress()).isNull();
+    }
+
+    @Test
+    void rejectsMalformedNumericValues() {
+        EcobiciStationRow invalidLatitude = new EcobiciStationRow(
+                "2", "RETIRO I", null, "not-a-number", "-58.374710", "20");
+        EcobiciStationRow invalidCapacity = new EcobiciStationRow(
+                "2", "RETIRO I", null, "-34.592424", "-58.374710", "many");
+
+        assertThatThrownBy(() -> mapper.toStation(invalidLatitude))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("decimal number");
+        assertThatThrownBy(() -> mapper.toStation(invalidCapacity))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("integer");
+    }
 }

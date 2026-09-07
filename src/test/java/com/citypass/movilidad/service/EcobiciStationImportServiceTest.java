@@ -11,12 +11,15 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.ClassPathResource;
 
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +45,7 @@ class EcobiciStationImportServiceTest {
         StationImportResult result = service.importStations(resource(geoJson));
 
         assertThat(result).isEqualTo(new StationImportResult(3, 2, 0, 1));
-        verify(repository, org.mockito.Mockito.times(2)).saveAndFlush(any(Station.class));
+        verify(repository, times(2)).saveAndFlush(any(Station.class));
     }
 
     @Test
@@ -74,7 +77,24 @@ class EcobiciStationImportServiceTest {
                 new ClassPathResource("datasets/ecobici-stations.geojson"));
 
         assertThat(result).isEqualTo(new StationImportResult(471, 468, 3, 0));
-        verify(repository, org.mockito.Mockito.times(468)).saveAndFlush(any(Station.class));
+        verify(repository, times(468)).saveAndFlush(any(Station.class));
+    }
+
+    @Test
+    void skipsRepeatedExternalIdInsideSameDataset() throws Exception {
+        String repeated = feature(2, 2, "RETIRO I", "Av. Ramos Mejia 1300", -34.592424, -58.374710, 20);
+
+        StationImportResult result = service.importStations(resource(featureCollection(repeated, repeated)));
+
+        assertThat(result).isEqualTo(new StationImportResult(2, 1, 1, 0));
+        verify(repository, times(1)).saveAndFlush(any(Station.class));
+    }
+
+    @Test
+    void rejectsGeoJsonWithoutFeaturesArray() {
+        assertThatThrownBy(() -> service.importStations(resource("{\"type\":\"FeatureCollection\"}")))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("features array");
     }
 
     private String featureCollection(String... features) {
@@ -82,8 +102,8 @@ class EcobiciStationImportServiceTest {
     }
 
     private String feature(int id, int number, String name, String address, double lat, double lon, int anchors) {
-        return "{\"type\":\"Feature\",\"properties\":{" 
-                + "\"ID\":" + id + ",\"NUMERO\":" + number
+        String prefix = "{\"type\":\"Feature\",\"properties\":{";
+        return prefix + "\"ID\":" + id + ",\"NUMERO\":" + number
                 + ",\"NOMBRE\":\"" + name + "\",\"DIRECCION\":\"" + address + "\""
                 + ",\"Lat\":" + lat + ",\"Lon\":" + lon + ",\"ANCLAJES\":" + anchors + "}}";
     }
