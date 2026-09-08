@@ -83,6 +83,26 @@ O en IntelliJ: Run Configuration → Environment variables → agregá `DB_PASSW
 ./gradlew test
 ```
 
+## Importar estaciones Ecobici
+
+El repositorio incluye una copia del dataset oficial de estaciones de Buenos Aires Data. La importación está
+deshabilitada por defecto y se activa para una ejecución con `ECOBICI_IMPORT_ENABLED=true`:
+
+```bash
+ECOBICI_IMPORT_ENABLED=true ./gradlew bootRun
+```
+
+En PowerShell:
+
+```powershell
+$env:ECOBICI_IMPORT_ENABLED="true"
+.\gradlew.bat bootRun
+```
+
+La importación usa el `id` oficial como identificador externo, ignora estaciones ya existentes y no sobrescribe
+cambios o bajas manuales. Los registros inválidos se informan en el log y no interrumpen el resto del proceso.
+La capacidad se importa desde la propiedad `ANCLAJES` del recurso GeoJSON oficial.
+
 Los tests de integración usan Testcontainers (levantan un MySQL real en Docker), por lo que Docker debe estar corriendo.
 
 ## Pendientes
