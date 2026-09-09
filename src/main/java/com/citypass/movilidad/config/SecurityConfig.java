@@ -23,9 +23,9 @@ public class SecurityConfig {
     @Value("${security.jwt.jwk-set-uri:http://localhost:9000/.well-known/jwks.json}")
     private String jwkSetUri;
 
-    // Modo local (security.local.enabled=true): endpoints abiertos y CORS habilitado
+    // Modo local (security.local.enabled=true o por defecto): endpoints abiertos y CORS habilitado
     @Bean
-    @ConditionalOnProperty(name = "security.local.enabled", havingValue = "true")
+    @ConditionalOnProperty(name = "security.local.enabled", havingValue = "true", matchIfMissing = true)
     public SecurityFilterChain localSecurityFilterChain(HttpSecurity http) throws Exception {
         http
                 .cors(Customizer.withDefaults())
