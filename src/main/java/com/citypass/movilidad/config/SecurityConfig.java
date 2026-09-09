@@ -18,6 +18,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@SuppressWarnings("java:S4502")
 public class SecurityConfig {
 
     @Value("${security.jwt.jwk-set-uri:http://localhost:9000/.well-known/jwks.json}")
