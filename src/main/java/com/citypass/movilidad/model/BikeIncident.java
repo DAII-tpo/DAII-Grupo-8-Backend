@@ -12,12 +12,22 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "bike_incidents")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class BikeIncident {
 
     @Id
@@ -60,78 +70,4 @@ public class BikeIncident {
     @JoinColumn(name = "resolved_by_user_id", nullable = true)
     private User resolvedByUser;
 
-    public BikeIncident() {
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Bike getBike() {
-        return bike;
-    }
-
-    public void setBike(Bike bike) {
-        this.bike = bike;
-    }
-
-    public User getReportedByUser() {
-        return reportedByUser;
-    }
-
-    public void setReportedByUser(User reportedByUser) {
-        this.reportedByUser = reportedByUser;
-    }
-
-    public Trip getTrip() {
-        return trip;
-    }
-
-    public void setTrip(Trip trip) {
-        this.trip = trip;
-    }
-
-    public IncidentType getIncidentType() {
-        return incidentType;
-    }
-
-    public void setIncidentType(IncidentType incidentType) {
-        this.incidentType = incidentType;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public BikeIncidentStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(BikeIncidentStatus status) {
-        this.status = status;
-    }
-
-    public Instant getReportedAt() {
-        return reportedAt;
-    }
-
-    public Instant getResolvedAt() {
-        return resolvedAt;
-    }
-
-    public void setResolvedAt(Instant resolvedAt) {
-        this.resolvedAt = resolvedAt;
-    }
-
-    public User getResolvedByUser() {
-        return resolvedByUser;
-    }
-
-    public void setResolvedByUser(User resolvedByUser) {
-        this.resolvedByUser = resolvedByUser;
-    }
 }

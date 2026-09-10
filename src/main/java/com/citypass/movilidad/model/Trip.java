@@ -12,6 +12,11 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
@@ -19,6 +24,11 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "trips")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Trip {
 
     @Id
@@ -62,86 +72,4 @@ public class Trip {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    public Trip() {
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public User getUser() {
-        return user;
-    }
-
-    public void setUser(User user) {
-        this.user = user;
-    }
-
-    public Bike getBike() {
-        return bike;
-    }
-
-    public void setBike(Bike bike) {
-        this.bike = bike;
-    }
-
-    public Station getOriginStation() {
-        return originStation;
-    }
-
-    public void setOriginStation(Station originStation) {
-        this.originStation = originStation;
-    }
-
-    public Station getDestinationStation() {
-        return destinationStation;
-    }
-
-    public void setDestinationStation(Station destinationStation) {
-        this.destinationStation = destinationStation;
-    }
-
-    public Instant getStartedAt() {
-        return startedAt;
-    }
-
-    public void setStartedAt(Instant startedAt) {
-        this.startedAt = startedAt;
-    }
-
-    public Instant getEndedAt() {
-        return endedAt;
-    }
-
-    public void setEndedAt(Instant endedAt) {
-        this.endedAt = endedAt;
-    }
-
-    public TripStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(TripStatus status) {
-        this.status = status;
-    }
-
-    public BigDecimal getDistanceKm() {
-        return distanceKm;
-    }
-
-    public void setDistanceKm(BigDecimal distanceKm) {
-        this.distanceKm = distanceKm;
-    }
-
-    public Integer getDurationSeconds() {
-        return durationSeconds;
-    }
-
-    public void setDurationSeconds(Integer durationSeconds) {
-        this.durationSeconds = durationSeconds;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
 }

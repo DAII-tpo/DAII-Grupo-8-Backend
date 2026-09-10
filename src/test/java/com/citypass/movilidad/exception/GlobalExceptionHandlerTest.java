@@ -1,5 +1,6 @@
 package com.citypass.movilidad.exception;
 
+import com.citypass.movilidad.exception.station.StationNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -7,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import java.util.List;
 
@@ -81,5 +83,34 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().error()).isEqualTo("Not Found");
         assertThat(response.getBody().message()).isEqualTo("Estación no encontrada: 999");
         assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/999/availability");
+    }
+
+    @Test
+    void devuelveNotFoundCuandoLaEstacionNoExiste() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/stations/99");
+
+        ResponseEntity<ErrorResponse> response = handler.handleStationNotFound(new StationNotFoundException(99L), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().status()).isEqualTo(404);
+        assertThat(response.getBody().error()).isEqualTo("Not Found");
+        assertThat(response.getBody().message()).isEqualTo("La estación con ID 99 no existe");
+        assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/99");
+        assertThat(response.getBody().timestamp()).isNotNull();
+    }
+
+    @Test
+    void devuelveNotFoundConflictYBadRequestParaErroresDeBicicletas() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/bikes/1");
+
+        assertThat(handler.handleNotFound(new ResourceNotFoundException("no existe"), request).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(handler.handleBusinessRule(new BusinessRuleException("no permitido"), request).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(handler.handleUnreadableBody(mock(HttpMessageNotReadableException.class), request).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 }

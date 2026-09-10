@@ -32,4 +32,15 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
             """)
     List<StationBikeCountProjection> countBikesByStationIds(@Param("stationIds") Collection<Long> stationIds,
                                                             @Param("availableStatus") BikeStatus availableStatus);
+    boolean existsByCode(String code);
+
+    Optional<Bike> findByIdAndDeletedAtIsNull(Long id);
+
+    List<Bike> findAllByStationIdAndDeletedAtIsNullOrderByCode(Long stationId);
+
+    List<Bike> findAllByStatusAndDeletedAtIsNullOrderByCode(BikeStatus status);
+
+    List<Bike> findAllByStationIdAndStatusAndDeletedAtIsNullOrderByCode(Long stationId, BikeStatus status);
+
+    long countByStationIdAndDeletedAtIsNull(Long stationId);
 }
