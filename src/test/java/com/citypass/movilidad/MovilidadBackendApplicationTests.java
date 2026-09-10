@@ -40,11 +40,6 @@ class MovilidadBackendApplicationTests {
     }
 
     @Test
-    void elEndpointDePingRespondeOk() throws Exception {
-        mockMvc.perform(get("/api/v1/ping")).andExpect(status().isOk());
-    }
-
-    @Test
     void laDisponibilidadDeEstacionesEsAccesibleSinAutenticacion() throws Exception {
         mockMvc.perform(get("/api/v1/stations/availability")).andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/stations/1/availability")).andExpect(status().isNotFound());

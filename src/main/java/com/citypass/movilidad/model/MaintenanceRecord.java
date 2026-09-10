@@ -12,11 +12,21 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "maintenance_records")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class MaintenanceRecord {
 
     @Id
@@ -52,74 +62,4 @@ public class MaintenanceRecord {
     @Column(columnDefinition = "TEXT")
     private String resolution;
 
-    public MaintenanceRecord() {
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Bike getBike() {
-        return bike;
-    }
-
-    public void setBike(Bike bike) {
-        this.bike = bike;
-    }
-
-    public BikeIncident getIncident() {
-        return incident;
-    }
-
-    public void setIncident(BikeIncident incident) {
-        this.incident = incident;
-    }
-
-    public User getCreatedByUser() {
-        return createdByUser;
-    }
-
-    public void setCreatedByUser(User createdByUser) {
-        this.createdByUser = createdByUser;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public MaintenanceStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(MaintenanceStatus status) {
-        this.status = status;
-    }
-
-    public Instant getStartedAt() {
-        return startedAt;
-    }
-
-    public void setStartedAt(Instant startedAt) {
-        this.startedAt = startedAt;
-    }
-
-    public Instant getCompletedAt() {
-        return completedAt;
-    }
-
-    public void setCompletedAt(Instant completedAt) {
-        this.completedAt = completedAt;
-    }
-
-    public String getResolution() {
-        return resolution;
-    }
-
-    public void setResolution(String resolution) {
-        this.resolution = resolution;
-    }
 }
