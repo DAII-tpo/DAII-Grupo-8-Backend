@@ -25,6 +25,10 @@ public class SecurityConfig {
     @Value("${security.jwt.jwk-set-uri:http://localhost:9000/.well-known/jwks.json}")
     private String jwkSetUri;
 
+    // Origenes habilitados para CORS: se configuran con CORS_ALLOWED_ORIGINS (separados por coma).
+    @Value("${app.cors.allowed-origins}")
+    private List<String> allowedOrigins;
+
     // Modo local (security.local.enabled=true o por defecto): endpoints abiertos y CORS habilitado
     @Bean
     @ConditionalOnProperty(name = "security.local.enabled", havingValue = "true", matchIfMissing = true)
@@ -75,10 +79,8 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-///
-//-----------------------------CUANDO ESTE EN PRODUCCION VA A TENER QUE IR LA URL EN DONDE SE LEVANTE EL FRONTEND------------------
-///
-        configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
+        // No se puede usar "*" porque allowCredentials esta en true: hay que listar los origenes.
+        configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

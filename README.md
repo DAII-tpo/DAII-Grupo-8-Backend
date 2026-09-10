@@ -62,6 +62,9 @@ Todas tienen default para desarrollo local (pensados para el contenedor Docker d
 | `DB_PASSWORD` | `root` | Password de MySQL |
 | `AUTH_JWK_SET_URI` | `http://localhost:9000/.well-known/jwks.json` | JWKS del auth-simulator (Grupo 1) |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker de Kafka |
+| `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | Parámetros de la URL JDBC. En bases gestionadas hay que exigir TLS |
+| `SECURITY_LOCAL_ENABLED` | `true` | `true` deja todos los endpoints abiertos. `false` exige JWT |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma |
 
 Si tu MySQL local tiene otras credenciales, sobreescribí las variables al correr:
 
@@ -76,6 +79,19 @@ O en IntelliJ: Run Configuration → Environment variables → agregá `DB_PASSW
 ```bash
 ./gradlew bootRun
 ```
+
+## Deploy
+
+La API se deploya en **Render** desde el `Dockerfile`: cada push a `main` dispara un deploy automático.
+La configuración del servicio está versionada en [`render.yaml`](render.yaml); las credenciales van marcadas
+con `sync: false` y se cargan en el dashboard de Render, nunca en el repo.
+
+La base es un MySQL gestionado externo (Render no ofrece MySQL). Flyway crea el esquema solo en el primer arranque.
+
+Antes de exponer la API conviene revisar dos cosas:
+
+- `SECURITY_LOCAL_ENABLED=true` deja los endpoints de escritura (`POST`, `PATCH`) abiertos a cualquiera con la URL.
+- `CORS_ALLOWED_ORIGINS` tiene que incluir el dominio del frontend deployado, si no el navegador bloquea las llamadas.
 
 ## Tests
 

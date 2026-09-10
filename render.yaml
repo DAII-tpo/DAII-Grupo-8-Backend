@@ -1,0 +1,42 @@
+# Blueprint de Render: define el servicio para no configurarlo a mano en el dashboard.
+# Los valores sensibles van con "sync: false": se cargan en el dashboard y NUNCA se commitean.
+services:
+  - type: web
+    name: movilidad-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main            # cada push a main dispara un deploy
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      # --- Base de datos (cargar en el dashboard) ---
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      # TLS obligatorio en las bases gestionadas (TiDB, Aiven, etc.).
+      # createDatabaseIfNotExist evita tener que crear la base a mano: el driver la crea
+      # en la primera conexion y Flyway despues arma las tablas.
+      - key: DB_PARAMS
+        value: sslMode=VERIFY_IDENTITY&serverTimezone=UTC&createDatabaseIfNotExist=true
+
+      # --- Seguridad ---
+      # true = todos los endpoints abiertos (incluidos POST y PATCH).
+      # Pasar a false cuando el auth-simulator del Grupo 1 sea accesible.
+      - key: SECURITY_LOCAL_ENABLED
+        value: "true"
+
+      # --- CORS: dominios del frontend, separados por coma ---
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+      - key: SPRING_PROFILES_ACTIVE
+        value: default
