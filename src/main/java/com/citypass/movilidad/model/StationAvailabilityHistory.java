@@ -9,12 +9,22 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "station_availability_history")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class StationAvailabilityHistory {
 
     @Id
@@ -35,38 +45,4 @@ public class StationAvailabilityHistory {
     @Column(name = "recorded_at", nullable = false, updatable = false)
     private Instant recordedAt;
 
-    public StationAvailabilityHistory() {
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Station getStation() {
-        return station;
-    }
-
-    public void setStation(Station station) {
-        this.station = station;
-    }
-
-    public Integer getAvailableBikes() {
-        return availableBikes;
-    }
-
-    public void setAvailableBikes(Integer availableBikes) {
-        this.availableBikes = availableBikes;
-    }
-
-    public Integer getAvailableSlots() {
-        return availableSlots;
-    }
-
-    public void setAvailableSlots(Integer availableSlots) {
-        this.availableSlots = availableSlots;
-    }
-
-    public Instant getRecordedAt() {
-        return recordedAt;
-    }
 }

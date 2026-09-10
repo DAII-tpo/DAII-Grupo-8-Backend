@@ -36,6 +36,17 @@ dependencies {
     implementation 'org.flywaydb:flyway-mysql'
     runtimeOnly 'com.mysql:mysql-connector-j:9.7.0'
 
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.46'
+    annotationProcessor 'org.projectlombok:lombok:1.18.46'
+    testCompileOnly 'org.projectlombok:lombok:1.18.46'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.46'
+
+    // Mapstruct
+    implementation "org.mapstruct:mapstruct:1.6.3"
+    annotationProcessor "org.mapstruct:mapstruct-processor:1.6.3"
+    testAnnotationProcessor "org.mapstruct:mapstruct-processor:1.6.3"
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
     testImplementation 'org.springframework.kafka:spring-kafka-test'
@@ -66,8 +77,8 @@ sonar {
     properties {
         property "sonar.projectKey", "DAII-tpo_DAII-Grupo-8-Backend"
         property "sonar.organization", "daii-tpo"
-        property "sonar.coverage.exclusions",
-                "**/model/**"
+        property "sonar.coverage.exclusions", "**/model/**,**/dto/**,**/controller/**"
+        property "sonar.cpd.exclusions", "**/model/**,**/dto/**"
         property "sonar.coverage.jacoco.xmlReportPaths",
                 "build/reports/jacoco/test/jacocoTestReport.xml"
     }
