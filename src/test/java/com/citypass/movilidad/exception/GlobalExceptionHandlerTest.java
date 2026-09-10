@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import java.util.List;
 
@@ -66,5 +67,18 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().message()).isEqualTo("Ocurrió un error inesperado");
         assertThat(response.getBody().path()).isEqualTo("/api/v1/otra");
+    }
+
+    @Test
+    void devuelveNotFoundConflictYBadRequestParaErroresDeBicicletas() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/bikes/1");
+
+        assertThat(handler.handleNotFound(new ResourceNotFoundException("no existe"), request).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(handler.handleBusinessRule(new BusinessRuleException("no permitido"), request).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(handler.handleUnreadableBody(mock(HttpMessageNotReadableException.class), request).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 }
