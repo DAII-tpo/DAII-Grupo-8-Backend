@@ -38,17 +38,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
-        ErrorResponse body = new ErrorResponse(
-                Instant.now(),
-                HttpStatus.BAD_REQUEST.value(),
-                HttpStatus.BAD_REQUEST.getReasonPhrase(),
-                ex.getBindingResult().getFieldErrors().stream()
-                        .findFirst()
-                        .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
-                        .orElse("Datos inválidos"),
-                request.getRequestURI()
-        );
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+        String message = ex.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
+                .orElse("Datos inválidos");
+        return error(HttpStatus.BAD_REQUEST, message, request);
     }
 
     @ExceptionHandler(Exception.class)

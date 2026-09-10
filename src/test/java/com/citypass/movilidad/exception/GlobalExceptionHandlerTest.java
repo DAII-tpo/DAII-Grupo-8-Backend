@@ -71,6 +71,21 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void devuelveNotFoundParaRecursosInexistentes() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/stations/999/availability");
+
+        ResponseEntity<ErrorResponse> response =
+                handler.handleNotFound(new ResourceNotFoundException("Estación no encontrada: 999"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().error()).isEqualTo("Not Found");
+        assertThat(response.getBody().message()).isEqualTo("Estación no encontrada: 999");
+        assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/999/availability");
+    }
+
+    @Test
     void devuelveNotFoundCuandoLaEstacionNoExiste() {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getRequestURI()).thenReturn("/api/v1/stations/99");
@@ -85,7 +100,8 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/99");
         assertThat(response.getBody().timestamp()).isNotNull();
     }
-  
+
+    @Test
     void devuelveNotFoundConflictYBadRequestParaErroresDeBicicletas() {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getRequestURI()).thenReturn("/api/v1/bikes/1");
