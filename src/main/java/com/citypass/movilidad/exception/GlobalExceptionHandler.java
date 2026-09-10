@@ -2,12 +2,15 @@ package com.citypass.movilidad.exception;
 
 import com.citypass.movilidad.exception.station.StationNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
 
@@ -43,6 +46,37 @@ public class GlobalExceptionHandler {
                 .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
                 .orElse("Datos inválidos");
         return error(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    /** Parámetros de query fuera de rango, por ejemplo una latitud mayor a 90 (MOV-017). */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex,
+                                                                   HttpServletRequest request) {
+        String message = ex.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> {
+                    String path = violation.getPropertyPath().toString();
+                    String parameter = path.substring(path.lastIndexOf('.') + 1);
+                    return parameter + ": " + violation.getMessage();
+                })
+                .orElse("Parámetros inválidos");
+        return error(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    /** Falta un parámetro obligatorio de la query. */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException ex,
+                                                                HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST,
+                "Falta el parámetro obligatorio '" + ex.getParameterName() + "'", request);
+    }
+
+    /** El parámetro llegó con un valor que no se puede convertir al tipo esperado. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+                                                            HttpServletRequest request) {
+        return error(HttpStatus.BAD_REQUEST,
+                "El parámetro '" + ex.getName() + "' no tiene un valor válido", request);
     }
 
     @ExceptionHandler(Exception.class)
