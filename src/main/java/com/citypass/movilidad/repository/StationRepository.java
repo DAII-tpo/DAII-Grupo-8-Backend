@@ -8,4 +8,6 @@ import java.util.Optional;
 public interface StationRepository extends JpaRepository<Station, Long> {
 
     Optional<Station> findByExternalId(String externalId);
+
+    Optional<Station> findByIdAndDeletedAtIsNull(Long id);
 }
