@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 
 import java.util.List;
 
@@ -83,5 +84,17 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().message()).isEqualTo("La estación con ID 99 no existe");
         assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/99");
         assertThat(response.getBody().timestamp()).isNotNull();
+    }
+  
+    void devuelveNotFoundConflictYBadRequestParaErroresDeBicicletas() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/bikes/1");
+
+        assertThat(handler.handleNotFound(new ResourceNotFoundException("no existe"), request).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(handler.handleBusinessRule(new BusinessRuleException("no permitido"), request).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(handler.handleUnreadableBody(mock(HttpMessageNotReadableException.class), request).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 }
