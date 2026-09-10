@@ -36,13 +36,13 @@ class StationMapperTest {
 
         StationDTO dto = mapper.toStationDTO(station);
 
-        assertThat(dto.id()).isEqualTo(1L);
-        assertThat(dto.name()).isEqualTo("Estación 9 de Julio");
-        assertThat(dto.capacity()).isEqualTo(10);
-        assertThat(dto.status()).isEqualTo("ACTIVE");
-        assertThat(dto.createdAt()).isEqualTo("2026-09-04T00:07:02Z");
-        assertThat(dto.updatedAt()).isEqualTo("2026-09-04T00:07:02Z");
-        assertThat(dto.deletedAt()).isNull();
+        assertThat(dto.getId()).isEqualTo(1L);
+        assertThat(dto.getName()).isEqualTo("Estación 9 de Julio");
+        assertThat(dto.getCapacity()).isEqualTo(10);
+        assertThat(dto.getStatus()).isEqualTo("ACTIVE");
+        assertThat(dto.getCreatedAt()).isEqualTo("2026-09-04T00:07:02Z");
+        assertThat(dto.getUpdatedAt()).isEqualTo("2026-09-04T00:07:02Z");
+        assertThat(dto.getDeletedAt()).isNull();
     }
 
     @Test
@@ -52,9 +52,9 @@ class StationMapperTest {
         List<StationDTO> dtos = mapper.toStationDTOList(List.of(station));
 
         assertThat(dtos).singleElement().satisfies(dto -> {
-            assertThat(dto.id()).isEqualTo(7L);
-            assertThat(dto.name()).isEqualTo("Estación Retiro");
-            assertThat(dto.status()).isEqualTo("INACTIVE");
+            assertThat(dto.getId()).isEqualTo(7L);
+            assertThat(dto.getName()).isEqualTo("Estación Retiro");
+            assertThat(dto.getStatus()).isEqualTo("INACTIVE");
         });
     }
 
