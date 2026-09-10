@@ -1,5 +1,6 @@
 package com.citypass.movilidad.exception;
 
+import com.citypass.movilidad.exception.station.StationNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -66,5 +67,21 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().message()).isEqualTo("Ocurrió un error inesperado");
         assertThat(response.getBody().path()).isEqualTo("/api/v1/otra");
+    }
+
+    @Test
+    void devuelveNotFoundCuandoLaEstacionNoExiste() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/stations/99");
+
+        ResponseEntity<ErrorResponse> response = handler.handleStationNotFound(new StationNotFoundException(99L), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().status()).isEqualTo(404);
+        assertThat(response.getBody().error()).isEqualTo("Not Found");
+        assertThat(response.getBody().message()).isEqualTo("La estación con ID 99 no existe");
+        assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/99");
+        assertThat(response.getBody().timestamp()).isNotNull();
     }
 }
