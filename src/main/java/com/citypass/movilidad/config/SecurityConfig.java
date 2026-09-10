@@ -50,7 +50,8 @@ public class SecurityConfig {
                         // disponible hay que revisar si estas operaciones requieren usuario autenticado.
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/stations/availability",
-                                "/api/v1/stations/*/availability"
+                                "/api/v1/stations/*/availability",
+                                "/api/v1/stations/nearby"
                         ).permitAll()
                         .requestMatchers(
                                 "/api/v1/ping",
