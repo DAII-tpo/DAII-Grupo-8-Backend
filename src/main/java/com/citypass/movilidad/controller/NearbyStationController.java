@@ -1,9 +1,13 @@
 package com.citypass.movilidad.controller;
 
 import com.citypass.movilidad.dto.NearbyStationResponse;
+import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.service.NearbyStationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,8 +40,11 @@ public class NearbyStationController {
                     + "cercana a más lejana, cada una con su distancia y su disponibilidad actual. "
                     + "Disponible sin autenticación para usuarios de la aplicación.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Estaciones ordenadas por distancia"),
-            @ApiResponse(responseCode = "400", description = "Coordenadas ausentes o fuera de rango")
+            @ApiResponse(responseCode = "200", description = "Estaciones ordenadas por distancia",
+                    content = @Content(array = @ArraySchema(
+                            schema = @Schema(implementation = NearbyStationResponse.class)))),
+            @ApiResponse(responseCode = "400", description = "Parámetros ausentes, no numéricos o fuera de rango",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public List<NearbyStationResponse> findNearby(
 

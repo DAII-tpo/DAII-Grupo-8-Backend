@@ -80,6 +80,14 @@ O en IntelliJ: Run Configuration → Environment variables → agregá `DB_PASSW
 ./gradlew bootRun
 ```
 
+### 4. Consultar la documentacion REST
+
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8080/api-docs`
+
+Swagger UI permite consultar y probar las operaciones implementadas. La identidad, autenticacion y autorizacion
+son provistas por el modulo de Login Federado (Grupo 2) y quedan fuera del alcance de este repositorio.
+
 ## Deploy
 
 La API se deploya en **Render** desde el `Dockerfile`: cada push a `main` dispara un deploy automático.
