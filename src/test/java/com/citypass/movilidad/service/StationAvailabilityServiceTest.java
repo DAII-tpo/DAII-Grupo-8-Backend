@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class StationAvailabilityServiceTest {
@@ -124,6 +126,12 @@ class StationAvailabilityServiceTest {
         when(stationRepository.findAllByDeletedAtIsNullOrderByName()).thenReturn(List.of());
 
         assertThat(service.getAll()).isEmpty();
+    }
+
+    @Test
+    void noConsultaBicicletasSiSeLePideLaDisponibilidadDeUnConjuntoVacio() {
+        assertThat(service.availabilityFor(java.util.Map.of())).isEmpty();
+        verify(bikeRepository, never()).countBikesByStationIds(anyCollection(), any(BikeStatus.class));
     }
 
     private void givenStation(Long id, int capacity, StationStatus status) {

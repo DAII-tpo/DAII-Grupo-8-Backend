@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Schema(description = "Estación registrada")
 public class StationDTO {
 
     @Schema(description = "ID de la estación", example = "1")
@@ -22,19 +23,21 @@ public class StationDTO {
     private String name;
     @Schema(description = "Dirección de la estación", example = "Av. 9 de Julio 1030")
     private String address;
-    @Schema(description = "Latitud de la estación", example = "40.7128")
+    @Schema(description = "Latitud de la estación", example = "-34.6037")
     private BigDecimal latitude;
-    @Schema(description = "Longitud de la estación", example = "-74.0060")
+    @Schema(description = "Longitud de la estación", example = "-58.3816")
     private BigDecimal longitude;
     @Schema(description = "Capacidad de la estación", example = "10")
     private Integer capacity;
-    @Schema(description = "Estado de la estación", example = "ACTIVE")
+    @Schema(description = "Estado de la estación", example = "ACTIVE",
+            allowableValues = {"ACTIVE", "INACTIVE", "MAINTENANCE"})
     private String status;
     @Schema(description = "Fecha de creación de la estación", example = "2026-09-04T00:07:02Z")
     private String createdAt;
     @Schema(description = "Fecha de actualización de la estación", example = "2026-09-04T00:07:02Z")
     private String updatedAt;
-    @Schema(description = "Fecha de eliminación de la estación", example = "2026-09-04T00:07:02Z")
+    @Schema(description = "Fecha de baja lógica; es nula para estaciones vigentes",
+            example = "2026-09-04T00:07:02Z", nullable = true)
     private String deletedAt;
 
 }

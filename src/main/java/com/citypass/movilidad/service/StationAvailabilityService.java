@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -50,36 +51,55 @@ public class StationAvailabilityService {
         return buildAvailability(stationRepository.findAllByDeletedAtIsNullOrderByName());
     }
 
+    /**
+     * Disponibilidad de un conjunto arbitrario de estaciones, dadas sus capacidades, con una
+     * única consulta agrupada. Lo consume la búsqueda de estaciones cercanas (MOV-017) para
+     * no duplicar ni el conteo ni la regla de negocio.
+     *
+     * @param capacityByStationId capacidad declarada de cada estación, por ID
+     */
+    public Map<Long, StationAvailability> availabilityFor(Map<Long, Integer> capacityByStationId) {
+        if (capacityByStationId.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, StationBikeCountProjection> countsByStation =
+                bikeRepository.countBikesByStationIds(capacityByStationId.keySet(), BikeStatus.AVAILABLE).stream()
+                        .collect(Collectors.toMap(StationBikeCountProjection::getStationId, Function.identity()));
+
+        Map<Long, StationAvailability> availability = new HashMap<>();
+        capacityByStationId.forEach((stationId, capacity) -> {
+            StationBikeCountProjection counts = countsByStation.get(stationId);
+            // Sin fila de conteo significa estación sin bicicletas, no error.
+            availability.put(stationId, counts == null
+                    ? StationAvailability.empty(capacity)
+                    : StationAvailability.of(capacity, counts.getTotalBikes(), counts.getAvailableBikes()));
+        });
+        return availability;
+    }
+
     private List<StationAvailabilityResponse> buildAvailability(List<Station> stations) {
         if (stations.isEmpty()) {
             return List.of();
         }
-        List<Long> stationIds = stations.stream().map(Station::getId).toList();
-        Map<Long, StationBikeCountProjection> countsByStation =
-                bikeRepository.countBikesByStationIds(stationIds, BikeStatus.AVAILABLE).stream()
-                        .collect(Collectors.toMap(StationBikeCountProjection::getStationId, Function.identity()));
+        Map<Long, Integer> capacityByStationId = stations.stream()
+                .collect(Collectors.toMap(Station::getId, Station::getCapacity));
+        Map<Long, StationAvailability> availability = availabilityFor(capacityByStationId);
 
         Instant checkedAt = Instant.now();
         return stations.stream()
-                .map(station -> toResponse(station, countsByStation.get(station.getId()), checkedAt))
+                .map(station -> toResponse(station, availability.get(station.getId()), checkedAt))
                 .toList();
     }
 
-    private StationAvailabilityResponse toResponse(Station station, StationBikeCountProjection counts,
+    private StationAvailabilityResponse toResponse(Station station, StationAvailability availability,
                                                    Instant checkedAt) {
-        long occupiedDocks = counts == null ? 0L : counts.getTotalBikes();
-        long availableBikes = counts == null ? 0L : counts.getAvailableBikes();
-        int capacity = station.getCapacity();
-        // Nunca negativo: el dataset importado puede traer más bicicletas que anclajes declarados.
-        int availableSlots = (int) Math.max(0L, capacity - occupiedDocks);
-
         return new StationAvailabilityResponse(
                 station.getId(),
                 station.getName(),
                 station.getStatus(),
-                capacity,
-                (int) availableBikes,
-                availableSlots,
+                station.getCapacity(),
+                availability.availableBikes(),
+                availability.availableSlots(),
                 checkedAt);
     }
 }

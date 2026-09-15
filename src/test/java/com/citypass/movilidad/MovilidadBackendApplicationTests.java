@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 @Testcontainers
 @AutoConfigureMockMvc
@@ -43,5 +44,26 @@ class MovilidadBackendApplicationTests {
     void laDisponibilidadDeEstacionesEsAccesibleSinAutenticacion() throws Exception {
         mockMvc.perform(get("/api/v1/stations/availability")).andExpect(status().isOk());
         mockMvc.perform(get("/api/v1/stations/1/availability")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void openApiDocumentaElContratoRestImplementado() throws Exception {
+        mockMvc.perform(get("/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes']['post']['responses']['201']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/{id}']['get']['responses']['404']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/{id}']['delete']['responses']['204']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/station/{stationId}']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/available']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/{id}/status']['patch']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/{id}/station']['patch']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/bikes/{id}/status-history']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations']['post']['responses']['200']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations/{id}']['get']['responses']['404']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations/{id}']['patch']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations/availability']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations/{stationId}/availability']['get']").exists())
+                .andExpect(jsonPath("$['paths']['/api/v1/stations/nearby']['get']['responses']['400']").exists());
     }
 }
