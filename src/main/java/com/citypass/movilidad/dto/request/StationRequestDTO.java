@@ -16,15 +16,16 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Schema(description = "Datos para crear o actualizar una estación")
 public class StationRequestDTO {
 
     @Schema(description = "Nombre de la estación", example = "Estación 9 de Julio")
     private String name;
     @Schema(description = "Dirección de la estación", example = "Av. 9 de Julio 1030")
     private String address;
-    @Schema(description = "Latitud de la estación", example = "40.7128")
+    @Schema(description = "Latitud de la estación", example = "-34.6037")
     private BigDecimal latitude;
-    @Schema(description = "Longitud de la estación", example = "-74.0060")
+    @Schema(description = "Longitud de la estación", example = "-58.3816")
     private BigDecimal longitude;
     @Schema(description = "Capacidad de la estación", example = "10")
     private Integer capacity;
