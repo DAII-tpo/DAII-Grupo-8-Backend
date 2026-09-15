@@ -3,7 +3,9 @@ package com.citypass.movilidad.repository;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.repository.projection.StationBikeCountProjection;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -35,6 +37,11 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
     boolean existsByCode(String code);
 
     Optional<Bike> findByIdAndDeletedAtIsNull(Long id);
+
+    /** Bloquea la bicicleta durante el inicio/fin de un viaje para que no pueda usarse dos veces a la vez. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Bike b where b.id = :id and b.deletedAt is null")
+    Optional<Bike> findByIdAndDeletedAtIsNullForUpdate(@Param("id") Long id);
 
     List<Bike> findAllByStationIdAndDeletedAtIsNullOrderByCode(Long stationId);
 

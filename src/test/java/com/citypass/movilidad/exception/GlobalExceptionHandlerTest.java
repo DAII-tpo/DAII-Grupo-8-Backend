@@ -8,7 +8,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.List;
 
@@ -19,6 +21,29 @@ import static org.mockito.Mockito.when;
 class GlobalExceptionHandlerTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+
+    @Test
+    void devuelveBadRequestCuandoFaltaUnHeaderOTieneUnValorInvalido() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/api/v1/trips/active");
+
+        MissingRequestHeaderException missing = mock(MissingRequestHeaderException.class);
+        when(missing.getHeaderName()).thenReturn("X-User-Id");
+        ResponseEntity<ErrorResponse> missingResponse = handler.handleMissingHeader(missing, request);
+
+        assertThat(missingResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missingResponse.getBody()).isNotNull();
+        assertThat(missingResponse.getBody().message()).isEqualTo("Falta el header obligatorio X-User-Id");
+        assertThat(missingResponse.getBody().path()).isEqualTo("/api/v1/trips/active");
+
+        MethodArgumentTypeMismatchException mismatch = mock(MethodArgumentTypeMismatchException.class);
+        when(mismatch.getName()).thenReturn("X-User-Id");
+        ResponseEntity<ErrorResponse> mismatchResponse = handler.handleTypeMismatch(mismatch, request);
+
+        assertThat(mismatchResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(mismatchResponse.getBody()).isNotNull();
+        assertThat(mismatchResponse.getBody().message()).isEqualTo("Valor inválido para X-User-Id");
+    }
 
     @Test
     void devuelveBadRequestConElPrimerErrorDeValidacion() {

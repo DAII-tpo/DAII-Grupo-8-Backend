@@ -9,6 +9,7 @@ import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeStatusHistory;
 import com.citypass.movilidad.model.Station;
+import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.BikeRepository;
@@ -140,6 +141,57 @@ public class BikeService {
         }
     }
 
+    /*
+     * Operaciones que dispara el ciclo de vida de un viaje (MOV-026 / MOV-028). No pasan por
+     * BikeStatusTransitionPolicy: AVAILABLE <-> IN_USE no es una transición administrativa, solo
+     * la puede producir un viaje. Se ejecutan dentro de la transacción de TripService.
+     */
+
+    @Transactional
+    public Bike lockActiveBike(Long id) {
+        return bikeRepository.findByIdAndDeletedAtIsNullForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
+    }
+
+    /** Retira la bicicleta de su estación para un viaje y devuelve la estación de origen. */
+    @Transactional
+    public Station checkOutForTrip(Bike bike, User user) {
+        if (bike.getStatus() != BikeStatus.AVAILABLE) {
+            throw new BusinessRuleException(
+                    "La bicicleta no está disponible: " + bike.getId() + " (" + bike.getStatus() + ")");
+        }
+        Station origin = bike.getStation();
+        if (origin == null) {
+            throw new BusinessRuleException("La bicicleta no está asignada a ninguna estación: " + bike.getId());
+        }
+        // Una bicicleta IN_USE no ocupa anclaje: station_id queda en NULL mientras dura el viaje (ver DER).
+        bike.setStation(null);
+        bike.setStatus(BikeStatus.IN_USE);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.AVAILABLE, BikeStatus.IN_USE, "Inicio de viaje", user);
+        return origin;
+    }
+
+    /** Devuelve la bicicleta en la estación destino al finalizar un viaje y devuelve esa estación. */
+    @Transactional
+    public Station checkInFromTrip(Bike bike, Long stationId, User user) {
+        if (bike.getStatus() != BikeStatus.IN_USE) {
+            throw new BusinessRuleException(
+                    "La bicicleta no está en uso: " + bike.getId() + " (" + bike.getStatus() + ")");
+        }
+        Station destination = stationRepository.findByIdAndDeletedAtIsNullForUpdate(stationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
+        if (destination.getStatus() != StationStatus.ACTIVE) {
+            throw new BusinessRuleException("La estación no está habilitada: " + stationId);
+        }
+        ensureCapacity(destination);
+        bike.setStation(destination);
+        bike.setStatus(BikeStatus.AVAILABLE);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.IN_USE, BikeStatus.AVAILABLE, "Fin de viaje", user);
+        return destination;
+    }
+
     public List<BikeStatusHistoryResponse> history(Long id) {
         bikeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
@@ -176,10 +228,16 @@ public class BikeService {
     }
 
     private void recordStatusChange(Bike bike, BikeStatus previous, BikeStatus next, String reason) {
+        recordStatusChange(bike, previous, next, reason, null);
+    }
+
+    private void recordStatusChange(Bike bike, BikeStatus previous, BikeStatus next, String reason,
+                                    User changedBy) {
         BikeStatusHistory history = new BikeStatusHistory();
         history.setBike(bike);
         history.setPreviousStatus(previous);
         history.setNewStatus(next);
+        history.setChangedByUser(changedBy);
         history.setReason(trimToNull(reason));
         historyRepository.save(history);
     }
