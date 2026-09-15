@@ -42,7 +42,7 @@ class GlobalExceptionHandlerTest {
 
         assertThat(mismatchResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(mismatchResponse.getBody()).isNotNull();
-        assertThat(mismatchResponse.getBody().message()).isEqualTo("Valor inválido para X-User-Id");
+        assertThat(mismatchResponse.getBody().message()).isEqualTo("El parámetro 'X-User-Id' no tiene un valor válido");
     }
 
     @Test
