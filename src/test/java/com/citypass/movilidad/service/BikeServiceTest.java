@@ -3,9 +3,11 @@ package com.citypass.movilidad.service;
 import com.citypass.movilidad.dto.BikeCreateRequest;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
+import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeStatusHistory;
 import com.citypass.movilidad.model.Station;
+import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.BikeRepository;
@@ -13,6 +15,7 @@ import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -248,6 +251,111 @@ class BikeServiceTest {
             assertThat(history.newStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
             assertThat(history.changedByUserId()).isNull();
         });
+    }
+
+    @Test
+    void locksActiveBikeOrReportsMissingBike() {
+        Bike bike = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+
+        assertThat(service.lockActiveBike(1L)).isSameAs(bike);
+        assertThatThrownBy(() -> service.lockActiveBike(2L))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void checksOutAvailableBikeForTripAndRecordsHistoryWithUser() {
+        Station origin = activeStation(10L, 20);
+        Bike bike = bike(BikeStatus.AVAILABLE, origin);
+        User user = new User();
+
+        Station result = service.checkOutForTrip(bike, user);
+
+        assertThat(result).isSameAs(origin);
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(bike.getStation()).isNull();
+        ArgumentCaptor<BikeStatusHistory> history = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getPreviousStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(history.getValue().getNewStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(history.getValue().getChangedByUser()).isSameAs(user);
+        assertThat(history.getValue().getReason()).isEqualTo("Inicio de viaje");
+    }
+
+    @Test
+    void rejectsCheckOutWhenBikeIsNotAvailableOrHasNoStation() {
+        Bike inMaintenance = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
+        assertThatThrownBy(() -> service.checkOutForTrip(inMaintenance, new User()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no está disponible");
+        assertThat(inMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+
+        Bike withoutStation = bike(BikeStatus.AVAILABLE, null);
+        assertThatThrownBy(() -> service.checkOutForTrip(withoutStation, new User()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("estación");
+        assertThat(withoutStation.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+
+        verifyNoInteractions(historyRepository);
+        verify(bikeRepository, never()).save(any());
+    }
+
+    @Test
+    void checksInBikeAtDestinationStationAndRecordsHistoryWithUser() {
+        Station destination = activeStation(20L, 10);
+        Bike bike = bike(BikeStatus.IN_USE, null);
+        User user = new User();
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(9L);
+
+        Station result = service.checkInFromTrip(bike, 20L, user);
+
+        assertThat(result).isSameAs(destination);
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(bike.getStation()).isSameAs(destination);
+        ArgumentCaptor<BikeStatusHistory> history = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getPreviousStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(history.getValue().getNewStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(history.getValue().getChangedByUser()).isSameAs(user);
+        assertThat(history.getValue().getReason()).isEqualTo("Fin de viaje");
+    }
+
+    @Test
+    void rejectsCheckInWhenBikeIsNotInUse() {
+        Bike bike = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+
+        assertThatThrownBy(() -> service.checkInFromTrip(bike, 20L, new User()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no está en uso");
+        verifyNoInteractions(stationRepository, historyRepository);
+    }
+
+    @Test
+    void rejectsCheckInAtMissingDisabledOrFullStation() {
+        Bike bike = bike(BikeStatus.IN_USE, null);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(99L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.checkInFromTrip(bike, 99L, new User()))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        Station disabled = activeStation(30L, 10);
+        disabled.setStatus(StationStatus.MAINTENANCE);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(30L)).thenReturn(Optional.of(disabled));
+        assertThatThrownBy(() -> service.checkInFromTrip(bike, 30L, new User()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("habilitada");
+
+        Station full = activeStation(20L, 1);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(full));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(1L);
+        assertThatThrownBy(() -> service.checkInFromTrip(bike, 20L, new User()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("capacidad");
+
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(bike.getStation()).isNull();
+        verifyNoInteractions(historyRepository);
+        verify(bikeRepository, never()).save(any());
     }
 
     private Bike bike(BikeStatus status, Station station) {
