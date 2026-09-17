@@ -398,6 +398,11 @@ class BikeServiceTest {
         assertThatThrownBy(() -> service.returnFromMaintenance(withoutStation, new User(), "Reparada"))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("estación");
+
+        Bike available = bike(BikeStatus.AVAILABLE, station);
+        assertThatThrownBy(() -> service.returnFromMaintenance(available, new User(), "Reparada"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no está en mantenimiento");
     }
 
     private Bike bike(BikeStatus status, Station station) {

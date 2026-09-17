@@ -46,4 +46,40 @@ class MaintenanceServiceTest {
         Role role=new Role(); role.setName("USER"); admin.setRole(role);
         assertThatThrownBy(()->service.findAll(1L)).isInstanceOf(ForbiddenOperationException.class);
     }
+
+    @Test void listsMaintenanceRecords(){
+        MaintenanceRecord r=new MaintenanceRecord(); r.setId(3L); r.setBike(bike); r.setCreatedByUser(admin);
+        r.setDescription("Ajuste"); r.setStatus(MaintenanceStatus.IN_PROGRESS);
+        when(records.findAllByOrderByStartedAtDesc()).thenReturn(List.of(r));
+        assertThat(service.findAll(1L)).singleElement().satisfies(item ->
+                assertThat(item.id()).isEqualTo(3L));
+    }
+
+    @Test void associatesMatchingIncidentAndRejectsDifferentBike(){
+        BikeIncident incident=new BikeIncident(); incident.setId(9L); incident.setBike(bike);
+        when(incidents.findById(9L)).thenReturn(Optional.of(incident));
+        assertThat(service.create(1L,new MaintenanceCreateRequest(2L,9L,"Ajuste")).incidentId())
+                .isEqualTo(9L);
+
+        Bike other=new Bike(); other.setId(99L); incident.setBike(other);
+        assertThatThrownBy(()->service.create(1L,new MaintenanceCreateRequest(2L,9L,"Ajuste")))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no corresponde");
+    }
+
+    @Test void rejectsMissingOrFinishedMaintenance(){
+        when(records.findByIdForUpdate(8L)).thenReturn(Optional.empty());
+        assertThatThrownBy(()->service.complete(1L,8L,new MaintenanceCompleteRequest("Lista")))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        MaintenanceRecord done=new MaintenanceRecord(); done.setStatus(MaintenanceStatus.COMPLETED);
+        when(records.findByIdForUpdate(3L)).thenReturn(Optional.of(done));
+        assertThatThrownBy(()->service.complete(1L,3L,new MaintenanceCompleteRequest("Lista")))
+                .isInstanceOf(BusinessRuleException.class);
+    }
+
+    @Test void rejectsUnknownAdmin(){
+        when(users.findById(5L)).thenReturn(Optional.empty());
+        assertThatThrownBy(()->service.findAll(5L)).isInstanceOf(ResourceNotFoundException.class);
+    }
 }
