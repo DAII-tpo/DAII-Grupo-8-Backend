@@ -3,12 +3,15 @@ package com.citypass.movilidad.controller;
 import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
+import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.service.TripService;
+import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -42,16 +45,18 @@ public class TripController {
     @PostMapping
     @Operation(summary = "Iniciar un viaje",
             description = "Retira una bicicleta AVAILABLE: crea el viaje ACTIVE y la bicicleta pasa a IN_USE")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Viaje iniciado"),
-            @ApiResponse(responseCode = "400", description = "Falta el header de usuario o el cuerpo es inválido"),
-            @ApiResponse(responseCode = "404", description = "El usuario o la bicicleta no existen"),
-            @ApiResponse(responseCode = "409",
-                    description = "Usuario no habilitado, con un viaje activo, o bicicleta no disponible")
-    })
+    @ApiResponse(responseCode = "201", description = "Viaje iniciado",
+            content = @Content(schema = @Schema(implementation = TripResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Falta el header de usuario o el cuerpo es inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "El usuario o la bicicleta no existen",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409",
+            description = "Usuario no habilitado, con un viaje activo, o bicicleta no disponible",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<TripResponse> start(
             @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) Long userId,
+            @RequestHeader(USER_HEADER) @EntityId Long userId,
             @Valid @RequestBody TripStartRequest request) {
         TripResponse created = tripService.startTrip(userId, request);
         return ResponseEntity.created(URI.create("/api/v1/trips/" + created.id())).body(created);
@@ -60,15 +65,16 @@ public class TripController {
     @GetMapping("/active")
     @Operation(summary = "Consultar el viaje activo del usuario",
             description = "Devuelve bicicleta, estación de origen y hora de inicio del viaje en curso")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "El usuario tiene un viaje activo"),
-            @ApiResponse(responseCode = "204", description = "El usuario no tiene ningún viaje activo"),
-            @ApiResponse(responseCode = "400", description = "Falta el header de usuario"),
-            @ApiResponse(responseCode = "404", description = "El usuario no existe")
-    })
+    @ApiResponse(responseCode = "200", description = "El usuario tiene un viaje activo",
+            content = @Content(schema = @Schema(implementation = TripResponse.class)))
+    @ApiResponse(responseCode = "204", description = "El usuario no tiene ningún viaje activo")
+    @ApiResponse(responseCode = "400", description = "Falta el header de usuario o es inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "El usuario no existe",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<TripResponse> findActive(
             @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) Long userId) {
+            @RequestHeader(USER_HEADER) @EntityId Long userId) {
         return tripService.findActiveTrip(userId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -78,18 +84,20 @@ public class TripController {
     @Operation(summary = "Finalizar un viaje",
             description = "Devuelve la bicicleta en una estación habilitada con capacidad: el viaje pasa a "
                     + "COMPLETED y la bicicleta queda AVAILABLE en la estación destino")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Viaje finalizado"),
-            @ApiResponse(responseCode = "400", description = "Falta el header de usuario o el cuerpo es inválido"),
-            @ApiResponse(responseCode = "404",
-                    description = "El usuario, el viaje (o no pertenece al usuario) o la estación no existen"),
-            @ApiResponse(responseCode = "409",
-                    description = "El viaje no está activo, o la estación no está habilitada o no tiene capacidad")
-    })
+    @ApiResponse(responseCode = "200", description = "Viaje finalizado",
+            content = @Content(schema = @Schema(implementation = TripResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Falta el header de usuario o el cuerpo es inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404",
+            description = "El usuario, el viaje (o no pertenece al usuario) o la estación no existen",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "409",
+            description = "El viaje no está activo, o la estación no está habilitada o no tiene capacidad",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public TripResponse end(
             @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) Long userId,
-            @PathVariable Long id,
+            @RequestHeader(USER_HEADER) @EntityId Long userId,
+            @PathVariable @EntityId Long id,
             @Valid @RequestBody TripEndRequest request) {
         return tripService.endTrip(userId, id, request);
     }

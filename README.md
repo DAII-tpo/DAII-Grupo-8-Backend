@@ -26,8 +26,12 @@ src/main/java/com/citypass/movilidad/
 ├── model/         # Entidades JPA
 ├── dto/           # Objetos de transferencia
 ├── config/        # Seguridad, OpenAPI, etc.
-└── exception/     # Manejo global de errores
+├── validation/    # Restricciones de Bean Validation reutilizables
+└── exception/     # Excepciones de dominio y manejo global de errores
 ```
+
+El formato de error de la API, las excepciones de dominio y las validaciones están documentados
+en [docs/MOV-021-manejo-errores-validaciones.md](docs/MOV-021-manejo-errores-validaciones.md).
 
 `service/`, `repository/`, `model/` y `dto/` están vacíos: el modelo de dominio (Usuario, Bicicleta, Estación, Viaje, Reporte) se agrega cuando se defina el detalle de MOV-010.
 

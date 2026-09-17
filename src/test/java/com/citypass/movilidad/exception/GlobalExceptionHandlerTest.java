@@ -1,141 +1,263 @@
 package com.citypass.movilidad.exception;
 
 import com.citypass.movilidad.exception.station.StationNotFoundException;
-import jakarta.servlet.http.HttpServletRequest;
+import com.citypass.movilidad.validation.EntityId;
+import com.citypass.movilidad.validation.Latitude;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.validation.BindingResult;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingRequestHeaderException;
-import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
+/**
+ * Verifica el contrato de error de MOV-021 contra un controller de prueba, de punta a punta:
+ * cada caso pasa por el mismo pipeline de Spring MVC que usan los controllers reales.
+ */
+@WebMvcTest(controllers = GlobalExceptionHandlerTest.ErrorProbeController.class)
+@AutoConfigureMockMvc(addFilters = false)
+@Import({GlobalExceptionHandler.class, GlobalExceptionHandlerTest.ErrorProbeController.class})
 class GlobalExceptionHandlerTest {
 
-    private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
+    @Autowired
+    private MockMvc mockMvc;
+
+    // --- Estructura común ---
 
     @Test
-    void devuelveBadRequestCuandoFaltaUnHeaderOTieneUnValorInvalido() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/trips/active");
-
-        MissingRequestHeaderException missing = mock(MissingRequestHeaderException.class);
-        when(missing.getHeaderName()).thenReturn("X-User-Id");
-        ResponseEntity<ErrorResponse> missingResponse = handler.handleMissingHeader(missing, request);
-
-        assertThat(missingResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(missingResponse.getBody()).isNotNull();
-        assertThat(missingResponse.getBody().message()).isEqualTo("Falta el header obligatorio X-User-Id");
-        assertThat(missingResponse.getBody().path()).isEqualTo("/api/v1/trips/active");
-
-        MethodArgumentTypeMismatchException mismatch = mock(MethodArgumentTypeMismatchException.class);
-        when(mismatch.getName()).thenReturn("X-User-Id");
-        ResponseEntity<ErrorResponse> mismatchResponse = handler.handleTypeMismatch(mismatch, request);
-
-        assertThat(mismatchResponse.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(mismatchResponse.getBody()).isNotNull();
-        assertThat(mismatchResponse.getBody().message()).isEqualTo("El parámetro 'X-User-Id' no tiene un valor válido");
+    void todaRespuestaDeErrorTraeTimestampStatusErrorCodeMensajeYPath() throws Exception {
+        mockMvc.perform(get("/probe/not-found"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("Viaje no encontrado: 7"))
+                .andExpect(jsonPath("$.path").value("/probe/not-found"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
     }
 
     @Test
-    void devuelveBadRequestConElPrimerErrorDeValidacion() {
-        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
-        BindingResult bindingResult = mock(BindingResult.class);
-        FieldError fieldError = new FieldError("objeto", "nombre", "no puede estar vacío");
-        when(ex.getBindingResult()).thenReturn(bindingResult);
-        when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
+    void noExponeStackTracesNiDetalleInternoAnteUnErrorInesperado() throws Exception {
+        mockMvc.perform(get("/probe/boom"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
+                .andExpect(jsonPath("$.message").value("Ocurrió un error inesperado"))
+                .andExpect(jsonPath("$.path").value("/probe/boom"))
+                .andExpect(jsonPath("$.trace").doesNotExist())
+                .andExpect(content().string(not(containsString("IllegalStateException"))))
+                .andExpect(content().string(not(containsString("com.citypass"))));
+    }
 
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/algo");
+    // --- 404 Not Found ---
 
-        ResponseEntity<ErrorResponse> response = handler.handleValidation(ex, request);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().status()).isEqualTo(400);
-        assertThat(response.getBody().error()).isEqualTo("Bad Request");
-        assertThat(response.getBody().message()).isEqualTo("nombre: no puede estar vacío");
-        assertThat(response.getBody().path()).isEqualTo("/api/v1/algo");
+    @Test
+    void devuelveNotFoundParaLasExcepcionesDeDominioQueHeredanDeResourceNotFound() throws Exception {
+        mockMvc.perform(get("/probe/station-not-found"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("STATION_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("La estación con ID 99 no existe"));
     }
 
     @Test
-    void devuelveMensajeGenericoSiNoHayErroresDeCampo() {
-        MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
-        BindingResult bindingResult = mock(BindingResult.class);
-        when(ex.getBindingResult()).thenReturn(bindingResult);
-        when(bindingResult.getFieldErrors()).thenReturn(List.of());
+    void devuelveNotFoundParaUnaRutaInexistente() throws Exception {
+        mockMvc.perform(get("/probe/ruta-que-no-existe"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("El recurso solicitado no existe"));
+    }
 
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/algo");
+    // --- 409 Conflict ---
 
-        ResponseEntity<ErrorResponse> response = handler.handleValidation(ex, request);
-
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().message()).isEqualTo("Datos inválidos");
+    @Test
+    void devuelveConflictParaUnaReglaDeNegocioIncumplida() throws Exception {
+        mockMvc.perform(get("/probe/conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("Conflict"))
+                .andExpect(jsonPath("$.code").value("BUSINESS_RULE_VIOLATION"))
+                .andExpect(jsonPath("$.message").value("La bicicleta no está disponible"));
     }
 
     @Test
-    void devuelveInternalServerErrorParaExcepcionesGenericas() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/otra");
+    void devuelveConflictSinFiltrarElDetalleDeLaBaseAnteUnaViolacionDeIntegridad() throws Exception {
+        mockMvc.perform(get("/probe/data-integrity"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DATA_INTEGRITY_VIOLATION"))
+                .andExpect(jsonPath("$.message").value("La operación entra en conflicto con datos ya existentes"))
+                .andExpect(content().string(not(containsString("uk_stations_external_id"))));
+    }
 
-        ResponseEntity<ErrorResponse> response = handler.handleGeneric(new RuntimeException("boom"), request);
+    // --- 400 Bad Request ---
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().message()).isEqualTo("Ocurrió un error inesperado");
-        assertThat(response.getBody().path()).isEqualTo("/api/v1/otra");
+    @Test
+    void devuelveBadRequestParaUnDatoDeEntradaInvalidoDetectadoEnElDominio() throws Exception {
+        mockMvc.perform(get("/probe/invalid-input"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("El rango de fechas es incoherente"));
     }
 
     @Test
-    void devuelveNotFoundParaRecursosInexistentes() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/stations/999/availability");
-
-        ResponseEntity<ErrorResponse> response =
-                handler.handleNotFound(new ResourceNotFoundException("Estación no encontrada: 999"), request);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().error()).isEqualTo("Not Found");
-        assertThat(response.getBody().message()).isEqualTo("Estación no encontrada: 999");
-        assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/999/availability");
+    void devuelveBadRequestConUnDetallePorCadaCampoInvalidoDelCuerpo() throws Exception {
+        mockMvc.perform(post("/probe/body")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"  \",\"capacity\":-3}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors", hasSize(2)))
+                .andExpect(jsonPath("$.errors[?(@.field == 'name')]", hasSize(1)))
+                .andExpect(jsonPath("$.errors[?(@.field == 'capacity')]", hasSize(1)))
+                .andExpect(jsonPath("$.path").value("/probe/body"));
     }
 
     @Test
-    void devuelveNotFoundCuandoLaEstacionNoExiste() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/stations/99");
-
-        ResponseEntity<ErrorResponse> response = handler.handleStationNotFound(new StationNotFoundException(99L), request);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().status()).isEqualTo(404);
-        assertThat(response.getBody().error()).isEqualTo("Not Found");
-        assertThat(response.getBody().message()).isEqualTo("La estación con ID 99 no existe");
-        assertThat(response.getBody().path()).isEqualTo("/api/v1/stations/99");
-        assertThat(response.getBody().timestamp()).isNotNull();
+    void devuelveBadRequestSiElCuerpoEstaAusenteOEsIlegible() throws Exception {
+        mockMvc.perform(post("/probe/body").contentType(MediaType.APPLICATION_JSON).content("{no es json"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value("El cuerpo de la solicitud está ausente o contiene valores inválidos"));
     }
 
     @Test
-    void devuelveNotFoundConflictYBadRequestParaErroresDeBicicletas() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/bikes/1");
+    void devuelveBadRequestSiFaltaUnParametroObligatorio() throws Exception {
+        mockMvc.perform(get("/probe/params"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Falta el parámetro obligatorio 'lat'"));
+    }
 
-        assertThat(handler.handleNotFound(new ResourceNotFoundException("no existe"), request).getStatusCode())
-                .isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(handler.handleBusinessRule(new BusinessRuleException("no permitido"), request).getStatusCode())
-                .isEqualTo(HttpStatus.CONFLICT);
-        assertThat(handler.handleUnreadableBody(mock(HttpMessageNotReadableException.class), request).getStatusCode())
-                .isEqualTo(HttpStatus.BAD_REQUEST);
+    @Test
+    void devuelveBadRequestSiUnParametroNoTieneElTipoEsperado() throws Exception {
+        mockMvc.perform(get("/probe/params").param("lat", "no-es-un-numero"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("El parámetro 'lat' no tiene un valor válido"));
+    }
+
+    @Test
+    void devuelveBadRequestSiUnParametroEstaFueraDeRango() throws Exception {
+        mockMvc.perform(get("/probe/params").param("lat", "91"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value(containsString("lat")));
+    }
+
+    @Test
+    void devuelveBadRequestSiFaltaUnHeaderObligatorio() throws Exception {
+        mockMvc.perform(get("/probe/header"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Falta el header obligatorio X-User-Id"));
+    }
+
+    @Test
+    void devuelveBadRequestSiUnIdDePathNoEsPositivo() throws Exception {
+        mockMvc.perform(get("/probe/entity/-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors", hasSize(1)));
+    }
+
+    // --- Otros estados que antes caían en 500 ---
+
+    @Test
+    void devuelveMethodNotAllowedParaUnMetodoNoSoportado() throws Exception {
+        mockMvc.perform(delete("/probe/not-found"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405))
+                .andExpect(jsonPath("$.message").value("El método DELETE no está permitido en este recurso"));
+    }
+
+    @Test
+    void devuelveUnsupportedMediaTypeParaUnContentTypeNoSoportado() throws Exception {
+        mockMvc.perform(post("/probe/body").contentType(MediaType.TEXT_PLAIN).content("hola"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.status").value(415))
+                .andExpect(jsonPath("$.message").value("El tipo de contenido de la solicitud no está soportado"));
+    }
+
+    @RestController
+    @RequestMapping("/probe")
+    static class ErrorProbeController {
+
+        @GetMapping("/not-found")
+        void notFound() {
+            throw new ResourceNotFoundException("Viaje no encontrado: 7");
+        }
+
+        @GetMapping("/station-not-found")
+        void stationNotFound() {
+            throw new StationNotFoundException(99L);
+        }
+
+        @GetMapping("/conflict")
+        void conflict() {
+            throw new BusinessRuleException("La bicicleta no está disponible");
+        }
+
+        @GetMapping("/data-integrity")
+        void dataIntegrity() {
+            throw new DataIntegrityViolationException("Duplicate entry for key 'uk_stations_external_id'");
+        }
+
+        @GetMapping("/invalid-input")
+        void invalidInput() {
+            throw new ValidationException("El rango de fechas es incoherente");
+        }
+
+        @GetMapping("/boom")
+        void boom() {
+            throw new IllegalStateException("detalle interno que no debe salir");
+        }
+
+        @PostMapping("/body")
+        void body(@Valid @RequestBody Payload payload) {
+            // Solo interesa la validación del cuerpo.
+        }
+
+        @GetMapping("/params")
+        void params(@RequestParam @Latitude double lat) {
+            // Solo interesa la validación del parámetro.
+        }
+
+        @GetMapping("/header")
+        void header(@RequestHeader("X-User-Id") Long userId) {
+            // Solo interesa la validación del header.
+        }
+
+        @GetMapping("/entity/{id}")
+        void entity(@PathVariable @EntityId Long id) {
+            // Solo interesa la validación del id.
+        }
+
+        record Payload(@NotBlank String name, @NotNull @Positive Integer capacity) {
+        }
     }
 }

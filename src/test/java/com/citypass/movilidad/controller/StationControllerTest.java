@@ -18,8 +18,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -112,5 +115,56 @@ class StationControllerTest {
                         .content(objectMapper.writeValueAsString(pedido())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Estación Renombrada"));
+    }
+
+    @Test
+    void postRechazaUnaEstacionSinLosCamposObligatorios() throws Exception {
+        mockMvc.perform(post("/api/v1/stations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.errors", hasSize(4)))
+                .andExpect(jsonPath("$.path").value("/api/v1/stations"));
+
+        verify(stationService, never()).createStation(any(StationRequestDTO.class));
+    }
+
+    @Test
+    void postRechazaCoordenadasFueraDeRango() throws Exception {
+        StationRequestDTO invalida = pedido();
+        invalida.setLatitude(new BigDecimal("91.0"));
+
+        mockMvc.perform(post("/api/v1/stations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalida)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("latitude"));
+
+        verify(stationService, never()).createStation(any(StationRequestDTO.class));
+    }
+
+    @Test
+    void postRechazaUnaCapacidadNoPositiva() throws Exception {
+        StationRequestDTO invalida = pedido();
+        invalida.setCapacity(0);
+
+        mockMvc.perform(post("/api/v1/stations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(invalida)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("capacity"));
+    }
+
+    @Test
+    void patchRechazaUnIdQueNoEsPositivo() throws Exception {
+        mockMvc.perform(patch("/api/v1/stations/0")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(pedido())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verify(stationService, never()).updateStation(any(), any(StationRequestDTO.class));
     }
 }

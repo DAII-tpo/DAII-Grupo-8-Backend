@@ -5,6 +5,8 @@ import com.citypass.movilidad.dto.response.StationDTO;
 import com.citypass.movilidad.exception.station.StationNotFoundException;
 import com.citypass.movilidad.mapper.StationMapper;
 import com.citypass.movilidad.model.Station;
+import com.citypass.movilidad.model.enums.StationSource;
+import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.StationRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,7 +38,9 @@ public class StationService {
     }
 
     public StationDTO createStation(StationRequestDTO stationRequestDTO) {
-        return stationMapper.toStationDTO(stationRepository.save(stationMapper.toStation(stationRequestDTO)));
+        Station station = stationMapper.toStation(stationRequestDTO);
+        applyDefaults(station);
+        return stationMapper.toStationDTO(stationRepository.save(station));
     }
 
     public StationDTO updateStation(Long id, StationRequestDTO stationRequestDTO) {
@@ -45,8 +49,22 @@ public class StationService {
                 () -> new StationNotFoundException(id)
         );
         updateStationFields(stationRequestDTO, station);
+        applyDefaults(station);
         return stationMapper.toStationDTO(stationRepository.save(station));
 
+    }
+
+    /**
+     * status y source son columnas NOT NULL pero opcionales en el request: se completan acá para
+     * que omitirlas no termine en un error de integridad (MOV-021).
+     */
+    private static void applyDefaults(Station station) {
+        if (station.getStatus() == null) {
+            station.setStatus(StationStatus.ACTIVE);
+        }
+        if (station.getSource() == null) {
+            station.setSource(StationSource.MANUAL);
+        }
     }
 
     private static void updateStationFields(StationRequestDTO stationRequestDTO, Station station) {
