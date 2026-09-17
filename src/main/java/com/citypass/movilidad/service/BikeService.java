@@ -153,6 +153,31 @@ public class BikeService {
                 .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
     }
 
+    @Transactional
+    public void sendToMaintenance(Bike bike, User admin, String reason) {
+        BikeStatus previous = bike.getStatus();
+        if (previous != BikeStatus.AVAILABLE && previous != BikeStatus.OUT_OF_SERVICE) {
+            throw new BusinessRuleException("La bicicleta no puede enviarse a mantenimiento desde " + previous);
+        }
+        bike.setStatus(BikeStatus.MAINTENANCE);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, previous, BikeStatus.MAINTENANCE, reason, admin);
+    }
+
+    @Transactional
+    public void returnFromMaintenance(Bike bike, User admin, String reason) {
+        if (bike.getStatus() != BikeStatus.MAINTENANCE) {
+            throw new BusinessRuleException("La bicicleta no está en mantenimiento: " + bike.getId());
+        }
+        if (bike.getStation() == null) {
+            throw new BusinessRuleException("La bicicleta debe tener una estación para volver a AVAILABLE");
+        }
+        bike.setStatus(BikeStatus.AVAILABLE);
+        bike.setLastMaintenanceAt(Instant.now());
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.MAINTENANCE, BikeStatus.AVAILABLE, reason, admin);
+    }
+
     /** Retira la bicicleta de su estación para un viaje y devuelve la estación de origen. */
     @Transactional
     public Station checkOutForTrip(Bike bike, User user) {

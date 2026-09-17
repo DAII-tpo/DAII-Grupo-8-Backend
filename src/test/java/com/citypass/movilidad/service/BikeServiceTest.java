@@ -373,6 +373,33 @@ class BikeServiceTest {
         verify(bikeRepository, never()).save(any());
     }
 
+    @Test
+    void sendsEligibleBikeToMaintenanceAndRejectsBikeInUse() {
+        Bike available = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+        User admin = new User();
+        service.sendToMaintenance(available, admin, "Revisión");
+        assertThat(available.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        verify(historyRepository).save(any(BikeStatusHistory.class));
+
+        Bike inUse = bike(BikeStatus.IN_USE, null);
+        assertThatThrownBy(() -> service.sendToMaintenance(inUse, admin, "Revisión"))
+                .isInstanceOf(BusinessRuleException.class);
+    }
+
+    @Test
+    void returnsBikeFromMaintenanceAndRequiresStation() {
+        Station station = activeStation(10L, 20);
+        Bike bike = bike(BikeStatus.MAINTENANCE, station);
+        service.returnFromMaintenance(bike, new User(), "Reparada");
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(bike.getLastMaintenanceAt()).isNotNull();
+
+        Bike withoutStation = bike(BikeStatus.MAINTENANCE, null);
+        assertThatThrownBy(() -> service.returnFromMaintenance(withoutStation, new User(), "Reparada"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("estación");
+    }
+
     private Bike bike(BikeStatus status, Station station) {
         Bike bike = new Bike();
         bike.setCode("BIKE-1");
