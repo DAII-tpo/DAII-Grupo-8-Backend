@@ -12,10 +12,6 @@ public class BusinessRuleException extends ApiException {
     public static final String CODE = "BUSINESS_RULE_VIOLATION";
 
     public BusinessRuleException(String message) {
-        this(CODE, message);
-    }
-
-    protected BusinessRuleException(String code, String message) {
-        super(HttpStatus.CONFLICT, code, message);
+        super(HttpStatus.CONFLICT, CODE, message);
     }
 }

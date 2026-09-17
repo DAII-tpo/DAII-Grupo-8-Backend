@@ -143,8 +143,9 @@ class StationServiceTest {
     @Test
     void updateStationLanzaExcepcionSiLaEstacionNoExiste() {
         when(stationRepository.findById(99L)).thenReturn(Optional.empty());
+        StationRequestDTO request = pedido("Estación Fantasma");
 
-        assertThatThrownBy(() -> stationService.updateStation(99L, pedido("Estación Fantasma")))
+        assertThatThrownBy(() -> stationService.updateStation(99L, request))
                 .isInstanceOf(StationNotFoundException.class)
                 .hasMessage("La estación con ID 99 no existe");
 

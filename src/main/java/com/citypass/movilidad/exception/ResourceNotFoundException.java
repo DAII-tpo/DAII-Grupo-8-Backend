@@ -8,10 +8,6 @@ public class ResourceNotFoundException extends ApiException {
     public static final String CODE = "RESOURCE_NOT_FOUND";
 
     public ResourceNotFoundException(String message) {
-        this(CODE, message);
-    }
-
-    protected ResourceNotFoundException(String code, String message) {
-        super(HttpStatus.NOT_FOUND, code, message);
+        super(HttpStatus.NOT_FOUND, CODE, message);
     }
 }

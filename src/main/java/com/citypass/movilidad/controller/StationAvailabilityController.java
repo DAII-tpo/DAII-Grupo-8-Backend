@@ -10,7 +10,6 @@ import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,14 +44,12 @@ public class StationAvailabilityController {
     @GetMapping("/{stationId}/availability")
     @Operation(summary = "Disponibilidad de una estación",
             description = "Devuelve capacidad, bicicletas disponibles y anclajes libres al momento de la consulta")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Disponibilidad calculada",
-                    content = @Content(schema = @Schema(implementation = StationAvailabilityResponse.class))),
-            @ApiResponse(responseCode = "400", description = "El ID no es un identificador válido",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "La estación no existe o fue dada de baja",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    })
+    @ApiResponse(responseCode = "200", description = "Disponibilidad calculada",
+            content = @Content(schema = @Schema(implementation = StationAvailabilityResponse.class)))
+    @ApiResponse(responseCode = "400", description = "El ID no es un identificador válido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "La estación no existe o fue dada de baja",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public StationAvailabilityResponse getByStationId(
             @Parameter(description = "ID de la estación", example = "1") @PathVariable @EntityId Long stationId) {
         return stationAvailabilityService.getByStationId(stationId);

@@ -11,7 +11,6 @@ import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Positive;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,13 +36,11 @@ public class NearbyStationController {
             description = "Devuelve las estaciones activas dentro del radio indicado, ordenadas de más "
                     + "cercana a más lejana, cada una con su distancia y su disponibilidad actual. "
                     + "Disponible sin autenticación para usuarios de la aplicación.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Estaciones ordenadas por distancia",
-                    content = @Content(array = @ArraySchema(
-                            schema = @Schema(implementation = NearbyStationResponse.class)))),
-            @ApiResponse(responseCode = "400", description = "Parámetros ausentes, no numéricos o fuera de rango",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    })
+    @ApiResponse(responseCode = "200", description = "Estaciones ordenadas por distancia",
+            content = @Content(array = @ArraySchema(
+            schema = @Schema(implementation = NearbyStationResponse.class))))
+    @ApiResponse(responseCode = "400", description = "Parámetros ausentes, no numéricos o fuera de rango",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public List<NearbyStationResponse> findNearby(
 
             @Parameter(description = "Latitud de la ubicación del usuario", example = "-34.6037", required = true)

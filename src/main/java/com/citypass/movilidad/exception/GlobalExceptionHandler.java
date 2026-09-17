@@ -31,6 +31,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Traducción única de excepción a respuesta HTTP para toda la API (MOV-021).
@@ -44,12 +45,15 @@ import java.util.List;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     private static final String UNEXPECTED_MESSAGE = "Ocurrió un error inesperado";
     private static final String INTERNAL_ERROR_CODE = "INTERNAL_ERROR";
     private static final String DATA_INTEGRITY_CODE = "DATA_INTEGRITY_VIOLATION";
     private static final String CONCURRENT_UPDATE_CODE = "CONCURRENT_UPDATE";
+
+    private static final Pattern CONTROL_CHARACTERS = Pattern.compile("[\\p{Cntrl}]");
+    private static final int MAX_LOGGED_LENGTH = 200;
 
     /**
      * Todas las excepciones de dominio (404, 409, 400 de negocio) con un solo handler: el
@@ -57,8 +61,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ErrorResponse> handleApiException(ApiException ex, WebRequest request) {
-        LOGGER.debug("Excepción de dominio en {}: {}", pathOf(request), ex.getMessage());
-        return respond(ex.getStatus(), ex.getCode(), ex.getMessage(), request, null);
+        String path = pathOf(request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Excepción de dominio en {}: {}", forLog(path), forLog(ex.getMessage()));
+        }
+        return respond(ex.getStatus(), ex.getCode(), ex.getMessage(), path, null);
     }
 
     /** Parámetros de query, path o header que incumplen sus restricciones de Bean Validation. */
@@ -69,25 +76,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .map(violation -> new ErrorResponse.FieldError(
                         lastSegmentOf(violation.getPropertyPath().toString()), violation.getMessage()))
                 .toList();
-        return validationError(errors, "Parámetros inválidos", request);
+        return validationError(errors, "Parámetros inválidos", pathOf(request));
     }
 
     /** Restricción de la base de datos que no se pudo anticipar, típicamente una clave duplicada. */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex,
                                                              WebRequest request) {
+        String path = pathOf(request);
+        String loggedPath = forLog(path);
         // El mensaje del driver puede exponer nombres de constraints y datos: queda solo en el log.
-        LOGGER.warn("Violación de integridad en {}", pathOf(request), ex);
+        LOG.warn("Violación de integridad en {}", loggedPath, ex);
         return respond(HttpStatus.CONFLICT, DATA_INTEGRITY_CODE,
-                "La operación entra en conflicto con datos ya existentes", request, null);
+                "La operación entra en conflicto con datos ya existentes", path, null);
     }
 
     /** Otra transacción tocó el mismo recurso primero: el cliente puede reintentar. */
     @ExceptionHandler({OptimisticLockingFailureException.class, PessimisticLockingFailureException.class})
     public ResponseEntity<ErrorResponse> handleConcurrentUpdate(Exception ex, WebRequest request) {
-        LOGGER.warn("Conflicto de concurrencia en {}: {}", pathOf(request), ex.getMessage());
+        String path = pathOf(request);
+        String loggedPath = forLog(path);
+        String loggedCause = forLog(ex.getMessage());
+        LOG.warn("Conflicto de concurrencia en {}: {}", loggedPath, loggedCause);
         return respond(HttpStatus.CONFLICT, CONCURRENT_UPDATE_CODE,
-                "El recurso fue modificado por otra operación, volvé a intentarlo", request, null);
+                "El recurso fue modificado por otra operación, volvé a intentarlo", path, null);
     }
 
     /**
@@ -102,8 +114,10 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     /** Última red: nada sale al cliente salvo un mensaje genérico; el detalle va al log. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, WebRequest request) {
-        LOGGER.error("Error no controlado en {}", pathOf(request), ex);
-        return respond(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL_ERROR_CODE, UNEXPECTED_MESSAGE, request, null);
+        String path = pathOf(request);
+        String loggedPath = forLog(path);
+        LOG.error("Error no controlado en {}", loggedPath, ex);
+        return respond(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL_ERROR_CODE, UNEXPECTED_MESSAGE, path, null);
     }
 
     /** Cuerpo de la solicitud que no pasa las anotaciones del DTO: un detalle por campo. */
@@ -115,7 +129,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .map(fieldError -> new ErrorResponse.FieldError(fieldError.getField(),
                         fieldError.getDefaultMessage()))
                 .toList();
-        return asObject(validationError(errors, "Datos inválidos", request));
+        return asObject(validationError(errors, "Datos inválidos", pathOf(request)));
     }
 
     /**
@@ -132,7 +146,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         .map(error -> new ErrorResponse.FieldError(
                                 result.getMethodParameter().getParameterName(), error.getDefaultMessage())))
                 .toList();
-        return asObject(validationError(errors, "Parámetros inválidos", request));
+        return asObject(validationError(errors, "Parámetros inválidos", pathOf(request)));
     }
 
     /**
@@ -146,27 +160,28 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         if (status == null) {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
         }
+        String path = pathOf(request);
         if (status.is5xxServerError()) {
-            LOGGER.error("Error no controlado en {}", pathOf(request), ex);
-        } else {
-            LOGGER.debug("Solicitud rechazada en {}: {}", pathOf(request), ex.toString());
+            String loggedPath = forLog(path);
+            LOG.error("Error no controlado en {}", loggedPath, ex);
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("Solicitud rechazada en {}: {}", forLog(path), forLog(ex.toString()));
         }
-        ErrorResponse error = ErrorResponse.of(status, codeOf(status), messageOf(ex, status), pathOf(request));
+        ErrorResponse error = ErrorResponse.of(status, codeOf(status), messageOf(ex, status), path);
         return new ResponseEntity<>(error, headers, status);
     }
 
     private ResponseEntity<ErrorResponse> validationError(List<ErrorResponse.FieldError> errors,
-                                                          String fallbackMessage, WebRequest request) {
+                                                          String fallbackMessage, String path) {
         String message = errors.isEmpty()
                 ? fallbackMessage
                 : errors.getFirst().field() + ": " + errors.getFirst().message();
-        return respond(HttpStatus.BAD_REQUEST, ValidationException.CODE, message, request, errors);
+        return respond(HttpStatus.BAD_REQUEST, ValidationException.CODE, message, path, errors);
     }
 
     private ResponseEntity<ErrorResponse> respond(HttpStatus status, String code, String message,
-                                                  WebRequest request, List<ErrorResponse.FieldError> errors) {
-        return ResponseEntity.status(status)
-                .body(ErrorResponse.of(status, code, message, pathOf(request), errors));
+                                                  String path, List<ErrorResponse.FieldError> errors) {
+        return ResponseEntity.status(status).body(ErrorResponse.of(status, code, message, path, errors));
     }
 
     /**
@@ -202,7 +217,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return detail == null || detail.isBlank() ? status.getReasonPhrase() : detail;
     }
 
-    /** Código derivado del estado HTTP para todo lo que no es una excepción de dominio. */
+    /** Código derivado del estado HTTP, para las excepciones que no son de dominio. */
     private String codeOf(HttpStatus status) {
         return status.is5xxServerError() ? INTERNAL_ERROR_CODE : status.name();
     }
@@ -212,6 +227,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             return servletRequest.getRequest().getRequestURI();
         }
         return request.getDescription(false);
+    }
+
+    /**
+     * Neutraliza el texto de origen externo antes de mandarlo al log: sin saltos de línea ni
+     * caracteres de control, un path manipulado no puede inyectar entradas falsas (log forging).
+     */
+    private String forLog(String value) {
+        if (value == null) {
+            return "";
+        }
+        String flattened = CONTROL_CHARACTERS.matcher(value).replaceAll("_");
+        return flattened.length() <= MAX_LOGGED_LENGTH ? flattened
+                : flattened.substring(0, MAX_LOGGED_LENGTH) + "...";
     }
 
     /** "findNearby.lat" -> "lat": al cliente le sirve el parámetro, no la ruta interna. */

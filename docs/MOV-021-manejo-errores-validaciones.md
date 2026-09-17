@@ -51,6 +51,10 @@ parseo de Jackson: ese detalle se registra en el log del servidor (`ERROR` para 
 conflictos de integridad y concurrencia, `DEBUG` para el resto) y al cliente le llega solo un
 mensaje accionable.
 
+El path y los mensajes de excepción vienen del cliente, así que antes de llegar al log se les
+quitan los caracteres de control y se recortan: un path con saltos de línea no puede inyectar
+entradas falsas (log forging).
+
 ## Excepciones de dominio
 
 Todas heredan de `ApiException`, que lleva el estado HTTP y el `code` con los que se responde.
@@ -59,12 +63,13 @@ Un service lanza la excepción que corresponde y no necesita saber nada de HTTP.
 | Excepción | Estado | `code` | Cuándo |
 |---|---|---|---|
 | `ResourceNotFoundException` | 404 | `RESOURCE_NOT_FOUND` | El recurso no existe o fue dado de baja |
-| `StationNotFoundException` | 404 | `STATION_NOT_FOUND` | Caso concreto del anterior, del que hereda |
+| `StationNotFoundException` | 404 | `STATION_NOT_FOUND` | Estación inexistente, con su propio mensaje |
 | `BusinessRuleException` | 409 | `BUSINESS_RULE_VIOLATION` | Regla de negocio o estado del recurso incompatible |
 | `ValidationException` | 400 | `VALIDATION_ERROR` | Dato de entrada inválido que no se puede expresar con anotaciones |
 
-Para agregar una excepción nueva alcanza con extender la que corresponda: no hay que tocar el
-handler.
+Para agregar una excepción nueva alcanza con extender `ApiException`: no hay que tocar el
+handler. Todas cuelgan directamente de ella y no unas de otras, para mantener la jerarquía
+chata.
 
 ## Estados que devuelve la API
 
