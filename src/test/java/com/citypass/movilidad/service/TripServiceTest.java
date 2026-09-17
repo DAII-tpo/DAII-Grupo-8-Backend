@@ -271,6 +271,40 @@ class TripServiceTest {
     }
 
     @Test
+    void rejectsEndWhenTripHasNoBike() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Trip trip = activeTrip(7L, user, null);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(trip));
+
+        assertThatThrownBy(() -> service.endTrip(1L, 7L, new TripEndRequest(20L)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("bicicleta válida");
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.ACTIVE);
+        verifyNoInteractions(bikeService, eventPublisher);
+        verify(tripRepository, never()).save(any());
+    }
+
+    @Test
+    void rejectsEndWhenLockedBikeDoesNotMatchTripBike() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Bike tripBike = bike(5L, BikeStatus.IN_USE, null);
+        Bike differentBike = bike(6L, BikeStatus.IN_USE, null);
+        Trip trip = activeTrip(7L, user, tripBike);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(trip));
+        when(bikeService.lockActiveBike(5L)).thenReturn(differentBike);
+
+        assertThatThrownBy(() -> service.endTrip(1L, 7L, new TripEndRequest(20L)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("inconsistente");
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.ACTIVE);
+        verify(bikeService, never()).checkInFromTrip(any(), any(), any());
+        verifyNoInteractions(eventPublisher);
+        verify(tripRepository, never()).save(any());
+    }
+
+    @Test
     void rejectsEndWhenDestinationStationCannotReceiveTheBike() {
         User user = user(1L, UserStatus.ACTIVE);
         Bike bike = bike(5L, BikeStatus.IN_USE, null);
