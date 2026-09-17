@@ -1,30 +1,40 @@
 package com.citypass.movilidad.controller;
 
+import com.citypass.movilidad.dto.PagedResponse;
 import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
+import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.service.TripService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 
 @RestController
 @RequestMapping("/api/v1/trips")
-@Tag(name = "Viajes", description = "Inicio, consulta del viaje activo y finalización de viajes")
+@Validated
+@Tag(name = "Viajes",
+        description = "Inicio, consulta del viaje activo, finalización e historial de viajes")
 public class TripController {
 
     // TODO: reemplazar por contexto de seguridad de Grupo 2. Mientras no esté integrado el login
@@ -72,6 +82,31 @@ public class TripController {
         return tripService.findActiveTrip(userId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @GetMapping("/history")
+    @Operation(summary = "Historial de viajes del usuario",
+            description = "Devuelve los viajes finalizados del usuario, del más reciente al más antiguo, "
+                    + "con origen, destino, inicio, finalización y duración. Un usuario sin viajes "
+                    + "finalizados recibe una página vacía.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de viajes finalizados (puede venir vacía)"),
+            @ApiResponse(responseCode = "400",
+                    description = "Falta el header de usuario o la paginación es inválida",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "404", description = "El usuario no existe",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public PagedResponse<TripResponse> history(
+            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
+            @RequestHeader(USER_HEADER) Long userId,
+
+            @Parameter(description = "Número de página, empezando en 0", example = "0")
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+
+            @Parameter(description = "Cantidad de viajes por página, entre 1 y 50", example = "10")
+            @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size) {
+        return tripService.findTripHistory(userId, page, size);
     }
 
     @PostMapping("/{id}/end")

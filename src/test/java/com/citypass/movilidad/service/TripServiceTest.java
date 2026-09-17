@@ -1,5 +1,6 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.dto.PagedResponse;
 import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
@@ -17,13 +18,20 @@ import com.citypass.movilidad.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -182,6 +190,94 @@ class TripServiceTest {
         verifyNoInteractions(tripRepository);
     }
 
+    // MOV-030 — historial de viajes
+
+    @Test
+    void returnsCompletedTripsOfUserNewestFirst() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Instant now = Instant.now();
+        Trip recent = completedTrip(9L, user, now.minusSeconds(600), 300);
+        Trip older = completedTrip(8L, user, now.minusSeconds(6000), 900);
+        givenHistoryPage(new PageImpl<>(List.of(recent, older), PageRequest.of(0, 10), 2));
+
+        PagedResponse<TripResponse> history = service.findTripHistory(1L, 0, 10);
+
+        assertThat(history.content()).extracting(TripResponse::id).containsExactly(9L, 8L);
+        TripResponse first = history.content().getFirst();
+        assertThat(first.status()).isEqualTo(TripStatus.COMPLETED);
+        assertThat(first.originStationId()).isEqualTo(10L);
+        assertThat(first.originStationName()).isEqualTo("Centro");
+        assertThat(first.destinationStationId()).isEqualTo(20L);
+        assertThat(first.destinationStationName()).isEqualTo("Retiro");
+        assertThat(first.startedAt()).isEqualTo(recent.getStartedAt());
+        assertThat(first.endedAt()).isEqualTo(recent.getEndedAt());
+        assertThat(first.durationSeconds()).isEqualTo(300);
+    }
+
+    @Test
+    void returnsEmptyPageWhenUserHasNoCompletedTrips() {
+        givenHistoryPage(Page.empty(PageRequest.of(0, 10)));
+
+        PagedResponse<TripResponse> history = service.findTripHistory(1L, 0, 10);
+
+        assertThat(history.content()).isEmpty();
+        assertThat(history.totalElements()).isZero();
+        assertThat(history.totalPages()).isZero();
+        assertThat(history.last()).isTrue();
+    }
+
+    @Test
+    void queriesOnlyCompletedTripsOfTheGivenUser() {
+        givenHistoryPage(Page.empty(PageRequest.of(0, 10)));
+
+        service.findTripHistory(1L, 0, 10);
+
+        // El aislamiento entre usuarios y la exclusión de los viajes en curso están en la consulta,
+        // no en un filtrado posterior que se pueda olvidar.
+        verify(tripRepository).findByUserIdAndStatusOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripStatus.COMPLETED), any(Pageable.class));
+    }
+
+    @Test
+    void passesRequestedPageAndSizeToRepository() {
+        givenHistoryPage(Page.empty(PageRequest.of(2, 5)));
+
+        service.findTripHistory(1L, 2, 5);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(tripRepository).findByUserIdAndStatusOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripStatus.COMPLETED), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(5);
+        // El orden lo define el nombre del método del repositorio: un Sort acá lo alteraría.
+        assertThat(pageable.getValue().getSort()).isEqualTo(Sort.unsorted());
+    }
+
+    @Test
+    void copiesPageMetadataIntoTheResponse() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Trip trip = completedTrip(9L, user, Instant.now().minusSeconds(600), 300);
+        givenHistoryPage(new PageImpl<>(List.of(trip), PageRequest.of(1, 10), 25));
+
+        PagedResponse<TripResponse> history = service.findTripHistory(1L, 1, 10);
+
+        assertThat(history.page()).isEqualTo(1);
+        assertThat(history.size()).isEqualTo(10);
+        assertThat(history.totalElements()).isEqualTo(25);
+        assertThat(history.totalPages()).isEqualTo(3);
+        assertThat(history.last()).isFalse();
+    }
+
+    @Test
+    void rejectsHistoryQueryForUnknownUser() {
+        when(userRepository.existsById(1L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.findTripHistory(1L, 0, 10))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Usuario");
+        verifyNoInteractions(tripRepository);
+    }
+
     // MOV-028 — finalizar viaje
 
     @Test
@@ -312,6 +408,22 @@ class TripServiceTest {
         bike.setStatus(status);
         bike.setStation(station);
         return bike;
+    }
+
+    private void givenHistoryPage(Page<Trip> page) {
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(tripRepository.findByUserIdAndStatusOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripStatus.COMPLETED), any(Pageable.class))).thenReturn(page);
+    }
+
+    private Trip completedTrip(Long id, User user, Instant startedAt, int durationSeconds) {
+        Trip trip = activeTrip(id, user, bike(5L, BikeStatus.AVAILABLE, null));
+        trip.setStartedAt(startedAt);
+        trip.setEndedAt(startedAt.plusSeconds(durationSeconds));
+        trip.setDurationSeconds(durationSeconds);
+        trip.setDestinationStation(station(20L, "Retiro"));
+        trip.setStatus(TripStatus.COMPLETED);
+        return trip;
     }
 
     private Trip activeTrip(Long id, User user, Bike bike) {
