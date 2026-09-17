@@ -5,7 +5,9 @@ import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.dto.BikeStatusHistoryResponse;
 import com.citypass.movilidad.dto.BikeTransferRequest;
+import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.service.BikeService;
+import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -14,7 +16,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import com.citypass.movilidad.exception.ErrorResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -69,7 +70,7 @@ public class BikeController {
             @ApiResponse(responseCode = "404", description = "La bicicleta no existe o fue dada de baja",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
-    public BikeResponse findById(@Parameter(description = "ID de la bicicleta", example = "1") @PathVariable Long id) {
+    public BikeResponse findById(@Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id) {
         return bikeService.findById(id);
     }
 
@@ -83,7 +84,7 @@ public class BikeController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public List<BikeResponse> findByStation(
-            @Parameter(description = "ID de la estación", example = "1") @PathVariable Long stationId) {
+            @Parameter(description = "ID de la estación", example = "1") @PathVariable @EntityId Long stationId) {
         return bikeService.findByStation(stationId);
     }
 
@@ -104,7 +105,7 @@ public class BikeController {
     })
     public List<BikeResponse> findAvailable(
             @Parameter(description = "ID opcional de la estación", example = "1")
-            @RequestParam(required = false) Long stationId) {
+            @RequestParam(required = false) @EntityId Long stationId) {
         return bikeService.findAvailable(stationId);
     }
 
@@ -122,7 +123,7 @@ public class BikeController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public BikeResponse changeStatus(
-                                     @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable Long id,
+                                     @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id,
                                      @Valid @RequestBody BikeStatusChangeRequest request) {
         return bikeService.changeStatus(id, request);
     }
@@ -141,7 +142,7 @@ public class BikeController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public BikeResponse transfer(
-            @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable Long id,
+            @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id,
             @Valid @RequestBody BikeTransferRequest request) {
         return bikeService.transfer(id, request.stationId());
     }
@@ -157,7 +158,7 @@ public class BikeController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public List<BikeStatusHistoryResponse> history(
-            @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable Long id) {
+            @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id) {
         return bikeService.history(id);
     }
 
@@ -172,7 +173,7 @@ public class BikeController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public ResponseEntity<Void> delete(
-            @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable Long id) {
+            @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id) {
         bikeService.delete(id);
         return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }

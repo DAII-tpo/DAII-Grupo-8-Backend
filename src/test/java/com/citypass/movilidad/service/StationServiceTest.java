@@ -150,4 +150,45 @@ class StationServiceTest {
 
         verify(stationRepository, never()).save(any(Station.class));
     }
+
+    @Test
+    void createStationCompletaStatusYSourceCuandoElPedidoLosOmite() {
+        StationRequestDTO request = StationRequestDTO.builder()
+                .name("Estación Sin Estado")
+                .latitude(new BigDecimal("-34.6000"))
+                .longitude(new BigDecimal("-58.3800"))
+                .capacity(25)
+                .build();
+        Station sinDefaults = estacion(null, "Estación Sin Estado");
+        sinDefaults.setStatus(null);
+        sinDefaults.setSource(null);
+        when(stationMapper.toStation(request)).thenReturn(sinDefaults);
+        when(stationRepository.save(any(Station.class))).thenReturn(sinDefaults);
+
+        stationService.createStation(request);
+
+        ArgumentCaptor<Station> captor = ArgumentCaptor.forClass(Station.class);
+        verify(stationRepository).save(captor.capture());
+        // Son columnas NOT NULL: sin este default el insert terminaría en un 500 evitable.
+        assertThat(captor.getValue().getStatus()).isEqualTo(StationStatus.ACTIVE);
+        assertThat(captor.getValue().getSource()).isEqualTo(StationSource.MANUAL);
+    }
+
+    @Test
+    void updateStationConservaUnSourceValidoCuandoElPedidoLoOmite() {
+        Station existente = estacion(1L, "Estación Vieja");
+        StationRequestDTO request = StationRequestDTO.builder()
+                .name("Estación Renombrada")
+                .latitude(new BigDecimal("-34.6000"))
+                .longitude(new BigDecimal("-58.3800"))
+                .capacity(25)
+                .build();
+        when(stationRepository.findById(1L)).thenReturn(Optional.of(existente));
+        when(stationRepository.save(existente)).thenReturn(existente);
+
+        stationService.updateStation(1L, request);
+
+        assertThat(existente.getStatus()).isEqualTo(StationStatus.ACTIVE);
+        assertThat(existente.getSource()).isEqualTo(StationSource.MANUAL);
+    }
 }

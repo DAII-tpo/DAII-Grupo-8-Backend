@@ -1,6 +1,7 @@
 package com.citypass.movilidad.dto;
 
 import com.citypass.movilidad.model.enums.BikeStatus;
+import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -12,7 +13,7 @@ public record BikeCreateRequest(
         @Schema(description = "Código único de la bicicleta", example = "BIKE-001", maxLength = 50)
         @NotBlank @Size(max = 50) String code,
         @Schema(description = "ID de la estación inicial. Obligatorio cuando el estado es AVAILABLE", example = "1")
-        Long stationId,
+        @EntityId Long stationId,
         @Schema(description = "Estado inicial. Si se omite se utiliza AVAILABLE; IN_USE no está permitido",
                 example = "AVAILABLE")
         BikeStatus status,

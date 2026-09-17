@@ -4,6 +4,7 @@ import com.citypass.movilidad.dto.request.StationRequestDTO;
 import com.citypass.movilidad.dto.response.StationDTO;
 import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.service.StationService;
+import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -12,6 +13,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -50,11 +52,13 @@ public class StationController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Estación encontrada",
                     content = @Content(schema = @Schema(implementation = StationDTO.class))),
+            @ApiResponse(responseCode = "400", description = "El ID no es un identificador válido",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "La estación no existe",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public StationDTO getStationById(
-            @Parameter(description = "ID de la estación", example = "1") @PathVariable Long id) {
+            @Parameter(description = "ID de la estación", example = "1") @PathVariable @EntityId Long id) {
         return stationService.getStationById(id);
     }
 
@@ -66,10 +70,10 @@ public class StationController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Estación creada",
                     content = @Content(schema = @Schema(implementation = StationDTO.class))),
-            @ApiResponse(responseCode = "400", description = "Cuerpo ausente o ilegible",
+            @ApiResponse(responseCode = "400", description = "Cuerpo ausente, ilegible o inválido",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
-    public StationDTO createStation(@RequestBody StationRequestDTO stationRequestDTO) {
+    public StationDTO createStation(@Valid @RequestBody StationRequestDTO stationRequestDTO) {
         return stationService.createStation(stationRequestDTO);
     }
 
@@ -77,18 +81,19 @@ public class StationController {
     @Operation(summary = "Actualizar una estación existente",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado "
                     + "(Grupo 2). "
-                    + "Reemplaza los campos editables con los valores recibidos.")
+                    + "Reemplaza todos los campos editables con los valores recibidos, por lo que el "
+                    + "cuerpo debe venir completo y válido.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Estación actualizada",
                     content = @Content(schema = @Schema(implementation = StationDTO.class))),
-            @ApiResponse(responseCode = "400", description = "Cuerpo ausente o ilegible",
+            @ApiResponse(responseCode = "400", description = "Cuerpo ausente, ilegible o inválido",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "404", description = "La estación no existe",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public StationDTO updateStation(
-            @Parameter(description = "ID de la estación", example = "1") @PathVariable Long id,
-            @RequestBody StationRequestDTO stationRequestDTO) {
+            @Parameter(description = "ID de la estación", example = "1") @PathVariable @EntityId Long id,
+            @Valid @RequestBody StationRequestDTO stationRequestDTO) {
         return stationService.updateStation(id, stationRequestDTO);
     }
 
