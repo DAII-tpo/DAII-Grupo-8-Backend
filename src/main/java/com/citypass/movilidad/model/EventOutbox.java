@@ -52,6 +52,7 @@ public class EventOutbox {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private EventOutboxStatus status = EventOutboxStatus.PENDING;
 
     @CreationTimestamp

@@ -35,6 +35,7 @@ public class IncidentType {
     private String description;
 
     @Column(nullable = false)
+    @Builder.Default
     private boolean active = true;
 
 }

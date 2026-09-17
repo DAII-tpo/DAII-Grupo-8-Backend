@@ -60,6 +60,7 @@ public class Trip {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private TripStatus status = TripStatus.ACTIVE;
 
     @Column(name = "distance_km", precision = 6, scale = 2)
