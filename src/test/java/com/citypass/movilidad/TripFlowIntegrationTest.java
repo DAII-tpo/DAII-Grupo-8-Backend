@@ -37,9 +37,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Flujo completo del ciclo de vida de un viaje (MOV-026, MOV-027, MOV-028) contra MySQL real:
- * verifica el contrato HTTP y que el estado final de Trip, Bike y bike_status_history sea
- * consistente, incluyendo el rollback cuando una devolución es rechazada.
+ * Flujo completo del ciclo de vida de un viaje (MOV-026, MOV-027, MOV-028) y su historial
+ * (MOV-030) contra MySQL real: verifica el contrato HTTP y que el estado final de Trip, Bike y
+ * bike_status_history sea consistente, incluyendo el rollback cuando una devolución es rechazada.
  */
 @Testcontainers
 @AutoConfigureMockMvc
@@ -261,6 +261,95 @@ class TripFlowIntegrationTest {
         assertThat(unchanged.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
         assertThat(unchanged.getStation().getId()).isEqualTo(origin.getId());
         assertThat(historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId())).isEmpty();
+    }
+
+    @Test
+    void devuelveElHistorialDeViajesFinalizadosDelMasRecienteAlMasAntiguo() throws Exception {
+        User user = user("historial@example.com");
+        Station origin = station("Origen historial", 10);
+        Station destination = station("Destino historial", 10);
+
+        long primerViaje = completeTrip(user, bike("HIST-1", origin, BikeStatus.AVAILABLE), destination);
+        long segundoViaje = completeTrip(user, bike("HIST-2", origin, BikeStatus.AVAILABLE), destination);
+
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(segundoViaje))
+                .andExpect(jsonPath("$.content[1].id").value(primerViaje))
+                .andExpect(jsonPath("$.content[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.content[0].originStationId").value(origin.getId()))
+                .andExpect(jsonPath("$.content[0].destinationStationId").value(destination.getId()))
+                .andExpect(jsonPath("$.content[0].startedAt").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].endedAt").isNotEmpty())
+                .andExpect(jsonPath("$.content[0].durationSeconds").isNumber())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.last").value(true));
+    }
+
+    @Test
+    void noMuestraElHistorialDeOtroUsuarioNiLosViajesEnCurso() throws Exception {
+        User owner = user("historial-propio@example.com");
+        User other = user("historial-ajeno@example.com");
+        Station origin = station("Origen aislamiento", 10);
+        Station destination = station("Destino aislamiento", 10);
+
+        long viajeAjeno = completeTrip(other, bike("HIST-AJENO", origin, BikeStatus.AVAILABLE), destination);
+        long viajePropio = completeTrip(owner, bike("HIST-PROPIO", origin, BikeStatus.AVAILABLE), destination);
+        // Queda un viaje en curso del mismo usuario: el historial es sólo de viajes finalizados.
+        long viajeEnCurso = startTrip(owner, bike("HIST-EN-CURSO", origin, BikeStatus.AVAILABLE));
+
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, owner.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(viajePropio));
+
+        // Ni el viaje del otro usuario ni el que sigue en curso entran en el historial.
+        assertThat(viajeAjeno).isNotEqualTo(viajePropio);
+        assertThat(viajeEnCurso).isNotEqualTo(viajePropio);
+    }
+
+    @Test
+    void devuelveUnaPaginaVaciaCuandoElUsuarioNoTieneViajes() throws Exception {
+        User user = user("historial-vacio@example.com");
+
+        // Un usuario nuevo no es un caso de error: 200 con la página vacía.
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty())
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0))
+                .andExpect(jsonPath("$.last").value(true));
+    }
+
+    @Test
+    void rechazaElHistorialDeUnUsuarioInexistenteYLaPaginacionInvalida() throws Exception {
+        User user = user("historial-validaciones@example.com");
+
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, 999999L))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()).param("size", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()).param("size", "51"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()).param("page", "-1"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/v1/trips/history"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Falta el header obligatorio " + USER_HEADER));
+    }
+
+    private long completeTrip(User user, Bike bike, Station destination) throws Exception {
+        long tripId = startTrip(user, bike);
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"destinationStationId\":" + destination.getId() + "}"))
+                .andExpect(status().isOk());
+        return tripId;
     }
 
     private long startTrip(User user, Bike bike) throws Exception {

@@ -1,5 +1,6 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.dto.PagedResponse;
 import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
@@ -13,6 +14,8 @@ import com.citypass.movilidad.model.enums.TripStatus;
 import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,8 +24,8 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Ciclo de vida de un viaje: inicio (MOV-026), consulta del viaje activo (MOV-027) y
- * finalización (MOV-028).
+ * Ciclo de vida de un viaje: inicio (MOV-026), consulta del viaje activo (MOV-027),
+ * finalización (MOV-028) e historial de viajes finalizados (MOV-030).
  *
  * Cada operación que modifica el viaje y la bicicleta corre en una sola transacción: si falla
  * cualquier validación no queda ningún cambio parcial. Los locks pesimistas (usuario, viaje,
@@ -72,6 +75,23 @@ public class TripService {
     public Optional<TripResponse> findActiveTrip(Long userId) {
         existingUser(userId);
         return activeTripOf(userId).map(this::toResponse);
+    }
+
+    /**
+     * Historial paginado de los viajes finalizados del usuario (MOV-030), del más reciente al más
+     * antiguo.
+     *
+     * El filtro por usuario va dentro de la consulta y no sobre el resultado: un usuario nunca
+     * puede ver los viajes de otro. Un usuario sin viajes finalizados recibe una página vacía, que
+     * es el caso esperado de un usuario nuevo y no un error.
+     */
+    public PagedResponse<TripResponse> findTripHistory(Long userId, int page, int size) {
+        existingUser(userId);
+        Page<TripResponse> history = tripRepository
+                .findByUserIdAndStatusOrderByStartedAtDescIdDesc(
+                        userId, TripStatus.COMPLETED, PageRequest.of(page, size))
+                .map(this::toResponse);
+        return PagedResponse.of(history);
     }
 
     /**

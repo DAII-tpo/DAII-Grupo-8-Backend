@@ -1,5 +1,6 @@
 package com.citypass.movilidad.controller;
 
+import com.citypass.movilidad.dto.PagedResponse;
 import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,5 +50,16 @@ class TripControllerTest {
         assertThat(none.getBody()).isNull();
 
         assertThat(controller.end(1L, 7L, end)).isEqualTo(completed);
+    }
+
+    @Test
+    void delegatesTripHistoryQuery() {
+        TripResponse completed = new TripResponse(7L, TripStatus.COMPLETED, 5L, "BIKE-5", 10L, "Centro",
+                20L, "Retiro", Instant.now().minusSeconds(600), Instant.now(), 300);
+        PagedResponse<TripResponse> history =
+                new PagedResponse<>(List.of(completed), 0, 10, 1L, 1, true);
+        when(service.findTripHistory(1L, 0, 10)).thenReturn(history);
+
+        assertThat(controller.history(1L, 0, 10)).isSameAs(history);
     }
 }
