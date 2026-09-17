@@ -88,7 +88,14 @@ public class TripService {
         if (trip.getStatus() != TripStatus.ACTIVE) {
             throw new BusinessRuleException("El viaje no está activo: " + tripId);
         }
-        Bike bike = bikeService.lockActiveBike(trip.getBike().getId());
+        Bike tripBike = trip.getBike();
+        if (tripBike == null || tripBike.getId() == null) {
+            throw new BusinessRuleException("El viaje no tiene una bicicleta válida asociada: " + tripId);
+        }
+        Bike bike = bikeService.lockActiveBike(tripBike.getId());
+        if (!tripBike.getId().equals(bike.getId())) {
+            throw new BusinessRuleException("La bicicleta es inconsistente con el viaje: " + tripId);
+        }
         Station destination = bikeService.checkInFromTrip(bike, request.destinationStationId(), user);
 
         Instant endedAt = Instant.now();

@@ -7,6 +7,7 @@ import com.citypass.movilidad.model.Trip;
 import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.model.enums.StationSource;
+import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.model.enums.TripStatus;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
@@ -171,6 +172,74 @@ class TripFlowIntegrationTest {
     }
 
     @Test
+    void rechazaDevolverEnEstacionInexistenteSinDejarCambiosParciales() throws Exception {
+        User user = user("estacion-inexistente@example.com");
+        Station origin = station("Origen estación inexistente", 10);
+        Bike bike = bike("TRIP-MISSING-STATION-1", origin, BikeStatus.AVAILABLE);
+        long tripId = startTrip(user, bike);
+
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"destinationStationId\":999999999}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Estación no encontrada: 999999999"));
+
+        assertActiveTripAndBikeInUse(tripId, bike.getId());
+    }
+
+    @Test
+    void rechazaDevolverEnEstacionDeshabilitadaSinDejarCambiosParciales() throws Exception {
+        User user = user("estacion-deshabilitada@example.com");
+        Station origin = station("Origen estación deshabilitada", 10);
+        Station disabled = station("Destino estación deshabilitada", 10);
+        disabled.setStatus(StationStatus.MAINTENANCE);
+        stationRepository.save(disabled);
+        Bike bike = bike("TRIP-DISABLED-STATION-1", origin, BikeStatus.AVAILABLE);
+        long tripId = startTrip(user, bike);
+
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"destinationStationId\":" + disabled.getId() + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("La estación no está habilitada: " + disabled.getId()));
+
+        assertActiveTripAndBikeInUse(tripId, bike.getId());
+    }
+
+    @Test
+    void rechazaDevolverUnaBicicletaInconsistenteSinCorregirlaNiCompletarElViaje() throws Exception {
+        User user = user("bicicleta-inconsistente@example.com");
+        Station origin = station("Origen bicicleta inconsistente", 10);
+        Station destination = station("Destino bicicleta inconsistente", 10);
+        Bike bike = bike("TRIP-INCONSISTENT-BIKE-1", origin, BikeStatus.AVAILABLE);
+        long tripId = startTrip(user, bike);
+
+        Bike inconsistentBike = bikeRepository.findById(bike.getId()).orElseThrow();
+        inconsistentBike.setStation(origin);
+        bikeRepository.save(inconsistentBike);
+
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"destinationStationId\":" + destination.getId() + "}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(
+                        "La bicicleta en uso está asociada a una estación y es inconsistente con el viaje: "
+                                + bike.getId()));
+
+        Trip trip = tripRepository.findById(tripId).orElseThrow();
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.ACTIVE);
+        assertThat(trip.getDestinationStation()).isNull();
+        assertThat(trip.getEndedAt()).isNull();
+
+        Bike unchangedBike = bikeRepository.findById(bike.getId()).orElseThrow();
+        assertThat(unchangedBike.getStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(unchangedBike.getStation().getId()).isEqualTo(origin.getId());
+        assertThat(historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId()))
+                .extracting(BikeStatusHistory::getNewStatus)
+                .containsExactly(BikeStatus.IN_USE);
+    }
+
+    @Test
     void rechazaIniciarConBicicletaNoDisponibleOSinHeaderDeUsuario() throws Exception {
         User user = user("rechazo@example.com");
         Station origin = station("Origen rechazo", 10);
@@ -202,6 +271,20 @@ class TripFlowIntegrationTest {
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(body).get("id").asLong();
+    }
+
+    private void assertActiveTripAndBikeInUse(long tripId, long bikeId) {
+        Trip trip = tripRepository.findById(tripId).orElseThrow();
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.ACTIVE);
+        assertThat(trip.getDestinationStation()).isNull();
+        assertThat(trip.getEndedAt()).isNull();
+
+        Bike bike = bikeRepository.findById(bikeId).orElseThrow();
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(bike.getStation()).isNull();
+        assertThat(historyRepository.findAllByBikeIdOrderByChangedAtDesc(bikeId))
+                .extracting(BikeStatusHistory::getNewStatus)
+                .containsExactly(BikeStatus.IN_USE);
     }
 
     private User user(String email) {

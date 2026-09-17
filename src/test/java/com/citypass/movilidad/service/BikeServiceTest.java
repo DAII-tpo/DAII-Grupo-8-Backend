@@ -332,6 +332,21 @@ class BikeServiceTest {
     }
 
     @Test
+    void rejectsCheckInWhenBikeInUseIsStillAssignedToAStation() {
+        Station unexpectedStation = activeStation(10L, 20);
+        Bike bike = bike(BikeStatus.IN_USE, unexpectedStation);
+
+        assertThatThrownBy(() -> service.checkInFromTrip(bike, 20L, new User()))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("inconsistente");
+
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.IN_USE);
+        assertThat(bike.getStation()).isSameAs(unexpectedStation);
+        verifyNoInteractions(stationRepository, historyRepository);
+        verify(bikeRepository, never()).save(any());
+    }
+
+    @Test
     void rejectsCheckInAtMissingDisabledOrFullStation() {
         Bike bike = bike(BikeStatus.IN_USE, null);
         when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(99L)).thenReturn(Optional.empty());

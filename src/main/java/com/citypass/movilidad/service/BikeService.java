@@ -179,6 +179,11 @@ public class BikeService {
             throw new BusinessRuleException(
                     "La bicicleta no está en uso: " + bike.getId() + " (" + bike.getStatus() + ")");
         }
+        if (bike.getStation() != null) {
+            throw new BusinessRuleException(
+                    "La bicicleta en uso está asociada a una estación y es inconsistente con el viaje: "
+                            + bike.getId());
+        }
         Station destination = stationRepository.findByIdAndDeletedAtIsNullForUpdate(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
         if (destination.getStatus() != StationStatus.ACTIVE) {

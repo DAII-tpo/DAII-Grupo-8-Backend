@@ -83,16 +83,18 @@ public class TripController {
     @PostMapping("/{id}/end")
     @Operation(summary = "Finalizar un viaje",
             description = "Devuelve la bicicleta en una estación habilitada con capacidad: el viaje pasa a "
-                    + "COMPLETED y la bicicleta queda AVAILABLE en la estación destino")
+                    + "COMPLETED y la bicicleta queda AVAILABLE en la estación destino. Si alguna validación "
+                    + "falla, el viaje y la bicicleta conservan su estado anterior")
     @ApiResponse(responseCode = "200", description = "Viaje finalizado",
             content = @Content(schema = @Schema(implementation = TripResponse.class)))
     @ApiResponse(responseCode = "400", description = "Falta el header de usuario o el cuerpo es inválido",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404",
-            description = "El usuario, el viaje (o no pertenece al usuario) o la estación no existen",
+            description = "El usuario, el viaje (o no pertenece al usuario), la bicicleta o la estación no existen",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "409",
-            description = "El viaje no está activo, o la estación no está habilitada o no tiene capacidad",
+            description = "El viaje no está activo, la bicicleta es inconsistente con el viaje, o la estación "
+                    + "no está habilitada o no tiene capacidad",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public TripResponse end(
             @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
