@@ -46,6 +46,7 @@ public class Bike {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private BikeStatus status = BikeStatus.AVAILABLE;
 
     @Column(length = 100)

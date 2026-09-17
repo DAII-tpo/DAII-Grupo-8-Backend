@@ -54,6 +54,7 @@ public class Station {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private StationStatus status = StationStatus.ACTIVE;
 
     @Enumerated(EnumType.STRING)

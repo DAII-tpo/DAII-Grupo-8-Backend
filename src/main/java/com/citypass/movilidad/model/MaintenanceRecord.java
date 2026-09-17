@@ -51,6 +51,7 @@ public class MaintenanceRecord {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private MaintenanceStatus status = MaintenanceStatus.PENDING;
 
     @Column(name = "started_at")

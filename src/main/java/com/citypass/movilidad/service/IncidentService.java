@@ -2,8 +2,10 @@ package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.dto.IncidentCreateRequest;
 import com.citypass.movilidad.dto.IncidentResponse;
+import com.citypass.movilidad.dto.AdminIncidentResponse;
 import com.citypass.movilidad.dto.IncidentTypeResponse;
 import com.citypass.movilidad.exception.BusinessRuleException;
+import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeIncident;
@@ -46,6 +48,39 @@ public class IncidentService {
                 .toList();
     }
 
+    public List<AdminIncidentResponse> findAllForAdmin(Long adminId, BikeIncidentStatus status,
+                                                        Long bikeId, Long userId, Long typeId) {
+        requireAdmin(adminId);
+        return incidentRepository.search(status, bikeId, userId, typeId).stream()
+                .map(this::toAdminResponse)
+                .toList();
+    }
+
+    public AdminIncidentResponse findByIdForAdmin(Long adminId, Long incidentId) {
+        requireAdmin(adminId);
+        return incidentRepository.findDetailedById(incidentId)
+                .map(this::toAdminResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("Incidencia no encontrada: " + incidentId));
+    }
+
+    @Transactional
+    public AdminIncidentResponse changeStatus(Long adminId, Long incidentId, BikeIncidentStatus newStatus) {
+        User admin = requireAdmin(adminId);
+        BikeIncident incident = incidentRepository.findByIdForUpdate(incidentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Incidencia no encontrada: " + incidentId));
+        if (!isAllowedTransition(incident.getStatus(), newStatus)) {
+            throw new BusinessRuleException(
+                    "Transición de incidencia no permitida: " + incident.getStatus() + " -> " + newStatus);
+        }
+
+        incident.setStatus(newStatus);
+        if (newStatus == BikeIncidentStatus.RESOLVED || newStatus == BikeIncidentStatus.REJECTED) {
+            incident.setResolvedAt(Instant.now());
+            incident.setResolvedByUser(admin);
+        }
+        return toAdminResponse(incidentRepository.save(incident));
+    }
+
     @Transactional
     public IncidentResponse report(Long userId, IncidentCreateRequest request) {
         User user = userRepository.findById(userId)
@@ -76,5 +111,37 @@ public class IncidentService {
         return new IncidentResponse(incident.getId(), bike.getId(), bike.getCode(),
                 incident.getReportedByUser().getId(), type.getId(), type.getCode(), type.getName(),
                 incident.getDescription(), incident.getStatus(), incident.getReportedAt());
+    }
+
+    private User requireAdmin(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + userId));
+        if (user.getStatus() != UserStatus.ACTIVE || user.getRole() == null
+                || !"ADMIN".equals(user.getRole().getName())) {
+            throw new ForbiddenOperationException("El usuario no tiene permisos de administrador: " + userId);
+        }
+        return user;
+    }
+
+    private boolean isAllowedTransition(BikeIncidentStatus current, BikeIncidentStatus next) {
+        return switch (current) {
+            case OPEN -> next == BikeIncidentStatus.UNDER_REVIEW
+                    || next == BikeIncidentStatus.RESOLVED
+                    || next == BikeIncidentStatus.REJECTED;
+            case UNDER_REVIEW -> next == BikeIncidentStatus.RESOLVED
+                    || next == BikeIncidentStatus.REJECTED;
+            case RESOLVED, REJECTED -> false;
+        };
+    }
+
+    private AdminIncidentResponse toAdminResponse(BikeIncident incident) {
+        Bike bike = incident.getBike();
+        IncidentType type = incident.getIncidentType();
+        User reporter = incident.getReportedByUser();
+        User resolver = incident.getResolvedByUser();
+        return new AdminIncidentResponse(incident.getId(), bike.getId(), bike.getCode(),
+                reporter.getId(), reporter.getEmail(), type.getId(), type.getCode(), type.getName(),
+                incident.getDescription(), incident.getStatus(), incident.getReportedAt(),
+                incident.getResolvedAt(), resolver == null ? null : resolver.getId());
     }
 }
