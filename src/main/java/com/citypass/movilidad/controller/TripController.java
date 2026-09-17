@@ -89,14 +89,12 @@ public class TripController {
             description = "Devuelve los viajes finalizados del usuario, del más reciente al más antiguo, "
                     + "con origen, destino, inicio, finalización y duración. Un usuario sin viajes "
                     + "finalizados recibe una página vacía.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Página de viajes finalizados (puede venir vacía)"),
-            @ApiResponse(responseCode = "400",
-                    description = "Falta el header de usuario o la paginación es inválida",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "El usuario no existe",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    })
+    @ApiResponse(responseCode = "200", description = "Página de viajes finalizados (puede venir vacía)",
+            content = @Content(schema = @Schema(implementation = PagedResponse.class)))
+    @ApiResponse(responseCode = "400", description = "Falta el header de usuario o la paginación es inválida",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "404", description = "El usuario no existe",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public PagedResponse<TripResponse> history(
             @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
             @RequestHeader(USER_HEADER) Long userId,
