@@ -31,6 +31,7 @@ import java.math.BigDecimal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -118,12 +119,62 @@ class IncidentFlowIntegrationTest {
         assertThat(incidentRepository.count()).isEqualTo(before);
     }
 
+    @Test
+    void adminFiltersReadsAndResolvesIncidentWhileUserIsForbidden() throws Exception {
+        User reporter = user();
+        User admin = user("ADMIN");
+        Bike bike = bike();
+        Long typeId = typeRepository.findByCode("BRAKE_FAILURE").orElseThrow().getId();
+
+        String createdBody = mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, reporter.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
+                                + ",\"description\":\"Los frenos no responden\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long incidentId = objectMapper.readTree(createdBody).get("id").asLong();
+
+        mockMvc.perform(get("/api/v1/incidents").header(USER_HEADER, reporter.getId()))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/incidents").header(USER_HEADER, admin.getId())
+                        .param("status", "OPEN")
+                        .param("bikeId", bike.getId().toString())
+                        .param("userId", reporter.getId().toString())
+                        .param("typeId", typeId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(incidentId))
+                .andExpect(jsonPath("$[0].reportedByUserEmail").value(reporter.getEmail()));
+
+        mockMvc.perform(get("/api/v1/incidents/" + incidentId).header(USER_HEADER, admin.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bikeCode").value(bike.getCode()));
+
+        mockMvc.perform(patch("/api/v1/incidents/" + incidentId + "/status")
+                        .header(USER_HEADER, admin.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"RESOLVED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RESOLVED"))
+                .andExpect(jsonPath("$.resolvedByUserId").value(admin.getId()))
+                .andExpect(jsonPath("$.resolvedAt").isNotEmpty());
+
+        BikeIncident resolved = incidentRepository.findById(incidentId).orElseThrow();
+        assertThat(resolved.getStatus()).isEqualTo(BikeIncidentStatus.RESOLVED);
+        assertThat(resolved.getResolvedByUser().getId()).isEqualTo(admin.getId());
+        assertThat(resolved.getResolvedAt()).isNotNull();
+    }
+
     private User user() {
+        return user("USER");
+    }
+
+    private User user(String roleName) {
         User user = new User();
         user.setFirstName("Usuario");
         user.setLastName("Incidencias");
         user.setEmail("incidencias-" + System.nanoTime() + "@example.com");
-        user.setRole(roleRepository.findByName("USER").orElseThrow());
+        user.setRole(roleRepository.findByName(roleName).orElseThrow());
         return userRepository.save(user);
     }
 

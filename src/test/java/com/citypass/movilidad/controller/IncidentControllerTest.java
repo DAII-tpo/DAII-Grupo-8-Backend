@@ -1,7 +1,9 @@
 package com.citypass.movilidad.controller;
 
+import com.citypass.movilidad.dto.AdminIncidentResponse;
 import com.citypass.movilidad.dto.IncidentCreateRequest;
 import com.citypass.movilidad.dto.IncidentResponse;
+import com.citypass.movilidad.dto.IncidentStatusUpdateRequest;
 import com.citypass.movilidad.dto.IncidentTypeResponse;
 import com.citypass.movilidad.model.enums.BikeIncidentStatus;
 import com.citypass.movilidad.service.IncidentService;
@@ -36,5 +38,22 @@ class IncidentControllerTest {
         assertThat(response.getHeaders().getLocation()).hasPath("/api/v1/incidents/50");
         assertThat(response.getBody()).isEqualTo(incident);
         verify(service).report(1L, request);
+    }
+
+    @Test
+    void delegatesAdministrativeOperations() {
+        AdminIncidentResponse incident = new AdminIncidentResponse(50L, 2L, "BIKE-2", 3L,
+                "user@example.com", 4L, "FLAT_TIRE", "Pinchazo", "Detalle",
+                BikeIncidentStatus.OPEN, Instant.now(), null, null);
+        when(service.findAllForAdmin(1L, BikeIncidentStatus.OPEN, 2L, 3L, 4L))
+                .thenReturn(List.of(incident));
+        when(service.findByIdForAdmin(1L, 50L)).thenReturn(incident);
+        when(service.changeStatus(1L, 50L, BikeIncidentStatus.UNDER_REVIEW)).thenReturn(incident);
+
+        assertThat(controller.findAll(1L, BikeIncidentStatus.OPEN, 2L, 3L, 4L))
+                .containsExactly(incident);
+        assertThat(controller.findById(1L, 50L)).isEqualTo(incident);
+        assertThat(controller.changeStatus(1L, 50L,
+                new IncidentStatusUpdateRequest(BikeIncidentStatus.UNDER_REVIEW))).isEqualTo(incident);
     }
 }
