@@ -1,0 +1,25 @@
+name: Backend CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend-cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v6
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir imagen Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: citypass-movilidad-backend:latest
