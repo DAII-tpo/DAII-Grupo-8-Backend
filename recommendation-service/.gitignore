@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+# Artefactos del modelo: se generan con `python -m training.train` (y en el docker build)
+models/
