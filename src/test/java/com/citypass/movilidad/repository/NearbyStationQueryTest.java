@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MySQLContainer;
@@ -26,12 +27,11 @@ import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTest
 
 /**
  * Verifica contra MySQL real la consulta geoespacial de MOV-017. Es el único test que prueba
- * de verdad que ST_Distance_Sphere se traduzca bien a SQL, que las distancias sean correctas
- * y que el prefiltro por caja no deje afuera estaciones que sí están dentro del radio.
+ * de verdad que la fórmula de distancia se traduzca bien a SQL, que las distancias sean
+ * correctas y que el prefiltro por caja no deje afuera estaciones que sí están dentro del radio.
  *
- * Las coordenadas son reales de Buenos Aires: si alguien invirtiera los argumentos de POINT
- * (que espera longitud, latitud), las distancias se irían por miles de kilómetros y estas
- * aserciones fallarían.
+ * Las coordenadas son reales de Buenos Aires: si alguien invirtiera latitud y longitud en la
+ * fórmula, las distancias se irían por miles de kilómetros y estas aserciones fallarían.
  */
 @Testcontainers
 @DataJpaTest
@@ -56,6 +56,9 @@ class NearbyStationQueryTest {
 
     @Autowired
     private StationRepository stationRepository;
+
+    @Autowired
+    private TestEntityManager entityManager;
 
     @BeforeEach
     void seedStations() {
@@ -118,6 +121,32 @@ class NearbyStationQueryTest {
         assertThat(obelisco.getLatitude()).isEqualByComparingTo("-34.6037000");
         assertThat(obelisco.getLongitude()).isEqualByComparingTo("-58.3816000");
         assertThat(obelisco.getCapacity()).isEqualTo(20);
+    }
+
+    @Test
+    void lasDistanciasCoincidenConLasDeLaFuncionEspacialQueSeReemplazo() {
+        // La fórmula de Haversine reemplazó a ST_Distance_Sphere porque la base de producción no
+        // implementa funciones espaciales. Este test ancla que el reemplazo no movió los números:
+        // MySQL, que sí las tiene, hace de referencia. Si alguien toca la fórmula o el radio de
+        // la esfera, las distancias dejan de coincidir y esto falla.
+        List<NearbyStationProjection> result = findNearby(5000, 10);
+        assertThat(result).isNotEmpty();
+
+        for (NearbyStationProjection station : result) {
+            Number reference = (Number) entityManager.getEntityManager()
+                    .createNativeQuery("""
+                            SELECT ST_Distance_Sphere(POINT(s.longitude, s.latitude), POINT(:lng, :lat))
+                            FROM stations s WHERE s.id = :id
+                            """)
+                    .setParameter("lat", OBELISCO_LAT)
+                    .setParameter("lng", OBELISCO_LNG)
+                    .setParameter("id", station.getId())
+                    .getSingleResult();
+
+            assertThat(station.getDistanceMeters())
+                    .as("distancia hasta %s", station.getName())
+                    .isCloseTo(reference.doubleValue(), within(0.5));
+        }
     }
 
     @Test

@@ -27,8 +27,18 @@ public interface StationRepository extends JpaRepository<Station, Long> {
     /**
      * Estaciones activas dentro del radio, ordenadas de más cercana a más lejana (MOV-017).
      *
-     * La distancia la resuelve MySQL con ST_Distance_Sphere, que devuelve metros sobre una
-     * esfera. Ojo con el orden de los argumentos de POINT: es (longitud, latitud).
+     * La distancia se calcula con la formula de Haversine sobre una esfera, en metros.
+     *
+     * Se hace con funciones matematicas comunes (ACOS/COS/SIN/RADIANS) y no con
+     * ST_Distance_Sphere porque la base de produccion no implementa las funciones espaciales de
+     * MySQL: la version anterior fallaba ahi con "FUNCTION movilidad.point does not exist",
+     * aunque pasara en los tests, que corren contra un MySQL real.
+     *
+     * El 6370986 es el radio terrestre en metros que ST_Distance_Sphere usa por defecto, asi que
+     * las distancias y el orden no cambian respecto de la version anterior.
+     *
+     * El GREATEST/LEAST acota el argumento de ACOS a [-1, 1]: en coordenadas identicas el
+     * redondeo en punto flotante puede pasarse de 1 y ACOS devolveria NULL.
      *
      * El BETWEEN sobre latitud/longitud es un prefiltro por caja que permite usar el índice
      * idx_stations_lat_lng; sin él, la función sobre las columnas obligaría a recorrer la
@@ -45,8 +55,11 @@ public interface StationRepository extends JpaRepository<Station, Long> {
                        s.latitude  AS latitude,
                        s.longitude AS longitude,
                        s.capacity  AS capacity,
-                       ST_Distance_Sphere(POINT(s.longitude, s.latitude), POINT(:longitude, :latitude))
-                           AS distanceMeters
+                       6370986 * ACOS(GREATEST(-1.0, LEAST(1.0,
+                             COS(RADIANS(:latitude)) * COS(RADIANS(s.latitude))
+                                 * COS(RADIANS(s.longitude) - RADIANS(:longitude))
+                           + SIN(RADIANS(:latitude)) * SIN(RADIANS(s.latitude))
+                       ))) AS distanceMeters
                 FROM stations s
                 WHERE s.deleted_at IS NULL
                   AND s.status = :activeStatus
