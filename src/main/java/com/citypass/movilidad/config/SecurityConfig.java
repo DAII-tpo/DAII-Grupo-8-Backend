@@ -26,8 +26,10 @@ public class SecurityConfig {
     private String jwkSetUri;
 
     // Origenes habilitados para CORS: se configuran con CORS_ALLOWED_ORIGINS (separados por coma).
+    // Admiten comodin (ver corsConfigurationSource), para cubrir los dominios que Vercel genera
+    // en cada deploy de preview: https://daii-grupo-8-frontend-*.vercel.app
     @Value("${app.cors.allowed-origins}")
-    private List<String> allowedOrigins;
+    private List<String> allowedOriginPatterns;
 
     // Modo local (security.local.enabled=true o por defecto): endpoints abiertos y CORS habilitado
     @Bean
@@ -79,8 +81,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // No se puede usar "*" porque allowCredentials esta en true: hay que listar los origenes.
-        configuration.setAllowedOrigins(allowedOrigins);
+        // setAllowedOriginPatterns en lugar de setAllowedOrigins: este acepta comodines y sigue
+        // siendo compatible con allowCredentials=true (setAllowedOrigins compara texto exacto, asi
+        // que un patron con "*" no matchearia nunca). Los patrones tienen que seguir acotados al
+        // proyecto: un "https://*.vercel.app" habilitaria el front de cualquiera con credenciales.
+        configuration.setAllowedOriginPatterns(allowedOriginPatterns);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
