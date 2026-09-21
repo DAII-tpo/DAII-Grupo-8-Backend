@@ -57,7 +57,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/stations/availability",
                                 "/api/v1/stations/*/availability",
-                                "/api/v1/stations/nearby"
+                                "/api/v1/stations/nearby",
+                                "/api/v1/stations/recommendation"
                         ).permitAll()
                         .requestMatchers(
                                 "/api/v1/ping",

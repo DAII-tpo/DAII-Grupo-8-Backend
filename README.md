@@ -70,6 +70,7 @@ Todas tienen default para desarrollo local (pensados para el contenedor Docker d
 | `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | Parámetros de la URL JDBC. En bases gestionadas hay que exigir TLS |
 | `SECURITY_LOCAL_ENABLED` | `true` | `true` deja todos los endpoints abiertos. `false` exige JWT |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma |
+| `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | Servicio de recomendación inteligente (MOV-041). Si no responde, el backend usa el criterio de respaldo |
 
 Si tu MySQL local tiene otras credenciales, sobreescribí las variables al correr:
 
@@ -98,6 +99,10 @@ python -m venv .venv
 
 La API queda en `http://localhost:8000` (OpenAPI en `/docs`). Detalle del modelo, entrenamiento y contrato:
 [recommendation-service/README.md](recommendation-service/README.md) y [docs/MOV-041](docs/MOV-041-recomendacion-inteligente.md).
+
+El backend lo consume en `GET /api/v1/stations/recommendation` (MOV-042). **No hace falta tenerlo levantado**:
+si no responde, el endpoint contesta igual con el criterio de respaldo (`source = FALLBACK`). Ver
+[docs/MOV-042](docs/MOV-042-integracion-recomendacion.md).
 
 ### 5. Consultar la documentacion REST
 

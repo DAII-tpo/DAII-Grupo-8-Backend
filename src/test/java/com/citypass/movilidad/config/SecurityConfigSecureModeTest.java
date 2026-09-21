@@ -49,6 +49,12 @@ class SecurityConfigSecureModeTest {
     }
 
     @Test
+    void laRecomendacionDeEstacionesSigueSiendoPublicaEnModoSeguro() throws Exception {
+        mockMvc.perform(get("/api/v1/stations/recommendation?lat=-34.6037&lng=-58.3816"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void elRestoDeLaApiExigeAutenticacionEnModoSeguro() throws Exception {
         mockMvc.perform(get("/api/v1/stations")).andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/v1/stations")).andExpect(status().isUnauthorized());
