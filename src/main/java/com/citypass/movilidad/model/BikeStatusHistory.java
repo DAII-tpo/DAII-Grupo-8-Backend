@@ -12,12 +12,22 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "bike_status_history")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class BikeStatusHistory {
 
     @Id
@@ -48,54 +58,4 @@ public class BikeStatusHistory {
     @Column(name = "changed_at", nullable = false, updatable = false)
     private Instant changedAt;
 
-    public BikeStatusHistory() {
-    }
-
-    public Long getId() {
-        return id;
-    }
-
-    public Bike getBike() {
-        return bike;
-    }
-
-    public void setBike(Bike bike) {
-        this.bike = bike;
-    }
-
-    public BikeStatus getPreviousStatus() {
-        return previousStatus;
-    }
-
-    public void setPreviousStatus(BikeStatus previousStatus) {
-        this.previousStatus = previousStatus;
-    }
-
-    public BikeStatus getNewStatus() {
-        return newStatus;
-    }
-
-    public void setNewStatus(BikeStatus newStatus) {
-        this.newStatus = newStatus;
-    }
-
-    public User getChangedByUser() {
-        return changedByUser;
-    }
-
-    public void setChangedByUser(User changedByUser) {
-        this.changedByUser = changedByUser;
-    }
-
-    public String getReason() {
-        return reason;
-    }
-
-    public void setReason(String reason) {
-        this.reason = reason;
-    }
-
-    public Instant getChangedAt() {
-        return changedAt;
-    }
 }

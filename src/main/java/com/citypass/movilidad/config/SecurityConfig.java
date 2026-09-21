@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -24,6 +25,12 @@ public class SecurityConfig {
     @Value("${security.jwt.jwk-set-uri:http://localhost:9000/.well-known/jwks.json}")
     private String jwkSetUri;
 
+    // Origenes habilitados para CORS: se configuran con CORS_ALLOWED_ORIGINS (separados por coma).
+    // Admiten comodin (ver corsConfigurationSource), para cubrir los dominios que Vercel genera
+    // en cada deploy de preview: https://daii-grupo-8-frontend-*.vercel.app
+    @Value("${app.cors.allowed-origins}")
+    private List<String> allowedOriginPatterns;
+
     // Modo local (security.local.enabled=true o por defecto): endpoints abiertos y CORS habilitado
     @Bean
     @ConditionalOnProperty(name = "security.local.enabled", havingValue = "true", matchIfMissing = true)
@@ -43,6 +50,15 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
+                        // TODO (dependencia externa - squad Login Federado): la consulta de disponibilidad
+                        // queda pública de forma temporal para que el frontend (MOV-019/MOV-020) pueda
+                        // consumirla mientras no exista el authorization server del proyecto. Cuando esté
+                        // disponible hay que revisar si estas operaciones requieren usuario autenticado.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/stations/availability",
+                                "/api/v1/stations/*/availability",
+                                "/api/v1/stations/nearby"
+                        ).permitAll()
                         .requestMatchers(
                                 "/api/v1/ping",
                                 "/actuator/health",
@@ -65,10 +81,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-///
-//-----------------------------CUANDO ESTE EN PRODUCCION VA A TENER QUE IR LA URL EN DONDE SE LEVANTE EL FRONTEND------------------
-///
-        configuration.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:3000"));
+        // setAllowedOriginPatterns en lugar de setAllowedOrigins: este acepta comodines y sigue
+        // siendo compatible con allowCredentials=true (setAllowedOrigins compara texto exacto, asi
+        // que un patron con "*" no matchearia nunca). Los patrones tienen que seguir acotados al
+        // proyecto: un "https://*.vercel.app" habilitaria el front de cualquiera con credenciales.
+        configuration.setAllowedOriginPatterns(allowedOriginPatterns);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

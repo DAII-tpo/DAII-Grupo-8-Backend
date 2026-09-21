@@ -26,8 +26,12 @@ src/main/java/com/citypass/movilidad/
 ├── model/         # Entidades JPA
 ├── dto/           # Objetos de transferencia
 ├── config/        # Seguridad, OpenAPI, etc.
-└── exception/     # Manejo global de errores
+├── validation/    # Restricciones de Bean Validation reutilizables
+└── exception/     # Excepciones de dominio y manejo global de errores
 ```
+
+El formato de error de la API, las excepciones de dominio y las validaciones están documentados
+en [docs/MOV-021-manejo-errores-validaciones.md](docs/MOV-021-manejo-errores-validaciones.md).
 
 `service/`, `repository/`, `model/` y `dto/` están vacíos: el modelo de dominio (Usuario, Bicicleta, Estación, Viaje, Reporte) se agrega cuando se defina el detalle de MOV-010.
 
@@ -62,6 +66,9 @@ Todas tienen default para desarrollo local (pensados para el contenedor Docker d
 | `DB_PASSWORD` | `root` | Password de MySQL |
 | `AUTH_JWK_SET_URI` | `http://localhost:9000/.well-known/jwks.json` | JWKS del auth-simulator (Grupo 1) |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker de Kafka |
+| `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | Parámetros de la URL JDBC. En bases gestionadas hay que exigir TLS |
+| `SECURITY_LOCAL_ENABLED` | `true` | `true` deja todos los endpoints abiertos. `false` exige JWT |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma |
 
 Si tu MySQL local tiene otras credenciales, sobreescribí las variables al correr:
 
@@ -77,11 +84,52 @@ O en IntelliJ: Run Configuration → Environment variables → agregá `DB_PASSW
 ./gradlew bootRun
 ```
 
+### 4. Consultar la documentacion REST
+
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8080/api-docs`
+
+Swagger UI permite consultar y probar las operaciones implementadas. La identidad, autenticacion y autorizacion
+son provistas por el modulo de Login Federado (Grupo 2) y quedan fuera del alcance de este repositorio.
+
+## Deploy
+
+La API se deploya en **Render** desde el `Dockerfile`: cada push a `main` dispara un deploy automático.
+La configuración del servicio está versionada en [`render.yaml`](render.yaml); las credenciales van marcadas
+con `sync: false` y se cargan en el dashboard de Render, nunca en el repo.
+
+La base es un MySQL gestionado externo (Render no ofrece MySQL). Flyway crea el esquema solo en el primer arranque.
+
+Antes de exponer la API conviene revisar dos cosas:
+
+- `SECURITY_LOCAL_ENABLED=true` deja los endpoints de escritura (`POST`, `PATCH`) abiertos a cualquiera con la URL.
+- `CORS_ALLOWED_ORIGINS` tiene que incluir el dominio del frontend deployado, si no el navegador bloquea las llamadas.
+
 ## Tests
 
 ```bash
 ./gradlew test
 ```
+
+## Importar estaciones Ecobici
+
+El repositorio incluye una copia del dataset oficial de estaciones de Buenos Aires Data. La importación está
+deshabilitada por defecto y se activa para una ejecución con `ECOBICI_IMPORT_ENABLED=true`:
+
+```bash
+ECOBICI_IMPORT_ENABLED=true ./gradlew bootRun
+```
+
+En PowerShell:
+
+```powershell
+$env:ECOBICI_IMPORT_ENABLED="true"
+.\gradlew.bat bootRun
+```
+
+La importación usa el `id` oficial como identificador externo, ignora estaciones ya existentes y no sobrescribe
+cambios o bajas manuales. Los registros inválidos se informan en el log y no interrumpen el resto del proceso.
+La capacidad se importa desde la propiedad `ANCLAJES` del recurso GeoJSON oficial.
 
 Los tests de integración usan Testcontainers (levantan un MySQL real en Docker), por lo que Docker debe estar corriendo.
 
