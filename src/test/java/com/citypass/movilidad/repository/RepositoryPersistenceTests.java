@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.MySQLContainer;
@@ -32,6 +33,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
 
 @Testcontainers
@@ -246,5 +248,33 @@ class RepositoryPersistenceTests {
                 .isPresent()
                 .get()
                 .satisfies(e -> assertThat(e.getAggregateType()).isEqualTo(AggregateType.BIKE));
+    }
+
+    @Test
+    void rechazaBicicletaConCodigoDuplicado() {
+        Bike bike1 = new Bike();
+        bike1.setCode("BIKE-UNIQUE-TEST");
+        bike1.setStatus(BikeStatus.AVAILABLE);
+        bikeRepository.saveAndFlush(bike1);
+
+        Bike bike2 = new Bike();
+        bike2.setCode("BIKE-UNIQUE-TEST");
+        bike2.setStatus(BikeStatus.AVAILABLE);
+
+        assertThatThrownBy(() -> bikeRepository.saveAndFlush(bike2))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void asignaTimestampsDeAuditoriaAutomaticamente() {
+        Bike bike = new Bike();
+        bike.setCode("BIKE-AUDIT-TEST");
+        bike.setStatus(BikeStatus.AVAILABLE);
+
+        Bike saved = bikeRepository.saveAndFlush(bike);
+
+        assertThat(saved.getCreatedAt()).isNotNull();
+        assertThat(saved.getUpdatedAt()).isNotNull();
+        assertThat(saved.getDeletedAt()).isNull();
     }
 }
