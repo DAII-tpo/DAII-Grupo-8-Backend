@@ -34,3 +34,6 @@ out/
 
 ### Env ###
 .env
+
+### Cobertura Python (recommendation-service, cuando pytest corre desde la raíz como en CI) ###
+.coverage

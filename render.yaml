@@ -10,6 +10,10 @@ services:
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     healthCheckPath: /actuator/health
+    # Los cambios solo en el servicio de recomendación no redeployan el backend.
+    buildFilter:
+      ignoredPaths:
+        - recommendation-service/**
     envVars:
       # --- Base de datos (cargar en el dashboard) ---
       - key: DB_HOST
@@ -40,3 +44,22 @@ services:
 
       - key: SPRING_PROFILES_ACTIVE
         value: default
+
+  # Microservicio de recomendación de estaciones (MOV-041: Python + FastAPI + scikit-learn). El modelo se
+  # entrena durante el build de la imagen. Sin base de datos: recibe el snapshot de estaciones en cada request.
+  # La integración con el backend (URL, timeouts, fallback) corresponde a MOV-042.
+  # Limitación del plan free: se duerme sin tráfico y tarda 30-60 s en despertar.
+  - type: web
+    name: movilidad-recommendation
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    dockerContext: ./recommendation-service
+    dockerfilePath: ./recommendation-service/Dockerfile
+    healthCheckPath: /health
+    # Solo se redeploya cuando cambia el servicio de recomendación.
+    buildFilter:
+      paths:
+        - recommendation-service/**
