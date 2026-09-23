@@ -13,6 +13,7 @@ import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.IncidentTypeRepository;
+import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,7 @@ class IncidentAdminServiceTest {
         incidentRepository = mock(BikeIncidentRepository.class);
         userRepository = mock(UserRepository.class);
         service = new IncidentService(incidentRepository, mock(IncidentTypeRepository.class),
-                mock(BikeRepository.class), userRepository);
+                mock(BikeRepository.class), userRepository, mock(TripRepository.class), mock(BikeService.class));
         when(incidentRepository.save(any(BikeIncident.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }

@@ -17,6 +17,9 @@ import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.IncidentTypeRepository;
 import com.citypass.movilidad.repository.UserRepository;
+import com.citypass.movilidad.model.Trip;
+import com.citypass.movilidad.model.enums.TripStatus;
+import com.citypass.movilidad.repository.TripRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,14 +34,19 @@ public class IncidentService {
     private final IncidentTypeRepository incidentTypeRepository;
     private final BikeRepository bikeRepository;
     private final UserRepository userRepository;
+    private final TripRepository tripRepository;
+    private final BikeService bikeService;
 
     public IncidentService(BikeIncidentRepository incidentRepository,
                            IncidentTypeRepository incidentTypeRepository,
-                           BikeRepository bikeRepository, UserRepository userRepository) {
+                           BikeRepository bikeRepository, UserRepository userRepository,
+                           TripRepository tripRepository, BikeService bikeService) {
         this.incidentRepository = incidentRepository;
         this.incidentTypeRepository = incidentTypeRepository;
         this.bikeRepository = bikeRepository;
         this.userRepository = userRepository;
+        this.tripRepository = tripRepository;
+        this.bikeService = bikeService;
     }
 
     public List<IncidentTypeResponse> findActiveTypes() {
@@ -102,6 +110,13 @@ public class IncidentService {
         incident.setDescription(request.description().trim());
         incident.setStatus(BikeIncidentStatus.OPEN);
         incident.setReportedAt(Instant.now());
+
+        tripRepository.findByUserIdAndStatus(userId, TripStatus.ACTIVE)
+                .filter(trip -> trip.getBike() != null && bike.getId().equals(trip.getBike().getId()))
+                .ifPresent(incident::setTrip);
+
+        bikeService.reportIncidentOnBike(bike, user, "Incidencia reportada: " + type.getName());
+
         return toResponse(incidentRepository.save(incident));
     }
 

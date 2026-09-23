@@ -405,6 +405,41 @@ class BikeServiceTest {
                 .hasMessageContaining("no está en mantenimiento");
     }
 
+    @Test
+    void checksInBikeFromTripPreservingMaintenanceStatusWhenReportedDuringTrip() {
+        Station destination = activeStation(20L, 10);
+        Bike bike = bike(BikeStatus.MAINTENANCE, null);
+        User user = new User();
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(5L);
+
+        Station result = service.checkInFromTrip(bike, 20L, user);
+
+        assertThat(result).isSameAs(destination);
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        assertThat(bike.getStation()).isSameAs(destination);
+        verify(bikeRepository).save(bike);
+    }
+
+    @Test
+    void reportsIncidentOnBikeTransitionsToMaintenanceFromAvailableAndInUse() {
+        User user = new User();
+        Bike availableBike = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+        service.reportIncidentOnBike(availableBike, user, "Pinchazo");
+
+        assertThat(availableBike.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        verify(historyRepository).save(any(BikeStatusHistory.class));
+
+        Bike inUseBike = bike(BikeStatus.IN_USE, null);
+        service.reportIncidentOnBike(inUseBike, user, "Cadena rota");
+
+        assertThat(inUseBike.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+
+        Bike alreadyMaintenance = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
+        service.reportIncidentOnBike(alreadyMaintenance, user, "Otro");
+        assertThat(alreadyMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+    }
+
     private Bike bike(BikeStatus status, Station station) {
         Bike bike = new Bike();
         bike.setCode("BIKE-1");

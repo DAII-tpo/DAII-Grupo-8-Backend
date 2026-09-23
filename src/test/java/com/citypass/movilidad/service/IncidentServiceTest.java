@@ -14,6 +14,9 @@ import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.IncidentTypeRepository;
 import com.citypass.movilidad.repository.UserRepository;
+import com.citypass.movilidad.model.Trip;
+import com.citypass.movilidad.model.enums.TripStatus;
+import com.citypass.movilidad.repository.TripRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -36,6 +39,8 @@ class IncidentServiceTest {
     private IncidentTypeRepository typeRepository;
     private BikeRepository bikeRepository;
     private UserRepository userRepository;
+    private TripRepository tripRepository;
+    private BikeService bikeService;
     private IncidentService service;
 
     @BeforeEach
@@ -44,7 +49,10 @@ class IncidentServiceTest {
         typeRepository = mock(IncidentTypeRepository.class);
         bikeRepository = mock(BikeRepository.class);
         userRepository = mock(UserRepository.class);
-        service = new IncidentService(incidentRepository, typeRepository, bikeRepository, userRepository);
+        tripRepository = mock(TripRepository.class);
+        bikeService = mock(BikeService.class);
+        service = new IncidentService(
+                incidentRepository, typeRepository, bikeRepository, userRepository, tripRepository, bikeService);
         when(incidentRepository.save(any(BikeIncident.class))).thenAnswer(invocation -> {
             BikeIncident incident = invocation.getArgument(0);
             incident.setId(50L);
@@ -65,13 +73,14 @@ class IncidentServiceTest {
     }
 
     @Test
-    void reportsOpenIncidentAssociatedWithUserBikeAndType() {
+    void reportsOpenIncidentAssociatedWithUserBikeAndTypeWithoutActiveTrip() {
         User user = user(1L, UserStatus.ACTIVE);
         Bike bike = bike(2L);
         IncidentType type = type(3L, true);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(bikeRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(bike));
         when(typeRepository.findByIdAndActiveTrue(3L)).thenReturn(Optional.of(type));
+        when(tripRepository.findByUserIdAndStatus(1L, TripStatus.ACTIVE)).thenReturn(Optional.empty());
 
         var response = service.report(1L, new IncidentCreateRequest(2L, 3L, "  Rueda desinflada  "));
 
@@ -89,6 +98,33 @@ class IncidentServiceTest {
         assertThat(saved.getValue().getBike()).isSameAs(bike);
         assertThat(saved.getValue().getIncidentType()).isSameAs(type);
         assertThat(saved.getValue().getTrip()).isNull();
+        verify(bikeService).reportIncidentOnBike(bike, user, "Incidencia reportada: Pinchazo");
+    }
+
+    @Test
+    void reportsOpenIncidentDuringActiveTripLinksTripAndModifiesBikeStatus() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Bike bike = bike(2L);
+        IncidentType type = type(3L, true);
+        Trip trip = new Trip();
+        trip.setId(99L);
+        trip.setBike(bike);
+        trip.setUser(user);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(bikeRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(bike));
+        when(typeRepository.findByIdAndActiveTrue(3L)).thenReturn(Optional.of(type));
+        when(tripRepository.findByUserIdAndStatus(1L, TripStatus.ACTIVE)).thenReturn(Optional.of(trip));
+
+        var response = service.report(1L, new IncidentCreateRequest(2L, 3L, "Rueda pinchada en trayecto"));
+
+        assertThat(response.status()).isEqualTo(BikeIncidentStatus.OPEN);
+
+        ArgumentCaptor<BikeIncident> saved = ArgumentCaptor.forClass(BikeIncident.class);
+        verify(incidentRepository).save(saved.capture());
+        assertThat(saved.getValue().getTrip()).isSameAs(trip);
+        assertThat(saved.getValue().getBike()).isSameAs(bike);
+        verify(bikeService).reportIncidentOnBike(bike, user, "Incidencia reportada: Pinchazo");
     }
 
     @Test
