@@ -13,6 +13,7 @@ import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.model.enums.TripStatus;
 import com.citypass.movilidad.model.enums.UserStatus;
+import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +45,7 @@ class TripServiceTest {
     private UserRepository userRepository;
     private BikeService bikeService;
     private TripEventPublisher eventPublisher;
+    private BikeIncidentRepository incidentRepository;
     private TripService service;
 
     @BeforeEach
@@ -52,7 +54,9 @@ class TripServiceTest {
         userRepository = mock(UserRepository.class);
         bikeService = mock(BikeService.class);
         eventPublisher = mock(TripEventPublisher.class);
-        service = new TripService(tripRepository, userRepository, bikeService, eventPublisher);
+        incidentRepository = mock(BikeIncidentRepository.class);
+        service = new TripService(tripRepository, userRepository, bikeService, eventPublisher,
+                incidentRepository);
         when(tripRepository.save(any(Trip.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -301,6 +305,22 @@ class TripServiceTest {
         assertThat(response.durationSeconds()).isBetween(600, 610);
         verify(tripRepository).save(trip);
         verify(eventPublisher).tripEnded(trip);
+        verify(bikeService, never()).reportIncidentOnBike(any(), any(), any());
+    }
+
+    @Test
+    void sendsBikeToMaintenanceWhenTripEndsWithPendingIncident() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Bike bike = bike(5L, BikeStatus.IN_USE, null);
+        Trip trip = activeTrip(7L, user, bike);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(trip));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        when(bikeService.checkInFromTrip(bike, 20L, user)).thenReturn(station(20L, "Retiro"));
+        when(incidentRepository.existsByTripIdAndStatusIn(eq(7L), any())).thenReturn(true);
+
+        assertThat(service.endTrip(1L, 7L, new TripEndRequest(20L)).status()).isEqualTo(TripStatus.COMPLETED);
+        verify(bikeService).reportIncidentOnBike(bike, user, "Incidencia reportada durante el viaje");
     }
 
     @Test

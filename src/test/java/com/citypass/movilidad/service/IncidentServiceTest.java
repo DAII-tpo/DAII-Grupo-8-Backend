@@ -78,7 +78,7 @@ class IncidentServiceTest {
         Bike bike = bike(2L);
         IncidentType type = type(3L, true);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(bikeRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(bike));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(bike));
         when(typeRepository.findByIdAndActiveTrue(3L)).thenReturn(Optional.of(type));
         when(tripRepository.findByUserIdAndStatus(1L, TripStatus.ACTIVE)).thenReturn(Optional.empty());
 
@@ -112,7 +112,7 @@ class IncidentServiceTest {
         trip.setUser(user);
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(bikeRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(bike));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(bike));
         when(typeRepository.findByIdAndActiveTrue(3L)).thenReturn(Optional.of(type));
         when(tripRepository.findByUserIdAndStatus(1L, TripStatus.ACTIVE)).thenReturn(Optional.of(trip));
 
@@ -147,7 +147,7 @@ class IncidentServiceTest {
     @Test
     void rejectsMissingBikeBeforeLookingUpType() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, UserStatus.ACTIVE)));
-        when(bikeRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.empty());
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.report(1L,
                 new IncidentCreateRequest(2L, 3L, "Problema")))
@@ -160,7 +160,7 @@ class IncidentServiceTest {
     @Test
     void rejectsMissingOrInactiveIncidentType() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, UserStatus.ACTIVE)));
-        when(bikeRepository.findByIdAndDeletedAtIsNull(2L)).thenReturn(Optional.of(bike(2L)));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(bike(2L)));
         when(typeRepository.findByIdAndActiveTrue(3L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.report(1L,

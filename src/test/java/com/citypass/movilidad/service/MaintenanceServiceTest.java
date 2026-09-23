@@ -42,6 +42,12 @@ class MaintenanceServiceTest {
         assertThatThrownBy(()->service.create(1L,new MaintenanceCreateRequest(2L,null,"Ajuste")))
                 .isInstanceOf(BusinessRuleException.class);
     }
+    @Test void rejectsBikeWithMaintenanceInProgress(){
+        when(records.existsByBikeIdAndStatus(2L,MaintenanceStatus.IN_PROGRESS)).thenReturn(true);
+        assertThatThrownBy(()->service.create(1L,new MaintenanceCreateRequest(2L,null,"Ajuste")))
+                .isInstanceOf(BusinessRuleException.class).hasMessageContaining("en curso");
+        verify(bikes,never()).sendToMaintenance(any(),any(),any());
+    }
     @Test void rejectsUser(){
         Role role=new Role(); role.setName("USER"); admin.setRole(role);
         assertThatThrownBy(()->service.findAll(1L)).isInstanceOf(ForbiddenOperationException.class);

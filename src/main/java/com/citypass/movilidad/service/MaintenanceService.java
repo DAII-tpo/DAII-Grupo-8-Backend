@@ -36,6 +36,8 @@ public class MaintenanceService {
                 .orElseThrow(() -> new ResourceNotFoundException("Incidencia no encontrada: "+request.incidentId()));
         if (incident!=null && !incident.getBike().getId().equals(bike.getId()))
             throw new BusinessRuleException("La incidencia no corresponde a la bicicleta indicada");
+        if (records.existsByBikeIdAndStatus(bike.getId(), MaintenanceStatus.IN_PROGRESS))
+            throw new BusinessRuleException("La bicicleta ya tiene un mantenimiento en curso");
         bikes.sendToMaintenance(bike, admin, request.description().trim());
         MaintenanceRecord record=new MaintenanceRecord();
         record.setBike(bike); record.setIncident(incident); record.setCreatedByUser(admin);

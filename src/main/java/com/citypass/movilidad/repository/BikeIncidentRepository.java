@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,7 +37,7 @@ public interface BikeIncidentRepository extends JpaRepository<BikeIncident, Long
     @Query("select incident from BikeIncident incident where incident.id = :id")
     Optional<BikeIncident> findByIdForUpdate(@Param("id") Long id);
 
-    boolean existsByBikeIdAndStatus(Long bikeId, BikeIncidentStatus status);
+    boolean existsByTripIdAndStatusIn(Long tripId, Collection<BikeIncidentStatus> statuses);
 
-    boolean existsByTripIdAndStatus(Long tripId, BikeIncidentStatus status);
+    boolean existsByBikeIdAndStatusInAndIdNot(Long bikeId, Collection<BikeIncidentStatus> statuses, Long id);
 }

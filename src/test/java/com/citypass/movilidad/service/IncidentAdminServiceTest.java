@@ -35,14 +35,16 @@ class IncidentAdminServiceTest {
 
     private BikeIncidentRepository incidentRepository;
     private UserRepository userRepository;
+    private BikeService bikeService;
     private IncidentService service;
 
     @BeforeEach
     void setUp() {
         incidentRepository = mock(BikeIncidentRepository.class);
         userRepository = mock(UserRepository.class);
+        bikeService = mock(BikeService.class);
         service = new IncidentService(incidentRepository, mock(IncidentTypeRepository.class),
-                mock(BikeRepository.class), userRepository, mock(TripRepository.class), mock(BikeService.class));
+                mock(BikeRepository.class), userRepository, mock(TripRepository.class), bikeService);
         when(incidentRepository.save(any(BikeIncident.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -119,6 +121,34 @@ class IncidentAdminServiceTest {
         assertThat(response.status()).isEqualTo(BikeIncidentStatus.RESOLVED);
         assertThat(response.resolvedAt()).isNotNull();
         assertThat(response.resolvedByUserId()).isEqualTo(1L);
+        verify(bikeService, never()).returnToServiceAfterRejectedIncident(any(), any());
+    }
+
+    @Test
+    void returnsBikeToServiceWhenIncidentIsRejected() {
+        User admin = user(1L, "ADMIN", UserStatus.ACTIVE);
+        BikeIncident incident = incident(10L, BikeIncidentStatus.OPEN);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(incidentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(incident));
+
+        var response = service.changeStatus(1L, 10L, BikeIncidentStatus.REJECTED);
+
+        assertThat(response.status()).isEqualTo(BikeIncidentStatus.REJECTED);
+        verify(bikeService).returnToServiceAfterRejectedIncident(2L, admin);
+    }
+
+    @Test
+    void keepsBikeOutOfServiceWhenRejectedIncidentHasAnotherPendingOnSameBike() {
+        User admin = user(1L, "ADMIN", UserStatus.ACTIVE);
+        BikeIncident incident = incident(10L, BikeIncidentStatus.OPEN);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(admin));
+        when(incidentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(incident));
+        when(incidentRepository.existsByBikeIdAndStatusInAndIdNot(2L, BikeIncidentStatus.PENDING, 10L))
+                .thenReturn(true);
+
+        service.changeStatus(1L, 10L, BikeIncidentStatus.REJECTED);
+
+        verify(bikeService, never()).returnToServiceAfterRejectedIncident(any(), any());
     }
 
     @Test

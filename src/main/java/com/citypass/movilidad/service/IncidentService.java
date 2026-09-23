@@ -86,6 +86,12 @@ public class IncidentService {
             incident.setResolvedAt(Instant.now());
             incident.setResolvedByUser(admin);
         }
+        // Reporte falso: la bicicleta vuelve a circular, salvo que tenga otra incidencia pendiente.
+        Long bikeId = incident.getBike().getId();
+        if (newStatus == BikeIncidentStatus.REJECTED
+                && !incidentRepository.existsByBikeIdAndStatusInAndIdNot(bikeId, BikeIncidentStatus.PENDING, incidentId)) {
+            bikeService.returnToServiceAfterRejectedIncident(bikeId, admin);
+        }
         return toAdminResponse(incidentRepository.save(incident));
     }
 
@@ -96,7 +102,9 @@ public class IncidentService {
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new BusinessRuleException("El usuario no está habilitado para reportar incidencias: " + userId);
         }
-        Bike bike = bikeRepository.findByIdAndDeletedAtIsNull(request.bikeId())
+        // Con lock: sin él, un viaje que arranca en paralelo podría quedar pisado por el save de
+        // esta bicicleta leída antes del inicio (estado y estación viejos).
+        Bike bike = bikeRepository.findByIdAndDeletedAtIsNullForUpdate(request.bikeId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Bicicleta no encontrada: " + request.bikeId()));
         IncidentType type = incidentTypeRepository.findByIdAndActiveTrue(request.incidentTypeId())
@@ -115,7 +123,7 @@ public class IncidentService {
                 .filter(trip -> trip.getBike() != null && bike.getId().equals(trip.getBike().getId()))
                 .ifPresent(incident::setTrip);
 
-        bikeService.reportIncidentOnBike(bike, user, "Incidencia reportada: " + type.getName());
+        bikeService.reportIncidentOnBike(bike, user, BikeService.INCIDENT_REASON_PREFIX + ": " + type.getName());
 
         return toResponse(incidentRepository.save(incident));
     }

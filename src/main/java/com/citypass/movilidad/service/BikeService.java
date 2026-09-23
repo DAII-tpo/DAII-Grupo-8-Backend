@@ -25,6 +25,13 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class BikeService {
 
+    /**
+     * Prefijo del motivo con que se registra en el historial la baja de circulación por una
+     * incidencia. Permite reconocer, al rechazar la incidencia, que la bicicleta salió de servicio
+     * por el reporte y no por una decisión administrativa.
+     */
+    public static final String INCIDENT_REASON_PREFIX = "Incidencia reportada";
+
     private final BikeRepository bikeRepository;
     private final StationRepository stationRepository;
     private final BikeStatusHistoryRepository historyRepository;
@@ -156,6 +163,11 @@ public class BikeService {
     @Transactional
     public void sendToMaintenance(Bike bike, User admin, String reason) {
         BikeStatus previous = bike.getStatus();
+        // Bicicletas que la versión anterior de reportIncidentOnBike dejó en MAINTENANCE sin orden
+        // de mantenimiento: la orden se abre igual, sin volver a cambiar el estado.
+        if (previous == BikeStatus.MAINTENANCE) {
+            return;
+        }
         if (previous != BikeStatus.AVAILABLE && previous != BikeStatus.OUT_OF_SERVICE) {
             throw new BusinessRuleException("La bicicleta no puede enviarse a mantenimiento desde " + previous);
         }
@@ -197,19 +209,53 @@ public class BikeService {
         return origin;
     }
 
+    /**
+     * Saca de circulación una bicicleta con una incidencia: queda OUT_OF_SERVICE hasta que un admin
+     * la revise. Pasa a MAINTENANCE recién cuando se abre la orden de mantenimiento.
+     *
+     * Una bicicleta IN_USE no se toca: sacarla de IN_USE con el viaje abierto la deja fuera de esa
+     * protección (un admin podría trasladarla, cambiarle el estado o darla de baja) y el usuario no
+     * podría devolverla. TripService la saca de circulación al finalizar el viaje.
+     */
     @Transactional
     public void reportIncidentOnBike(Bike bike, User user, String reason) {
         BikeStatus previous = bike.getStatus();
-        if (previous == BikeStatus.AVAILABLE || previous == BikeStatus.IN_USE) {
-            bike.setStatus(BikeStatus.MAINTENANCE);
+        if (previous == BikeStatus.AVAILABLE) {
+            bike.setStatus(BikeStatus.OUT_OF_SERVICE);
             Bike saved = bikeRepository.save(bike);
-            recordStatusChange(saved, previous, BikeStatus.MAINTENANCE, reason, user);
+            recordStatusChange(saved, previous, BikeStatus.OUT_OF_SERVICE, reason, user);
         }
+    }
+
+    /**
+     * Devuelve a circulación una bicicleta cuya incidencia se rechazó (reporte falso). Solo actúa si
+     * el último cambio de estado fue la baja por una incidencia: si un admin la desactivó por otro
+     * motivo, o ya se abrió un mantenimiento, la bicicleta queda como está.
+     */
+    @Transactional
+    public void returnToServiceAfterRejectedIncident(Long bikeId, User admin) {
+        Bike bike = bikeRepository.findByIdAndDeletedAtIsNullForUpdate(bikeId).orElse(null);
+        if (bike == null || bike.getStatus() != BikeStatus.OUT_OF_SERVICE || bike.getStation() == null) {
+            return;
+        }
+        boolean outOfServiceByIncident = historyRepository.findFirstByBikeIdOrderByChangedAtDescIdDesc(bikeId)
+                .filter(last -> last.getNewStatus() == BikeStatus.OUT_OF_SERVICE)
+                .map(BikeStatusHistory::getReason)
+                .filter(reason -> reason.startsWith(INCIDENT_REASON_PREFIX))
+                .isPresent();
+        if (!outOfServiceByIncident) {
+            return;
+        }
+        bike.setStatus(BikeStatus.AVAILABLE);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.OUT_OF_SERVICE, BikeStatus.AVAILABLE, "Incidencia rechazada", admin);
     }
 
     /** Devuelve la bicicleta en la estación destino al finalizar un viaje y devuelve esa estación. */
     @Transactional
     public Station checkInFromTrip(Bike bike, Long stationId, User user) {
+        // MAINTENANCE se sigue aceptando por las bicicletas que la versión anterior de
+        // reportIncidentOnBike dejó en ese estado con el viaje todavía activo.
         if (bike.getStatus() != BikeStatus.IN_USE && bike.getStatus() != BikeStatus.MAINTENANCE) {
             throw new BusinessRuleException(
                     "La bicicleta no está en uso: " + bike.getId() + " (" + bike.getStatus() + ")");

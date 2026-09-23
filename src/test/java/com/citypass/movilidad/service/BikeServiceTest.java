@@ -387,6 +387,17 @@ class BikeServiceTest {
     }
 
     @Test
+    void opensMaintenanceForBikeAlreadyInMaintenanceByIncidentWithoutChangingStatus() {
+        Bike reported = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
+
+        service.sendToMaintenance(reported, new User(), "Revisión");
+
+        assertThat(reported.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        verifyNoInteractions(historyRepository);
+        verify(bikeRepository, never()).save(any());
+    }
+
+    @Test
     void returnsBikeFromMaintenanceAndRequiresStation() {
         Station station = activeStation(10L, 20);
         Bike bike = bike(BikeStatus.MAINTENANCE, station);
@@ -422,22 +433,73 @@ class BikeServiceTest {
     }
 
     @Test
-    void reportsIncidentOnBikeTransitionsToMaintenanceFromAvailableAndInUse() {
+    void reportsIncidentOnBikeTakesItOutOfServiceOnlyFromAvailable() {
         User user = new User();
         Bike availableBike = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
         service.reportIncidentOnBike(availableBike, user, "Pinchazo");
 
-        assertThat(availableBike.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        assertThat(availableBike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
         verify(historyRepository).save(any(BikeStatusHistory.class));
 
         Bike inUseBike = bike(BikeStatus.IN_USE, null);
         service.reportIncidentOnBike(inUseBike, user, "Cadena rota");
 
-        assertThat(inUseBike.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        // Con el viaje abierto sigue IN_USE: TripService la saca de circulación al devolverla.
+        assertThat(inUseBike.getStatus()).isEqualTo(BikeStatus.IN_USE);
 
         Bike alreadyMaintenance = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
         service.reportIncidentOnBike(alreadyMaintenance, user, "Otro");
         assertThat(alreadyMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+    }
+
+    @Test
+    void returnsBikeToServiceWhenItWasTakenOutByTheRejectedIncident() {
+        Bike bike = bike(BikeStatus.OUT_OF_SERVICE, activeStation(10L, 20));
+        User admin = new User();
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+        when(historyRepository.findFirstByBikeIdOrderByChangedAtDescIdDesc(1L))
+                .thenReturn(Optional.of(history(BikeStatus.OUT_OF_SERVICE, "Incidencia reportada: Pinchazo")));
+
+        service.returnToServiceAfterRejectedIncident(1L, admin);
+
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        ArgumentCaptor<BikeStatusHistory> history = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getPreviousStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+        assertThat(history.getValue().getNewStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(history.getValue().getChangedByUser()).isSameAs(admin);
+    }
+
+    @Test
+    void keepsBikeOutOfServiceWhenAnAdminDisabledItForAnotherReason() {
+        Bike bike = bike(BikeStatus.OUT_OF_SERVICE, activeStation(10L, 20));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+        when(historyRepository.findFirstByBikeIdOrderByChangedAtDescIdDesc(1L))
+                .thenReturn(Optional.of(history(BikeStatus.OUT_OF_SERVICE, "Cuadro dañado")));
+
+        service.returnToServiceAfterRejectedIncident(1L, new User());
+
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+        verify(bikeRepository, never()).save(any());
+    }
+
+    @Test
+    void keepsBikeUntouchedOnRejectionWhenItIsNotOutOfService() {
+        Bike inMaintenance = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(inMaintenance));
+
+        service.returnToServiceAfterRejectedIncident(1L, new User());
+
+        assertThat(inMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        verifyNoInteractions(historyRepository);
+        verify(bikeRepository, never()).save(any());
+    }
+
+    private BikeStatusHistory history(BikeStatus newStatus, String reason) {
+        BikeStatusHistory history = new BikeStatusHistory();
+        history.setNewStatus(newStatus);
+        history.setReason(reason);
+        return history;
     }
 
     private Bike bike(BikeStatus status, Station station) {
