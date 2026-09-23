@@ -50,7 +50,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        // TODO (dependencia externa - squad Login Federado): la consulta de disponibilidad
+                        // (dependencia externa - squad Login Federado): la consulta de disponibilidad
                         // queda pública de forma temporal para que el frontend (MOV-019/MOV-020) pueda
                         // consumirla mientras no exista el authorization server del proyecto. Cuando esté
                         // disponible hay que revisar si estas operaciones requieren usuario autenticado.
