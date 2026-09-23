@@ -89,7 +89,26 @@ def test_metrics_se_serializan_para_el_model_card():
     assert Metrics(None, 0.9, 0.8, 10).as_dict() == {"roc_auc": None, "accuracy": 0.9, "top1": 0.8, "scenarios": 10}
 
 
-def test_main_sintetico_deja_modelo_vigente(tmp_path, capsys):
-    assert train_module.main(["--model-dir", str(tmp_path), "--scenarios", "200", "--version", "test-v1"]) == 0
+def test_main_sintetico_deja_modelo_vigente(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("MODEL_DIR", str(tmp_path))
+    assert train_module.main(["--scenarios", "200", "--version", "test-v1"]) == 0
     assert model_store.current_version(tmp_path) == "test-v1"
     assert "test-v1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("version", ["../fuera", "a/b", "..", "", "/abs", "v1\\..\\x"])
+def test_save_rechaza_versiones_que_salen_del_directorio(tmp_path, version):
+    bundle = train_module.train_synthetic(scenarios=50)
+    bundle.version = version
+
+    with pytest.raises(ValueError):
+        model_store.save(bundle, tmp_path / "models", promote=True)
+
+    assert not (tmp_path / "fuera").exists()
+
+
+def test_load_rechaza_version_vigente_manipulada(tmp_path):
+    (tmp_path / model_store.CURRENT_FILE).write_text('{"version": "../otro"}', encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        model_store.load(tmp_path)

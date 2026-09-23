@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Verifica la cadena de seguridad "de producción" (security.local.enabled=false), que es la
- * única donde las reglas por endpoint tienen efecto: en modo local todo es permitAll.
+ * única donde las reglas por endpoint tienen efecto: en modo local cualquier request es permitAll.
  * Sin este test, la exposición pública de la disponibilidad (MOV-016) no está cubierta por
  * ninguna prueba y solo se descubriría un error cuando exista el authorization server.
  */

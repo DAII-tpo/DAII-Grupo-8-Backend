@@ -14,7 +14,6 @@ import argparse
 import json
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -42,7 +41,7 @@ def fit_pipeline(data: TrainingSet, seed: int = DEFAULT_SEED) -> Pipeline:
     pipeline = Pipeline([
         ("scaler", StandardScaler()),
         ("model", LogisticRegression(max_iter=1000, random_state=seed)),
-    ])
+    ], memory=None)  # sin caché de transformaciones: el scaler es barato y el fit corre una vez
     return pipeline.fit(data.features, data.labels)
 
 
@@ -91,8 +90,7 @@ def _load_all(source: TrainingDataSource) -> dict[Purpose, TrainingSet]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Entrena el modelo de recomendación de estaciones")
-    parser.add_argument("--model-dir", type=Path, default=model_store.default_model_dir())
-    parser.add_argument("--version")
+    parser.add_argument("--version", type=model_store.validate_version)
     parser.add_argument("--scenarios", type=int, default=4000)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = parser.parse_args(argv)
@@ -100,7 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     bundle = train_synthetic(args.scenarios, args.seed)
     if args.version:
         bundle.version = bundle.card["version"] = args.version
-    path = model_store.save(bundle, args.model_dir, promote=True)
+    # El destino sale de MODEL_DIR (igual que el servicio), no de un argumento de línea de comandos.
+    path = model_store.save(bundle, model_store.default_model_dir(), promote=True)
     print(f"Modelo {bundle.version} entrenado y vigente en {path}")
     print(json.dumps(bundle.card["purposes"], indent=2, ensure_ascii=False))
     return 0

@@ -25,7 +25,7 @@ class Metrics:
 def split(data: TrainingSet, test_size: float = 0.2, seed: int = 42) -> tuple[TrainingSet, TrainingSet]:
     """Separa por escenario: las candidatas de una misma consulta nunca quedan repartidas."""
     splitter = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=seed)
-    train_idx, test_idx = next(splitter.split(data.features, data.labels, data.groups))
+    train_idx, _ = next(splitter.split(data.features, data.labels, data.groups))
     mask = np.zeros(len(data.labels), dtype=bool)
     mask[train_idx] = True
     return data.subset(mask), data.subset(~mask)

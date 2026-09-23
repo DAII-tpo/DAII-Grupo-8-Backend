@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -101,7 +102,9 @@ class RecommendationClientTest {
     void traduceUnErrorDelServicioAServicioNoDisponible() {
         server.expect(requestTo(RECOMMENDATIONS_URL)).andRespond(withServerError());
 
-        assertThatThrownBy(() -> client.recommend(request()))
+        RecommendationApiRequest request = request();
+
+        assertThatThrownBy(() -> client.recommend(request))
                 .isInstanceOf(RecommendationUnavailableException.class);
     }
 
@@ -110,7 +113,9 @@ class RecommendationClientTest {
         server.expect(requestTo(RECOMMENDATIONS_URL))
                 .andRespond(withSuccess("{esto no es json", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> client.recommend(request()))
+        RecommendationApiRequest request = request();
+
+        assertThatThrownBy(() -> client.recommend(request))
                 .isInstanceOf(RecommendationUnavailableException.class);
     }
 
@@ -120,7 +125,9 @@ class RecommendationClientTest {
         server.expect(requestTo(RECOMMENDATIONS_URL))
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> client.recommend(request()))
+        RecommendationApiRequest request = request();
+
+        assertThatThrownBy(() -> client.recommend(request))
                 .isInstanceOf(RecommendationUnavailableException.class);
     }
 
@@ -129,7 +136,9 @@ class RecommendationClientTest {
         server.expect(requestTo(RECOMMENDATIONS_URL))
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> client.recommend(request()))
+        RecommendationApiRequest request = request();
+
+        assertThatThrownBy(() -> client.recommend(request))
                 .isInstanceOf(RecommendationUnavailableException.class)
                 .hasMessageContaining("vacía");
     }
@@ -139,7 +148,9 @@ class RecommendationClientTest {
         server.expect(requestTo(RECOMMENDATIONS_URL))
                 .andRespond(withSuccess("{\"purpose\": \"PICKUP\"}", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> client.recommend(request()))
+        RecommendationApiRequest request = request();
+
+        assertThatThrownBy(() -> client.recommend(request))
                 .isInstanceOf(RecommendationUnavailableException.class);
     }
 
@@ -170,10 +181,14 @@ class RecommendationClientTest {
      */
     @Test
     void cortaLaEsperaCuandoElServicioNoContestaATiempo() throws IOException {
+        // El servicio retiene la respuesta hasta que el test lo libera (o 5 s como tope).
+        CountDownLatch liberar = new CountDownLatch(1);
         HttpServer lento = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         lento.createContext("/v1/recommendations", exchange -> {
             try {
-                TimeUnit.MILLISECONDS.sleep(1_500);
+                if (!liberar.await(5, TimeUnit.SECONDS)) {
+                    return;
+                }
                 byte[] body = OK_BODY.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, body.length);
@@ -193,13 +208,16 @@ class RecommendationClientTest {
             RecommendationClient conTimeoutCorto = new RecommendationClient(
                     new RecommendationClientConfig().recommendationRestClient(properties), properties);
 
+            RecommendationApiRequest request = request();
+
             long comienzo = System.nanoTime();
-            assertThatThrownBy(() -> conTimeoutCorto.recommend(request()))
+            assertThatThrownBy(() -> conTimeoutCorto.recommend(request))
                     .isInstanceOf(RecommendationUnavailableException.class);
             long transcurrido = Duration.ofNanos(System.nanoTime() - comienzo).toMillis();
 
             assertThat(transcurrido).isLessThan(1_000);
         } finally {
+            liberar.countDown();
             lento.stop(0);
         }
     }

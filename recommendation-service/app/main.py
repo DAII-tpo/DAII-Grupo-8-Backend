@@ -44,7 +44,7 @@ def create_app(model_dir: Path | None = None) -> FastAPI:
     def model_card(request: Request) -> dict:
         return request.app.state.scorer.card
 
-    @app.post("/v1/recommendations", response_model=RecommendationResponse, tags=["Recomendación"],
+    @app.post("/v1/recommendations", tags=["Recomendación"],
               summary="Recomendar una estación",
               description="Siempre responde 200 para casos de negocio: si no hay candidatas o ninguna tiene el "
                           "recurso necesario, `status` es NO_RECOMMENDATION con su `reason`. 422 solo si el "

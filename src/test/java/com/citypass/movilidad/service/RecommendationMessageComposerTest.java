@@ -94,8 +94,8 @@ class RecommendationMessageComposerTest {
         String mensaje = composer.forFallback(RecommendationPurpose.PICKUP, station("CERRITO", 236, 13, 17));
 
         assertThat(mensaje).isEqualTo("Te recomendamos CERRITO (236 m), la estación más cercana con "
-                + "bicicletas disponibles: hay 13.");
-        assertThat(mensaje).doesNotContainIgnoringCase("error");
+                + "bicicletas disponibles: hay 13.")
+                .doesNotContainIgnoringCase("error");
     }
 
     @Test

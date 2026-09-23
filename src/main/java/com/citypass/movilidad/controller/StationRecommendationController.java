@@ -31,16 +31,18 @@ public class StationRecommendationController {
 
     @GetMapping("/recommendation")
     @Operation(summary = "Estación recomendada para retirar o devolver una bicicleta",
-            description = "Devuelve la estación más conveniente considerando la distancia y la "
-                    + "disponibilidad actual, por lo que puede sugerir una estación más lejana que la "
-                    + "más cercana si a esa le queda poco stock. La decisión la toma un modelo de "
-                    + "machine learning (MOV-041) y la respuesta incluye la justificación y un mensaje "
-                    + "listo para mostrar.\n\n"
-                    + "Responde 200 también cuando no hay nada para recomendar: en ese caso `status` "
-                    + "es NO_RECOMMENDATION y `reason` indica si no hay estaciones cerca o si ninguna "
-                    + "tiene el recurso necesario. Si el modelo no está disponible, `source` pasa a "
-                    + "FALLBACK y el backend responde con la estación más cercana que tenga el recurso, "
-                    + "sin explicación del modelo. Disponible sin autenticación, igual que /nearby.")
+            description = """
+                    Devuelve la estación más conveniente considerando la distancia y la \
+                    disponibilidad actual, por lo que puede sugerir una estación más lejana que la \
+                    más cercana si a esa le queda poco stock. La decisión la toma un modelo de \
+                    machine learning (MOV-041) y la respuesta incluye la justificación y un mensaje \
+                    listo para mostrar.
+
+                    Responde 200 también cuando no hay nada para recomendar: en ese caso `status` \
+                    es NO_RECOMMENDATION y `reason` indica si no hay estaciones cerca o si ninguna \
+                    tiene el recurso necesario. Si el modelo no está disponible, `source` pasa a \
+                    FALLBACK y el backend responde con la estación más cercana que tenga el recurso, \
+                    sin explicación del modelo. Disponible sin autenticación, igual que /nearby.""")
     @ApiResponse(responseCode = "200", description = "Recomendación, o el motivo por el que no la hay",
             content = @Content(schema = @Schema(implementation = StationRecommendationResponse.class)))
     @ApiResponse(responseCode = "400", description = "Parámetros ausentes, no numéricos o fuera de rango",
