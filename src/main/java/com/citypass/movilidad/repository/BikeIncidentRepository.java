@@ -35,4 +35,8 @@ public interface BikeIncidentRepository extends JpaRepository<BikeIncident, Long
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select incident from BikeIncident incident where incident.id = :id")
     Optional<BikeIncident> findByIdForUpdate(@Param("id") Long id);
+
+    boolean existsByBikeIdAndStatus(Long bikeId, BikeIncidentStatus status);
+
+    boolean existsByTripIdAndStatus(Long tripId, BikeIncidentStatus status);
 }

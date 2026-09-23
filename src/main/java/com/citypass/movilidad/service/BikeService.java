@@ -197,10 +197,20 @@ public class BikeService {
         return origin;
     }
 
+    @Transactional
+    public void reportIncidentOnBike(Bike bike, User user, String reason) {
+        BikeStatus previous = bike.getStatus();
+        if (previous == BikeStatus.AVAILABLE || previous == BikeStatus.IN_USE) {
+            bike.setStatus(BikeStatus.MAINTENANCE);
+            Bike saved = bikeRepository.save(bike);
+            recordStatusChange(saved, previous, BikeStatus.MAINTENANCE, reason, user);
+        }
+    }
+
     /** Devuelve la bicicleta en la estación destino al finalizar un viaje y devuelve esa estación. */
     @Transactional
     public Station checkInFromTrip(Bike bike, Long stationId, User user) {
-        if (bike.getStatus() != BikeStatus.IN_USE) {
+        if (bike.getStatus() != BikeStatus.IN_USE && bike.getStatus() != BikeStatus.MAINTENANCE) {
             throw new BusinessRuleException(
                     "La bicicleta no está en uso: " + bike.getId() + " (" + bike.getStatus() + ")");
         }
@@ -216,9 +226,13 @@ public class BikeService {
         }
         ensureCapacity(destination);
         bike.setStation(destination);
-        bike.setStatus(BikeStatus.AVAILABLE);
-        Bike saved = bikeRepository.save(bike);
-        recordStatusChange(saved, BikeStatus.IN_USE, BikeStatus.AVAILABLE, "Fin de viaje", user);
+        if (bike.getStatus() != BikeStatus.MAINTENANCE) {
+            bike.setStatus(BikeStatus.AVAILABLE);
+            Bike saved = bikeRepository.save(bike);
+            recordStatusChange(saved, BikeStatus.IN_USE, BikeStatus.AVAILABLE, "Fin de viaje", user);
+        } else {
+            bikeRepository.save(bike);
+        }
         return destination;
     }
 
