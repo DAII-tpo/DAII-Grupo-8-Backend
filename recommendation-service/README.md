@@ -87,6 +87,19 @@ Variables: `MODEL_DIR` (default `./models`), `PORT` (Docker/Render).
 
 Si no hay modelo entrenado al arrancar, el servicio entrena el sintético automáticamente (tarda unos segundos).
 
+### Dependencias
+
+`requirements.txt` / `requirements-dev.txt` declaran las dependencias directas. El CI y el Dockerfile instalan
+desde `requirements.lock` / `requirements-dev.lock`, que fijan también las transitivas con sus hashes
+(`pip install --require-hashes --only-binary :all:`). Si cambiás un `.txt`, regenerá el lock correspondiente:
+
+```bash
+uv pip compile requirements-dev.txt -o requirements-dev.lock --generate-hashes \
+  --python-version 3.12 --python-platform x86_64-unknown-linux-gnu --only-binary :all: --no-header
+```
+
+(Lo mismo con `requirements.txt` → `requirements.lock`.)
+
 ## Evolución
 
 El entrenamiento recibe los datos a través del protocolo `TrainingDataSource` (`training/sources.py`). Para
