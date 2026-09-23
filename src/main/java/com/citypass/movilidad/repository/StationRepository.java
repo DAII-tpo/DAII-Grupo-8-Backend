@@ -13,7 +13,8 @@ import java.util.Optional;
 
 public interface StationRepository extends JpaRepository<Station, Long> {
 
-    Optional<Station> findByExternalId(String externalId);
+    @Query("select s.externalId from Station s where s.externalId is not null")
+    List<String> findAllExternalIds();
 
     Optional<Station> findByIdAndDeletedAtIsNull(Long id);
 

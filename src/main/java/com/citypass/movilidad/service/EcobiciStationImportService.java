@@ -39,7 +39,10 @@ public class EcobiciStationImportService {
         int imported = 0;
         int duplicates = 0;
         int invalid = 0;
-        Set<String> seenExternalIds = new HashSet<>();
+        // Una sola consulta para las estaciones ya importadas: la importación corre en cada arranque
+        // (en Render el plan free reinicia la app al despertarla) y consultar fila por fila serían
+        // cientos de viajes a la base antes de poder atender requests.
+        Set<String> seenExternalIds = new HashSet<>(stationRepository.findAllExternalIds());
 
         JsonNode features;
         try (var inputStream = dataset.getInputStream()) {
@@ -55,8 +58,7 @@ public class EcobiciStationImportService {
                 processed++;
                 EcobiciStationRow row = mapFeature(properties);
                 String externalId = row.externalId().trim();
-                if (!seenExternalIds.add(externalId)
-                        || stationRepository.findByExternalId(externalId).isPresent()) {
+                if (!seenExternalIds.add(externalId)) {
                     duplicates++;
                     continue;
                 }
