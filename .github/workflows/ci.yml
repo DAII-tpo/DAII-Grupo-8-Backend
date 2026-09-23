@@ -36,6 +36,30 @@ jobs:
       - name: Generar reporte de cobertura
         run: ./gradlew jacocoTestReport
 
+      # Servicio de recomendación (MOV-041): Python + FastAPI + scikit-learn.
+      # Corre antes de Sonar para que su coverage.xml entre en el mismo análisis.
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: recommendation-service/requirements-dev.lock
+
+      # Lockfile con hashes y solo wheels: se instala exactamente lo resuelto y no se ejecutan setup scripts.
+      - name: Instalar dependencias del servicio de recomendación
+        run: |
+          pip install --require-hashes --only-binary :all: -r recommendation-service/requirements-dev.lock
+
+      # Se corre desde la raíz para que las rutas del coverage.xml sean relativas al repo: Sonar las resuelve
+      # desde ahí y, si no coinciden, reporta 0% de cobertura sin avisar.
+      - name: Tests del servicio de recomendación
+        run: >
+          pytest recommendation-service
+          --cov=recommendation-service/app
+          --cov=recommendation-service/training
+          --cov-config=recommendation-service/.coveragerc
+          --cov-report=xml:recommendation-service/coverage.xml
+
       - name: Analizar calidad con SonarQube
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

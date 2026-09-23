@@ -11,7 +11,8 @@ Backend del módulo **Movilidad Urbana Inteligente** (Grupo 8) del proyecto **Ci
 | API | REST versionada (`/api/v1`), documentada con springdoc-openapi |
 | Event Bus | Apache Kafka (gestionado por el Grupo 1, vía Event Gateway HTTP para publicar) |
 | Auth | JWT (Spring Security + `NimbusJwtDecoder`, contra el auth-simulator del Grupo 1) |
-| Testing | JUnit 5, Mockito, Testcontainers, spring-kafka-test, Jacoco |
+| IA / recomendación | Python 3.12 + FastAPI + scikit-learn (microservicio en [`recommendation-service/`](recommendation-service)) |
+| Testing | JUnit 5, Mockito, Testcontainers, spring-kafka-test, Jacoco · pytest + pytest-cov |
 | CI/CD | GitHub Actions, Sonarqube |
 
 Se usa Spring Boot 3.5.x (no 4.x) porque el Grupo 1 reportó incompatibilidad entre Jackson 3 (usado por Spring Boot 4.x) y el serializador Avro de Confluent. Ver la decisión completa en MOV-004.
@@ -69,6 +70,7 @@ Todas tienen default para desarrollo local (pensados para el contenedor Docker d
 | `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | Parámetros de la URL JDBC. En bases gestionadas hay que exigir TLS |
 | `SECURITY_LOCAL_ENABLED` | `true` | `true` deja todos los endpoints abiertos. `false` exige JWT |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma |
+| `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | Servicio de recomendación inteligente (MOV-041). Si no responde, el backend usa el criterio de respaldo |
 
 Si tu MySQL local tiene otras credenciales, sobreescribí las variables al correr:
 
@@ -84,7 +86,25 @@ O en IntelliJ: Run Configuration → Environment variables → agregá `DB_PASSW
 ./gradlew bootRun
 ```
 
-### 4. Consultar la documentacion REST
+### 4. (Opcional) Servicio de recomendación inteligente
+
+Microservicio Python independiente (MOV-041). Su integración con este backend es MOV-042. Para levantarlo:
+
+```bash
+cd recommendation-service
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt      # Windows (en Linux/Mac: .venv/bin/pip)
+.venv/Scripts/python -m uvicorn app.main:app --port 8000
+```
+
+La API queda en `http://localhost:8000` (OpenAPI en `/docs`). Detalle del modelo, entrenamiento y contrato:
+[recommendation-service/README.md](recommendation-service/README.md) y [docs/MOV-041](docs/MOV-041-recomendacion-inteligente.md).
+
+El backend lo consume en `GET /api/v1/stations/recommendation` (MOV-042). **No hace falta tenerlo levantado**:
+si no responde, el endpoint contesta igual con el criterio de respaldo (`source = FALLBACK`). Ver
+[docs/MOV-042](docs/MOV-042-integracion-recomendacion.md).
+
+### 5. Consultar la documentacion REST
 
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - OpenAPI JSON: `http://localhost:8080/api-docs`
@@ -100,6 +120,10 @@ con `sync: false` y se cargan en el dashboard de Render, nunca en el repo.
 
 La base es un MySQL gestionado externo (Render no ofrece MySQL). Flyway crea el esquema solo en el primer arranque.
 
+`render.yaml` define un segundo servicio, `movilidad-recommendation` (el microservicio Python, con su propio
+`Dockerfile` en `recommendation-service/`). Cada servicio se redeploya solo cuando cambian sus archivos. En el
+plan free se duerme sin tráfico y tarda 30-60 s en despertar.
+
 Antes de exponer la API conviene revisar dos cosas:
 
 - `SECURITY_LOCAL_ENABLED=true` deja los endpoints de escritura (`POST`, `PATCH`) abiertos a cualquiera con la URL.
@@ -109,6 +133,12 @@ Antes de exponer la API conviene revisar dos cosas:
 
 ```bash
 ./gradlew test
+```
+
+Servicio de recomendación (desde `recommendation-service/`, con `requirements-dev.txt` instalado):
+
+```bash
+pytest --cov
 ```
 
 ## Importar estaciones Ecobici
