@@ -47,7 +47,8 @@ jobs:
 
       # Lockfile con hashes y solo wheels: se instala exactamente lo resuelto y no se ejecutan setup scripts.
       - name: Instalar dependencias del servicio de recomendación
-        run: pip install --require-hashes --only-binary :all: -r recommendation-service/requirements-dev.lock
+        run: |
+          pip install --require-hashes --only-binary :all: -r recommendation-service/requirements-dev.lock
 
       # Se corre desde la raíz para que las rutas del coverage.xml sean relativas al repo: Sonar las resuelve
       # desde ahí y, si no coinciden, reporta 0% de cobertura sin avisar.
