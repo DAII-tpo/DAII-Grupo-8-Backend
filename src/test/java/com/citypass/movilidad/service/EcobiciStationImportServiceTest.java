@@ -12,7 +12,7 @@ import org.springframework.core.io.ClassPathResource;
 
 import java.nio.charset.StandardCharsets;
 import java.io.IOException;
-import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,7 +52,7 @@ class EcobiciStationImportServiceTest {
     void skipsExistingStationsWithoutOverwritingManualChanges() throws Exception {
         String geoJson = featureCollection(
                 feature(2, 2, "RETIRO I", "Av. Ramos Mejia 1300", -34.592424, -58.374710, 20));
-        when(repository.findByExternalId("ecobici-2-2")).thenReturn(Optional.of(new Station()));
+        when(repository.findAllExternalIds()).thenReturn(List.of("ecobici-2-2"));
 
         StationImportResult result = service.importStations(resource(geoJson));
 

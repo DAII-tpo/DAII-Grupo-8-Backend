@@ -4,8 +4,11 @@ import com.citypass.movilidad.model.BikeStatusHistory;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface BikeStatusHistoryRepository extends JpaRepository<BikeStatusHistory, Long> {
 
     List<BikeStatusHistory> findAllByBikeIdOrderByChangedAtDesc(Long bikeId);
+
+    Optional<BikeStatusHistory> findFirstByBikeIdOrderByChangedAtDescIdDesc(Long bikeId);
 }

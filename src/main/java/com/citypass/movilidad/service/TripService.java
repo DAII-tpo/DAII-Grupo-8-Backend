@@ -10,8 +10,10 @@ import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.Trip;
 import com.citypass.movilidad.model.User;
+import com.citypass.movilidad.model.enums.BikeIncidentStatus;
 import com.citypass.movilidad.model.enums.TripStatus;
 import com.citypass.movilidad.model.enums.UserStatus;
+import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
 import org.springframework.data.domain.Page;
@@ -40,13 +42,16 @@ public class TripService {
     private final UserRepository userRepository;
     private final BikeService bikeService;
     private final TripEventPublisher eventPublisher;
+    private final BikeIncidentRepository incidentRepository;
 
     public TripService(TripRepository tripRepository, UserRepository userRepository,
-                       BikeService bikeService, TripEventPublisher eventPublisher) {
+                       BikeService bikeService, TripEventPublisher eventPublisher,
+                       BikeIncidentRepository incidentRepository) {
         this.tripRepository = tripRepository;
         this.userRepository = userRepository;
         this.bikeService = bikeService;
         this.eventPublisher = eventPublisher;
+        this.incidentRepository = incidentRepository;
     }
 
     @Transactional
@@ -117,6 +122,11 @@ public class TripService {
             throw new BusinessRuleException("La bicicleta es inconsistente con el viaje: " + tripId);
         }
         Station destination = bikeService.checkInFromTrip(bike, request.destinationStationId(), user);
+        // Una incidencia reportada durante el viaje no cambia el estado de la bicicleta IN_USE
+        // (ver BikeService.reportIncidentOnBike): recién al devolverla se la saca de circulación.
+        if (incidentRepository.existsByTripIdAndStatusIn(tripId, BikeIncidentStatus.PENDING)) {
+            bikeService.reportIncidentOnBike(bike, user, BikeService.INCIDENT_REASON_PREFIX + " durante el viaje");
+        }
 
         Instant endedAt = Instant.now();
         trip.setDestinationStation(destination);

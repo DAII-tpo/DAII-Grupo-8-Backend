@@ -52,6 +52,12 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: default
 
+      # --- Estaciones Ecobici (dataset oficial, src/main/resources/datasets) ---
+      # Carga las 468 estaciones en cada arranque. Saltea las que ya existen
+      # (por external_id) y no pisa cambios manuales, así que puede quedar siempre activo.
+      - key: ECOBICI_IMPORT_ENABLED
+        value: "true"
+
   # Microservicio de recomendación de estaciones (MOV-041: Python + FastAPI + scikit-learn). El modelo se
   # entrena durante el build de la imagen. Sin base de datos: recibe el snapshot de estaciones en cada request.
   # La integración con el backend (URL, timeouts, fallback) corresponde a MOV-042.
