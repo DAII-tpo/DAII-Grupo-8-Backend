@@ -7,17 +7,11 @@ import com.citypass.movilidad.model.enums.NoRecommendationReason;
 import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import org.springframework.stereotype.Component;
 
-/**
- * Traduce el resultado de la recomendación (MOV-042) a un texto en español listo para mostrar.
- *
- * Existe para que el frontend no tenga que replicar la tabla de códigos de MOV-041 ni las
- * reglas de plural: recibe el mensaje armado y, si quiere, igual puede usar el `code` crudo.
- * Los mensajes solo describen el estado actual de las estaciones; nunca afirman nada sobre su
- * historial, porque el modelo no lo conoce.
- */
+/** Arma el mensaje que ve el usuario para cada resultado de la recomendación. */
 @Component
 public class RecommendationMessageComposer {
 
+    /** Mensaje cuando recomendó el modelo, según el código de explicación. */
     public String forRecommendation(RecommendationPurpose purpose, ExplanationCode code,
                                     RecommendedStation best, ComparedStation nearest) {
         if (code == ExplanationCode.NEAREST_IS_BEST || nearest == null) {
@@ -49,13 +43,14 @@ public class RecommendationMessageComposer {
                         nearest.stationName(), nearest.distanceMeters(), detail);
     }
 
-    /** Mensaje cuando decidió el respaldo: describe el criterio, sin mencionar la falla. */
+    /** Mensaje cuando decidió el criterio de respaldo. */
     public String forFallback(RecommendationPurpose purpose, RecommendedStation best) {
         return "Te recomendamos %s (%d m), la estación más cercana con %s: hay %d."
                 .formatted(best.stationName(), best.distanceMeters(), resource(purpose, true),
                         unitsOf(purpose, best));
     }
 
+    /** Mensaje cuando no hay estación para recomendar. */
     public String forNoRecommendation(RecommendationPurpose purpose, NoRecommendationReason reason) {
         if (reason == NoRecommendationReason.NO_CANDIDATES) {
             return "No encontramos estaciones cerca de tu ubicación.";

@@ -16,13 +16,7 @@ import org.springframework.web.client.RestClientException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Acceso HTTP al servicio de recomendación de estaciones (MOV-041, ver ADR-001).
- *
- * Su única responsabilidad es hablar con el servicio y traducir cualquier forma de falla a
- * RecommendationUnavailableException, para que quien lo use tenga un solo caso de error que
- * manejar en vez de distinguir entre timeouts, 5xx y cuerpos ilegibles.
- */
+/** Cliente HTTP del servicio de recomendación. Cualquier falla se traduce a RecommendationUnavailableException. */
 @Component
 public class RecommendationClient {
 
@@ -34,7 +28,7 @@ public class RecommendationClient {
     private final RestClient restClient;
     private final boolean warmUpEnabled;
 
-    /** Evita acumular pings cuando llegan muchas consultas mientras el servicio está dormido. */
+    // Evita pings simultáneos mientras el servicio está dormido.
     private final AtomicBoolean warmUpInProgress = new AtomicBoolean(false);
 
     public RecommendationClient(@Qualifier("recommendationRestClient") RestClient restClient,
@@ -43,10 +37,7 @@ public class RecommendationClient {
         this.warmUpEnabled = properties.warmUpEnabled();
     }
 
-    /**
-     * @throws RecommendationUnavailableException ante cualquier falla de transporte, error HTTP,
-     *                                            cuerpo vacío o respuesta que no se puede leer
-     */
+    /** Pide la recomendación. Lanza RecommendationUnavailableException ante cualquier falla. */
     public RecommendationApiResponse recommend(RecommendationApiRequest request) {
         RecommendationApiResponse response;
         try {
@@ -60,7 +51,7 @@ public class RecommendationClient {
                     "El servicio de recomendación no respondió correctamente", ex);
         }
 
-        // Un 200 con cuerpo vacío o sin status es tan inservible como un error: se trata igual.
+        // Un 200 vacío o sin status se trata como error.
         if (response == null || response.status() == null) {
             throw new RecommendationUnavailableException(
                     "El servicio de recomendación devolvió una respuesta vacía");
@@ -68,17 +59,13 @@ public class RecommendationClient {
         return response;
     }
 
-    /** Despierta el servicio al arrancar el backend, para que el primer usuario no pague la espera. */
+    /** Despierta el servicio al arrancar el backend. */
     @EventListener(ApplicationReadyEvent.class)
     public void warmUpOnStartup() {
         warmUp();
     }
 
-    /**
-     * Ping a /health sin bloquear ni propagar errores. En el plan free de Render el servicio se
-     * duerme sin tráfico: despertarlo después de un respaldo hace que la próxima consulta sí
-     * llegue al modelo.
-     */
+    /** Ping asincrónico a /health para despertar el servicio; ignora errores. */
     public void warmUp() {
         if (!warmUpEnabled || !warmUpInProgress.compareAndSet(false, true)) {
             return;

@@ -26,13 +26,8 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Ciclo de vida de un viaje: inicio (MOV-026), consulta del viaje activo (MOV-027),
- * finalización (MOV-028) e historial de viajes finalizados (MOV-030).
- *
- * Cada operación que modifica el viaje y la bicicleta corre en una sola transacción: si falla
- * cualquier validación no queda ningún cambio parcial. Los locks pesimistas (usuario, viaje,
- * bicicleta y estación destino) evitan que dos solicitudes concurrentes dejen al usuario con dos
- * viajes activos, usen la misma bicicleta a la vez o superen la capacidad de una estación.
+ * Ciclo de vida de un viaje: inicio, viaje activo, fin e historial.
+ * Usa locks pesimistas para evitar viajes duplicados, bicis compartidas o estaciones sobrepasadas.
  */
 @Service
 @Transactional(readOnly = true)
@@ -55,6 +50,7 @@ public class TripService {
     }
 
     @Transactional
+    /** Inicia un viaje: el usuario tiene que estar activo, sin otro viaje, y la bici disponible. */
     public TripResponse startTrip(Long userId, TripStartRequest request) {
         User user = lockUser(userId);
         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -77,19 +73,13 @@ public class TripService {
         return toResponse(saved);
     }
 
+    /** Viaje activo del usuario, si tiene. */
     public Optional<TripResponse> findActiveTrip(Long userId) {
         existingUser(userId);
         return activeTripOf(userId).map(this::toResponse);
     }
 
-    /**
-     * Historial paginado de los viajes finalizados del usuario (MOV-030), del más reciente al más
-     * antiguo.
-     *
-     * El filtro por usuario va dentro de la consulta y no sobre el resultado: un usuario nunca
-     * puede ver los viajes de otro. Un usuario sin viajes finalizados recibe una página vacía, que
-     * es el caso esperado de un usuario nuevo y no un error.
-     */
+    /** Historial paginado de viajes finalizados del usuario, del más reciente al más antiguo. */
     public PagedResponse<TripResponse> findTripHistory(Long userId, int page, int size) {
         existingUser(userId);
         Page<TripResponse> history = tripRepository
@@ -99,14 +89,11 @@ public class TripService {
         return PagedResponse.of(history);
     }
 
-    /**
-     * No exige que el usuario siga ACTIVE: si fue bloqueado durante el viaje igual tiene que poder
-     * devolver la bicicleta.
-     */
+    /** Finaliza el viaje devolviendo la bici. No exige usuario ACTIVE: un bloqueado igual puede devolverla. */
     @Transactional
     public TripResponse endTrip(Long userId, Long tripId, TripEndRequest request) {
         User user = lockUser(userId);
-        // El viaje de otro usuario se informa como inexistente para no revelar que existe.
+        // Un viaje de otro usuario se responde como inexistente.
         Trip trip = tripRepository.findByIdForUpdate(tripId)
                 .filter(found -> found.getUser().getId().equals(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Viaje no encontrado: " + tripId));
@@ -122,8 +109,7 @@ public class TripService {
             throw new BusinessRuleException("La bicicleta es inconsistente con el viaje: " + tripId);
         }
         Station destination = bikeService.checkInFromTrip(bike, request.destinationStationId(), user);
-        // Una incidencia reportada durante el viaje no cambia el estado de la bicicleta IN_USE
-        // (ver BikeService.reportIncidentOnBike): recién al devolverla se la saca de circulación.
+        // Si se reportó una incidencia durante el viaje, la bici sale de circulación al devolverla.
         if (incidentRepository.existsByTripIdAndStatusIn(tripId, BikeIncidentStatus.PENDING)) {
             bikeService.reportIncidentOnBike(bike, user, BikeService.INCIDENT_REASON_PREFIX + " durante el viaje");
         }

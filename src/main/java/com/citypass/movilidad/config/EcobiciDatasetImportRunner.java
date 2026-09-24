@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 
+/** Importa las estaciones Ecobici al arrancar, si app.dataset.ecobici.import-enabled=true. */
 @Component
 @ConditionalOnProperty(name = "app.dataset.ecobici.import-enabled", havingValue = "true")
 public class EcobiciDatasetImportRunner implements ApplicationRunner {

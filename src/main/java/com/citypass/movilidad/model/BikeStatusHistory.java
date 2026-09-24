@@ -21,6 +21,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
+/** Registro de cada cambio de estado de una bicicleta. */
 @Entity
 @Table(name = "bike_status_history")
 @Getter
@@ -46,7 +47,7 @@ public class BikeStatusHistory {
     @Column(name = "new_status", nullable = false, length = 20)
     private BikeStatus newStatus;
 
-    // Nullable: null si el cambio fue automático (no disparado por un usuario).
+    // Null si el cambio fue automático.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "changed_by_user_id", nullable = true)
     private User changedByUser;

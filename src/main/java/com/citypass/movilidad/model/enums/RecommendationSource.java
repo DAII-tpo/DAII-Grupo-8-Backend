@@ -1,14 +1,11 @@
 package com.citypass.movilidad.model.enums;
 
-/**
- * Quién decidió la recomendación (MOV-042). El frontend lo necesita para saber si la
- * respuesta trae explicación del modelo o si es el criterio de respaldo del backend.
- */
+/** Quién decidió la recomendación: el modelo o el criterio de respaldo. */
 public enum RecommendationSource {
 
-    /** Decidió el modelo de machine learning del servicio de recomendación (MOV-041). */
+    /** Decidió el modelo de machine learning. */
     MODEL,
 
-    /** El servicio no respondió: decidió el backend con la estación más cercana con recurso. */
+    /** El servicio no respondió: la estación más cercana con el recurso. */
     FALLBACK
 }

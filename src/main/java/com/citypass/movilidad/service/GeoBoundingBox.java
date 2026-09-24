@@ -1,13 +1,8 @@
 package com.citypass.movilidad.service;
 
 /**
- * Caja de coordenadas que contiene por completo al círculo de radio dado alrededor de un
- * punto. Sirve como prefiltro barato de la búsqueda de estaciones cercanas: permite que la
- * consulta use el índice (latitude, longitude) creado en MOV-012 antes de calcular la
- * distancia real, que es exacta pero no puede aprovechar el índice.
- *
- * Siempre devuelve un superconjunto del círculo: puede incluir estaciones de más, nunca de
- * menos. El filtro definitivo por distancia lo aplica la consulta.
+ * Caja de coordenadas que contiene al círculo de búsqueda. Es un prefiltro que aprovecha el índice
+ * (lat, lng); el filtro exacto por distancia lo hace la consulta.
  */
 public record GeoBoundingBox(double minLatitude, double maxLatitude,
                              double minLongitude, double maxLongitude) {
@@ -28,18 +23,14 @@ public record GeoBoundingBox(double minLatitude, double maxLatitude,
             return fullLongitudeRange(minLatitude, maxLatitude);
         }
 
-        // El grado de longitud se acorta con la latitud: uso el borde más cercano al polo
-        // para que la caja siga conteniendo al círculo entero. Si el coseno fuera diminuto,
-        // el delta se dispara (o da Infinity) y el control de ±180 de abajo abre el rango
-        // completo, que es justamente lo correcto cerca de los polos.
+        // El grado de longitud se acorta con la latitud: se usa el borde más cercano al polo.
         double worstCaseLatitude = Math.max(Math.abs(minLatitude), Math.abs(maxLatitude));
         double cosine = Math.cos(Math.toRadians(worstCaseLatitude));
         double longitudeDelta = Math.toDegrees(radiusMeters / (EARTH_RADIUS_METERS * cosine));
         double minLongitude = longitude - longitudeDelta;
         double maxLongitude = longitude + longitudeDelta;
 
-        // Si la caja cruzaría el antimeridiano, un BETWEEN dejaría afuera la mitad que da la
-        // vuelta. Abrir el rango completo es correcto (sigue siendo superconjunto) y simple.
+        // Si cruza el antimeridiano se abre todo el rango de longitudes.
         if (minLongitude < MIN_LONGITUDE || maxLongitude > MAX_LONGITUDE) {
             return fullLongitudeRange(minLatitude, maxLatitude);
         }

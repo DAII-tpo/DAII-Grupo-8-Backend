@@ -81,7 +81,7 @@ sonar {
         property "sonar.cpd.exclusions", "**/model/**,**/dto/**"
         property "sonar.coverage.jacoco.xmlReportPaths",
                 "build/reports/jacoco/test/jacocoTestReport.xml"
-        // Servicio de recomendación en Python (MOV-041): mismo proyecto de Sonar que el backend.
+        // El servicio de recomendación (Python) se analiza en el mismo proyecto de Sonar.
         properties["sonar.sources"] += files("recommendation-service/app", "recommendation-service/training")
         properties["sonar.tests"] += files("recommendation-service/tests")
         property "sonar.python.version", "3.12"

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/** Alta, consulta y edición de estaciones. */
 @Service
 @Slf4j
 public class StationService {
@@ -54,10 +55,7 @@ public class StationService {
 
     }
 
-    /**
-     * status y source son columnas NOT NULL pero opcionales en el request: se completan acá para
-     * que omitirlas no termine en un error de integridad (MOV-021).
-     */
+    // status y source son opcionales en el request pero obligatorios en la base.
     private static void applyDefaults(Station station) {
         if (station.getStatus() == null) {
             station.setStatus(StationStatus.ACTIVE);

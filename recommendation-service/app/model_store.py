@@ -1,13 +1,6 @@
-"""Persistencia de modelos entrenados.
+"""Guarda y carga los modelos entrenados (models/<version>/ y models/current.json).
 
-Estructura en disco:
-    models/<version>/model.joblib        pipelines por propósito
-    models/<version>/model_card.json     cómo se entrenó y cómo rinde
-    models/current.json                  {"version": "<versión que sirve la API>"}
-
-Los artefactos no se versionan en git: se generan con `python -m training.train` (el Dockerfile lo corre en
-el build) y, si faltan al levantar el servicio, se entrenan con el dataset sintético (semilla fija, por lo
-que el resultado es reproducible).
+Si no hay modelo al arrancar, se entrena con el dataset sintético.
 """
 
 from __future__ import annotations
@@ -27,7 +20,7 @@ log = logging.getLogger(__name__)
 
 SERVICE_ROOT = Path(__file__).resolve().parent.parent
 CURRENT_FILE = "current.json"
-# La versión termina siendo un nombre de directorio: solo se aceptan nombres simples, sin separadores ni "..".
+# La versión es un nombre de directorio: sin separadores ni "..".
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 

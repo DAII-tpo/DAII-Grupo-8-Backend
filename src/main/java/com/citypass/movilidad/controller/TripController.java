@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 
+/** Endpoints de viajes del usuario. */
 @RestController
 @RequestMapping("/api/v1/trips")
 @Validated
@@ -37,8 +38,7 @@ import java.net.URI;
         description = "Inicio, consulta del viaje activo, finalización e historial de viajes")
 public class TripController {
 
-    // TODO: reemplazar por contexto de seguridad de Grupo 2. Mientras no esté integrado el login
-    // federado (LDAP + JWT), el usuario actual se identifica con este header.
+    // Pendiente: reemplazar por la identidad del JWT cuando esté integrado el Login Federado.
     static final String USER_HEADER = "X-User-Id";
     private static final String USER_HEADER_DESCRIPTION =
             "ID del usuario actual. Mecanismo temporal hasta integrar el login federado de Grupo 2";
@@ -49,6 +49,7 @@ public class TripController {
         this.tripService = tripService;
     }
 
+    /** POST /trips: inicia un viaje. */
     @PostMapping
     @Operation(summary = "Iniciar un viaje",
             description = "Retira una bicicleta AVAILABLE: crea el viaje ACTIVE y la bicicleta pasa a IN_USE")
@@ -69,6 +70,7 @@ public class TripController {
         return ResponseEntity.created(URI.create("/api/v1/trips/" + created.id())).body(created);
     }
 
+    /** GET /trips/active: viaje activo del usuario (204 si no tiene). */
     @GetMapping("/active")
     @Operation(summary = "Consultar el viaje activo del usuario",
             description = "Devuelve bicicleta, estación de origen y hora de inicio del viaje en curso")
@@ -87,6 +89,7 @@ public class TripController {
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
+    /** GET /trips/history: historial paginado de viajes finalizados. */
     @GetMapping("/history")
     @Operation(summary = "Historial de viajes del usuario",
             description = "Devuelve los viajes finalizados del usuario, del más reciente al más antiguo, "
@@ -110,6 +113,7 @@ public class TripController {
         return tripService.findTripHistory(userId, page, size);
     }
 
+    /** POST /trips/{id}/end: finaliza el viaje devolviendo la bici. */
     @PostMapping("/{id}/end")
     @Operation(summary = "Finalizar un viaje",
             description = "Devuelve la bicicleta en una estación habilitada con capacidad: el viaje pasa a "

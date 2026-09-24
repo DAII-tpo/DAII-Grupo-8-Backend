@@ -18,6 +18,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
+/** Foto histórica de la disponibilidad de una estación (todavía sin uso). */
 @Entity
 @Table(name = "station_availability_history")
 @Getter

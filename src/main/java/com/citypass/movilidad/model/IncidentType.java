@@ -12,6 +12,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+/** Tipo de incidencia (pinchazo, frenos, etc.). */
 @Entity
 @Table(name = "incident_types")
 @Getter

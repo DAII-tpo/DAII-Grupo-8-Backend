@@ -5,13 +5,7 @@ import org.springframework.data.domain.Page;
 
 import java.util.List;
 
-/**
- * Página de resultados de una consulta de lectura.
- *
- * Existe para no serializar directamente el {@code Page} de Spring Data: su JSON incluye la
- * estructura interna de {@code Pageable}, no es un contrato estable entre versiones y Spring Boot
- * avisa de eso desde la 3.3. Este record es el contrato que ve el frontend.
- */
+/** Página de resultados. Se usa en lugar de Page de Spring, cuyo JSON no es estable. */
 @Schema(description = "Página de resultados")
 public record PagedResponse<T>(
 

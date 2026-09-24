@@ -13,7 +13,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     Optional<User> findByEmail(String email);
 
-    /** Serializa las operaciones de viaje de un mismo usuario (evita dos viajes activos concurrentes). */
+    /** Usuario con lock pesimista, para evitar dos viajes activos simultáneos. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") Long id);

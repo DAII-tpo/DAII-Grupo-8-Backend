@@ -29,7 +29,6 @@ inteligente de estaciones.
 - [Seguridad](#seguridad)
 - [Tests y calidad](#tests-y-calidad)
 - [CI/CD y deploy](#cicd-y-deploy)
-- [Documentación adicional](#documentación-adicional)
 - [Pendientes y dependencias externas](#pendientes-y-dependencias-externas)
 
 ## Stack
@@ -47,7 +46,7 @@ inteligente de estaciones.
 | CI/CD | GitHub Actions + SonarQube (quality gate) · deploy en Render |
 
 Se usa Spring Boot 3.5.x (no 4.x) porque el Grupo 1 reportó incompatibilidad entre Jackson 3 (usado por
-Spring Boot 4.x) y el serializador Avro de Confluent (decisión MOV-004).
+Spring Boot 4.x) y el serializador Avro de Confluent.
 
 ## Arquitectura
 
@@ -65,8 +64,7 @@ Spring Boot 4.x) y el serializador Avro de Confluent (decisión MOV-004).
 
 - **Backend (este repo)**: API REST con toda la lógica de negocio. Es la única pieza que escribe en la base.
 - **Servicio de recomendación**: recibe un snapshot de estaciones candidatas y devuelve un ranking con su
-  justificación. Si no responde, el backend contesta igual con un criterio de respaldo
-  ([ADR-001](docs/adr/ADR-001-recomendacion-http-sincrona.md)).
+  justificación. Si no responde, el backend contesta igual con un criterio de respaldo.
 - **Base de datos**: MySQL gestionado externo (Render no ofrece MySQL). Flyway crea y migra el esquema al arrancar.
 
 ## Estructura del proyecto
@@ -90,8 +88,8 @@ Spring Boot 4.x) y el serializador Avro de Confluent (decisión MOV-004).
 │   ├── db/migration/  # Migraciones Flyway (V1, V2, ...)
 │   └── datasets/      # Dataset oficial de estaciones Ecobici (GeoJSON)
 ├── src/test/java/...  # Tests unitarios y de integración
-├── recommendation-service/   # Microservicio Python de recomendación (MOV-041)
-├── docs/              # Documentación por ticket y ADRs
+├── recommendation-service/   # Microservicio Python de recomendación
+├── docs/adr/          # Decisión de arquitectura del modelo de IA
 ├── Dockerfile         # Imagen del backend (build multi-stage)
 ├── render.yaml        # Blueprint de Render (backend + servicio de recomendación)
 └── .github/workflows/ # CI (PRs) y CD (push a main)
@@ -294,8 +292,6 @@ Todos los errores responden con el mismo cuerpo:
 | 409 | `DATA_INTEGRITY_VIOLATION` / `CONCURRENT_UPDATE` | Conflicto en la base o modificación concurrente |
 | 500 | `INTERNAL_ERROR` | Error inesperado (el detalle queda solo en el log) |
 
-Detalle en [docs/MOV-021](docs/MOV-021-manejo-errores-validaciones.md).
-
 ## Reglas de negocio
 
 ### Estados de una bicicleta
@@ -396,8 +392,8 @@ El repo incluye el dataset oficial de estaciones de bicicletas públicas de Buen
    (`source = FALLBACK`). La recomendación nunca hace caer el módulo.
 4. Si no hay estaciones cerca o ninguna tiene el recurso, responde `200` con `status = NO_RECOMMENDATION` y el motivo.
 
-Modelo, entrenamiento, métricas y contrato: [recommendation-service/README.md](recommendation-service/README.md),
-[docs/MOV-041](docs/MOV-041-recomendacion-inteligente.md) y [docs/MOV-042](docs/MOV-042-integracion-recomendacion.md).
+Modelo, entrenamiento y métricas: [recommendation-service/README.md](recommendation-service/README.md).
+Por qué se eligió regresión logística y no otro algoritmo: [ADR-002](docs/adr/ADR-002-modelo-regresion-logistica.md).
 
 ## Seguridad
 
@@ -439,7 +435,7 @@ pytest --cov
 ```
 
 La calidad se controla en **SonarQube** (SonarCloud, organización `daii-tpo`) con quality gate obligatorio en
-cada PR. El informe de tests de mutación está en [docs/INFORME_TESTS_MUTACION.md](docs/INFORME_TESTS_MUTACION.md).
+cada PR.
 
 ## CI/CD y deploy
 
@@ -461,20 +457,6 @@ cada PR. El informe de tests de mutación está en [docs/INFORME_TESTS_MUTACION.
 - Después de un merge, el deploy tarda unos minutos. Si no aparece, revisar la pestaña *Events* del servicio
   en Render; ahí se puede lanzar un *Manual Deploy*.
 - Plan free: los servicios se duermen sin tráfico y tardan 30–60 s en despertar.
-
-## Documentación adicional
-
-| Documento | Tema |
-|---|---|
-| [MOV-015](docs/MOV-015-api-bicicletas.md) | API de bicicletas |
-| [MOV-016](docs/MOV-016-disponibilidad-estaciones.md) | Disponibilidad de estaciones |
-| [MOV-017](docs/MOV-017-estaciones-cercanas.md) | Búsqueda de estaciones cercanas |
-| [MOV-021](docs/MOV-021-manejo-errores-validaciones.md) | Manejo de errores y validaciones |
-| [MOV-041](docs/MOV-041-recomendacion-inteligente.md) | Modelo de recomendación inteligente |
-| [MOV-042](docs/MOV-042-integracion-recomendacion.md) | Integración de la recomendación en el backend |
-| [ADR-001](docs/adr/ADR-001-recomendacion-http-sincrona.md) | Recomendación por HTTP síncrono |
-| [ADR-002](docs/adr/ADR-002-modelo-regresion-logistica.md) | Elección del modelo (regresión logística) |
-| [Tests de mutación](docs/INFORME_TESTS_MUTACION.md) | Informe de calidad de los tests |
 
 ## Pendientes y dependencias externas
 

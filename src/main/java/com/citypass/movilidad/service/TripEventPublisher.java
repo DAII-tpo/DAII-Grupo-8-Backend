@@ -5,11 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Punto de extensión para publicar los eventos del ciclo de vida de un viaje.
- *
- * TODO (dependencia externa - Grupo 1): el contrato de eventos del event bus
- * (movilidad.viaje.iniciado / movilidad.viaje.finalizado) todavía no está definido. Hasta entonces
- * solo se deja registro en el log; no inventar un formato propio que después haya que migrar.
+ * Publica los eventos de inicio y fin de viaje.
+ * Pendiente: publicar en el event bus del Grupo 1 cuando definan el contrato; por ahora solo se loguea.
  */
 @Component
 @Slf4j

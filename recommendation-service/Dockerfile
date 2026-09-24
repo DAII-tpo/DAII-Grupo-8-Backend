@@ -1,5 +1,4 @@
-# Servicio de recomendación de estaciones (MOV-041). El modelo se entrena en el build, así el contenedor
-# arranca con un modelo vigente y reproducible (semilla fija).
+# Servicio de recomendación. El modelo se entrena durante el build (semilla fija, reproducible).
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

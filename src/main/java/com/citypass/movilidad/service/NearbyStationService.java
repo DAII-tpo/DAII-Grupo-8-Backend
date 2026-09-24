@@ -12,12 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- * Búsqueda de estaciones cercanas a una ubicación (MOV-017).
- *
- * El orden y el filtro por distancia los resuelve MySQL; la disponibilidad de cada resultado
- * se delega en StationAvailabilityService, que es el único lugar donde vive esa regla.
- */
+/** Búsqueda de estaciones activas cercanas a una ubicación, con su disponibilidad. */
 @Service
 @Transactional(readOnly = true)
 public class NearbyStationService {
@@ -34,14 +29,10 @@ public class NearbyStationService {
         this.properties = properties;
     }
 
-    /**
-     * @param radiusMeters radio de búsqueda; si es null se usa el default configurado
-     * @param limit        máximo de resultados; si es null se usa el default configurado
-     */
+    /** Estaciones dentro del radio, de la más cercana a la más lejana (radio y límite opcionales). */
     public List<NearbyStationResponse> findNearby(double latitude, double longitude,
                                                   Integer radiusMeters, Integer limit) {
-        // Se recortan contra el tope configurado en vez de rechazarse: un cliente no puede
-        // pedir la ciudad entera, pero tampoco recibe un error por pasarse de largo.
+        // Radio y límite se recortan al máximo configurado en lugar de dar error.
         int radius = clamp(radiusMeters, properties.defaultRadiusMeters(), properties.maxRadiusMeters());
         int maxResults = clamp(limit, properties.defaultLimit(), properties.maxLimit());
 
@@ -60,7 +51,7 @@ public class NearbyStationService {
         Map<Long, StationAvailability> availability =
                 stationAvailabilityService.availabilityFor(capacityByStationId);
 
-        // Se recorre la lista original para conservar el orden por distancia que dio la base.
+        // Se conserva el orden por distancia que devolvió la base.
         return nearby.stream()
                 .map(station -> toResponse(station, availability.get(station.getId())))
                 .toList();

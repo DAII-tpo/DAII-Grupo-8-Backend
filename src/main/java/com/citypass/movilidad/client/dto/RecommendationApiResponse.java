@@ -8,16 +8,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
 
-/**
- * Respuesta de POST /v1/recommendations (MOV-041).
- *
- * No se reexpone tal cual al frontend: el backend la traduce a StationRecommendationResponse
- * agregándole los datos de estación que el servicio de recomendación no conoce (nombre,
- * dirección) y el mensaje para el usuario.
- *
- * Se ignoran las propiedades desconocidas para que un campo nuevo del servicio no rompa la
- * integración; el `ranking` completo se descarta porque el frontend no lo necesita.
- */
+/** Respuesta del servicio de recomendación. Se ignoran campos desconocidos para no romper la integración. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record RecommendationApiResponse(RecommendationStatus status, NoRecommendationReason reason,
                                         RecommendationPurpose purpose, String modelVersion,
@@ -40,7 +31,7 @@ public record RecommendationApiResponse(RecommendationStatus status, NoRecommend
     public record StationRef(long stationId, int distanceMeters, int availableBikes, int availableDocks) {
     }
 
-    /** Aporte de una feature a la decisión del modelo; positivo favorece a la recomendada. */
+    /** Aporte de una variable a la decisión (positivo favorece a la recomendada). */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Factor(String feature, double impact) {
     }

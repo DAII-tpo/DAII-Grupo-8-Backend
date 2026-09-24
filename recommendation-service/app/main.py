@@ -1,7 +1,4 @@
-"""API HTTP del servicio de recomendación de estaciones (MOV-041).
-
-Documentación OpenAPI generada automáticamente en /docs y /openapi.json.
-"""
+"""API HTTP del servicio de recomendación de estaciones (documentación en /docs)."""
 
 from __future__ import annotations
 

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
+/** Órdenes de mantenimiento de bicis (solo administradores). */
 @Service
 @Transactional(readOnly = true)
 public class MaintenanceService {
@@ -23,12 +24,14 @@ public class MaintenanceService {
         this.records=records; this.incidents=incidents; this.users=users; this.bikes=bikes;
     }
 
+    /** Todas las órdenes, de la más reciente a la más antigua. */
     public List<MaintenanceResponse> findAll(Long adminId) {
         requireAdmin(adminId);
         return records.findAllByOrderByStartedAtDesc().stream().map(this::response).toList();
     }
 
     @Transactional
+    /** Abre una orden: la bici pasa a MAINTENANCE y se guarda su estación de origen. */
     public MaintenanceResponse create(Long adminId, MaintenanceCreateRequest request) {
         User admin=requireAdmin(adminId);
         Bike bike=bikes.lockActiveBike(request.bikeId());
@@ -48,6 +51,7 @@ public class MaintenanceService {
     }
 
     @Transactional
+    /** Cierra la orden y devuelve la bici a circulación. */
     public MaintenanceResponse complete(Long adminId, Long id, MaintenanceCompleteRequest request) {
         User admin=requireAdmin(adminId);
         MaintenanceRecord record=records.findByIdForUpdate(id)
@@ -62,10 +66,7 @@ public class MaintenanceService {
         return response(records.save(record));
     }
 
-    /**
-     * La estación que indica el admin; si no indica ninguna, la de origen. Una bicicleta que sigue en su
-     * estación (orden previa a V4) se queda donde está.
-     */
+    // Estación elegida por el admin o, si no eligió, la de origen (null si la bici sigue en su estación).
     private Long destinationStationId(MaintenanceCompleteRequest request, Bike bike, MaintenanceRecord record) {
         if (request.stationId()!=null) return request.stationId();
         if (bike.getStation()!=null || record.getOriginStation()==null) return null;

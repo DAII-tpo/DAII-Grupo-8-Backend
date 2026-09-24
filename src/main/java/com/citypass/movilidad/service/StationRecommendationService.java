@@ -27,19 +27,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Recomendación de estación para el frontend (MOV-042).
- *
- * Arma el snapshot de estaciones candidatas con la búsqueda por cercanía de MOV-017 (que ya
- * excluye las estaciones deshabilitadas y las dadas de baja), se lo manda al servicio de
- * recomendación (MOV-041) y traduce su respuesta al contrato público.
- *
- * Regla de oro del ticket: una falla del servicio de recomendación no puede hacer caer el
- * módulo. Cualquier problema —caída, timeout, respuesta ilegible o una estación que no estaba
- * en el snapshot— termina en el criterio de respaldo, que es la estación más cercana con el
- * recurso que el usuario necesita.
- *
- * Sin @Transactional a propósito: la llamada HTTP no debe mantener abierta una transacción de
- * base de datos. La única consulta que hace ya abre y cierra la suya en NearbyStationService.
+ * Recomienda una estación usando el servicio de IA. Si el servicio falla o responde algo inválido,
+ * usa el respaldo: la estación más cercana con el recurso necesario.
+ * Sin @Transactional a propósito: la llamada HTTP no debe retener una transacción abierta.
  */
 @Service
 public class StationRecommendationService {
@@ -63,6 +53,7 @@ public class StationRecommendationService {
         this.properties = properties;
     }
 
+    /** Estación recomendada para retirar (PICKUP) o devolver (DROPOFF) cerca de la ubicación. */
     public StationRecommendationResponse recommend(double latitude, double longitude,
                                                    RecommendationPurpose purpose) {
         RecommendationPurpose target = purpose == null ? RecommendationPurpose.PICKUP : purpose;
@@ -70,7 +61,7 @@ public class StationRecommendationService {
         List<NearbyStationResponse> candidates = nearbyStationService.findNearby(
                 latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates());
 
-        // Sin candidatas no hay nada que rankear: no se molesta al servicio de recomendación.
+        // Sin candidatas no hace falta consultar al modelo.
         if (candidates.isEmpty()) {
             return noRecommendation(target, NoRecommendationReason.NO_CANDIDATES, RecommendationSource.FALLBACK);
         }
@@ -81,7 +72,7 @@ public class StationRecommendationService {
             return fromModel(response, target, candidates);
         } catch (RecommendationUnavailableException ex) {
             LOG.warn("Recomendación resuelta con el criterio de respaldo: {}", ex.getMessage());
-            // Puede estar dormido (plan free de Render): se lo despierta para la próxima consulta.
+            // Puede estar dormido (plan free de Render): se lo despierta para la próxima.
             recommendationClient.warmUp();
             return fallback(target, candidates);
         }
@@ -103,10 +94,7 @@ public class StationRecommendationService {
                 new RecommendationApiRequest.UserLocation(latitude, longitude), snapshot);
     }
 
-    /**
-     * Traduce la respuesta del modelo usando <strong>solo</strong> estaciones del snapshot: si
-     * devolviera un id que no se envió, la respuesta no es confiable y se va al respaldo.
-     */
+    /** Traduce la respuesta del modelo. Si menciona una estación que no se envió, se descarta. */
     private StationRecommendationResponse fromModel(RecommendationApiResponse response,
                                                     RecommendationPurpose purpose,
                                                     List<NearbyStationResponse> candidates) {
@@ -151,7 +139,7 @@ public class StationRecommendationService {
     /** Criterio de respaldo: la candidata más cercana que tenga el recurso necesario. */
     private StationRecommendationResponse fallback(RecommendationPurpose purpose,
                                                    List<NearbyStationResponse> candidates) {
-        // findNearby ya las devuelve ordenadas por distancia, así que la primera viable es la mejor.
+        // Las candidatas vienen ordenadas por distancia: la primera viable es la más cercana.
         List<NearbyStationResponse> viable = candidates.stream()
                 .filter(station -> resourceUnits(purpose, station) > 0)
                 .toList();

@@ -1,8 +1,4 @@
-"""Punto de extensión del modelo.
-
-El recomendador solo conoce el protocolo `Scorer`: cambiar la regresión logística por otro modelo (o
-sumar features horarias cuando haya historial) no toca el ranking, la explicación ni el contrato HTTP.
-"""
+"""Interfaz del modelo: permite cambiar el algoritmo sin tocar el ranking ni la API."""
 
 from __future__ import annotations
 

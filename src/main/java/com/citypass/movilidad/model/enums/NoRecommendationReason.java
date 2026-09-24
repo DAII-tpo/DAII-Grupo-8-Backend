@@ -1,6 +1,6 @@
 package com.citypass.movilidad.model.enums;
 
-/** Por qué no hay una estación para recomendar (MOV-042). */
+/** Por qué no hay una estación para recomendar. */
 public enum NoRecommendationReason {
 
     /** No hay ninguna estación habilitada dentro del radio de búsqueda. */

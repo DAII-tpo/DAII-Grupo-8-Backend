@@ -21,6 +21,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+/** Estación de bicicletas. */
 @Entity
 @Table(name = "stations")
 @Getter
@@ -69,7 +70,7 @@ public class Station {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    // Baja lógica: no filtrar automáticamente acá, es responsabilidad de la capa de repository/service.
+    // Baja lógica: las consultas filtran por deletedAt.
     @Column(name = "deleted_at")
     private Instant deletedAt;
 

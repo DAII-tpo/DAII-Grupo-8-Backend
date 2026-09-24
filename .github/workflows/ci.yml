@@ -36,8 +36,7 @@ jobs:
       - name: Generar reporte de cobertura
         run: ./gradlew jacocoTestReport
 
-      # Servicio de recomendación (MOV-041): Python + FastAPI + scikit-learn.
-      # Corre antes de Sonar para que su coverage.xml entre en el mismo análisis.
+      # Servicio de recomendación (Python). Corre antes de Sonar para incluir su cobertura.
       - name: Configurar Python 3.12
         uses: actions/setup-python@v5
         with:
