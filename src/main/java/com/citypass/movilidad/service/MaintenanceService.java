@@ -38,9 +38,10 @@ public class MaintenanceService {
             throw new BusinessRuleException("La incidencia no corresponde a la bicicleta indicada");
         if (records.existsByBikeIdAndStatus(bike.getId(), MaintenanceStatus.IN_PROGRESS))
             throw new BusinessRuleException("La bicicleta ya tiene un mantenimiento en curso");
-        bikes.sendToMaintenance(bike, admin, request.description().trim());
+        Station origin=bikes.sendToMaintenance(bike, admin, request.description().trim());
         MaintenanceRecord record=new MaintenanceRecord();
         record.setBike(bike); record.setIncident(incident); record.setCreatedByUser(admin);
+        record.setOriginStation(origin);
         record.setDescription(request.description().trim()); record.setStatus(MaintenanceStatus.IN_PROGRESS);
         record.setStartedAt(Instant.now());
         return response(records.save(record));
@@ -54,10 +55,21 @@ public class MaintenanceService {
         if(record.getStatus()!=MaintenanceStatus.IN_PROGRESS)
             throw new BusinessRuleException("El mantenimiento no está en curso: "+id);
         Bike bike=bikes.lockActiveBike(record.getBike().getId());
-        bikes.returnFromMaintenance(bike, admin, request.resolution().trim());
+        bikes.returnFromMaintenance(bike, destinationStationId(request, bike, record), admin,
+                request.resolution().trim());
         record.setStatus(MaintenanceStatus.COMPLETED); record.setCompletedAt(Instant.now());
         record.setResolution(request.resolution().trim());
         return response(records.save(record));
+    }
+
+    /**
+     * La estación que indica el admin; si no indica ninguna, la de origen. Una bicicleta que sigue en su
+     * estación (orden previa a V4) se queda donde está.
+     */
+    private Long destinationStationId(MaintenanceCompleteRequest request, Bike bike, MaintenanceRecord record) {
+        if (request.stationId()!=null) return request.stationId();
+        if (bike.getStation()!=null || record.getOriginStation()==null) return null;
+        return record.getOriginStation().getId();
     }
 
     private User requireAdmin(Long id) {
@@ -69,6 +81,8 @@ public class MaintenanceService {
     private MaintenanceResponse response(MaintenanceRecord r) {
         return new MaintenanceResponse(r.getId(),r.getBike().getId(),r.getBike().getCode(),
                 r.getIncident()==null?null:r.getIncident().getId(),r.getCreatedByUser().getId(),r.getDescription(),
-                r.getStatus(),r.getStartedAt(),r.getCompletedAt(),r.getResolution());
+                r.getStatus(),r.getStartedAt(),r.getCompletedAt(),r.getResolution(),
+                r.getOriginStation()==null?null:r.getOriginStation().getId(),
+                r.getOriginStation()==null?null:r.getOriginStation().getName());
     }
 }

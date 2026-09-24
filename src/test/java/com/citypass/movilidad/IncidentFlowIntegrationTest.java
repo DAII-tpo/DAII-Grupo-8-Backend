@@ -165,6 +165,70 @@ class IncidentFlowIntegrationTest {
         assertThat(resolved.getResolvedAt()).isNotNull();
     }
 
+    @Test
+    void maintenanceFreesTheDockAndReturnsTheBikeToItsOriginStation() throws Exception {
+        User reporter = user();
+        User admin = user("ADMIN");
+        Bike bike = bike();
+        Long stationId = bike.getStation().getId();
+        Long typeId = typeRepository.findByCode("FLAT_TIRE").orElseThrow().getId();
+        String availability = "/api/v1/stations/" + stationId + "/availability";
+
+        mockMvc.perform(get(availability))
+                .andExpect(jsonPath("$.availableBikes").value(1))
+                .andExpect(jsonPath("$.availableSlots").value(9));
+
+        // Reporte: queda fuera de servicio en la estación, ocupando el anclaje.
+        String incidentBody = mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, reporter.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
+                                + ",\"description\":\"Rueda pinchada\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long incidentId = objectMapper.readTree(incidentBody).get("id").asLong();
+        assertThat(bikeRepository.findById(bike.getId()).orElseThrow().getStatus())
+                .isEqualTo(BikeStatus.OUT_OF_SERVICE);
+        mockMvc.perform(get(availability))
+                .andExpect(jsonPath("$.availableBikes").value(0))
+                .andExpect(jsonPath("$.availableSlots").value(9));
+
+        // Mantenimiento: se retira de la estación y libera el anclaje.
+        String maintenanceBody = mockMvc.perform(post("/api/v1/maintenance").header(USER_HEADER, admin.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bikeId\":" + bike.getId() + ",\"incidentId\":" + incidentId
+                                + ",\"description\":\"Cambio de cámara\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.originStationId").value(stationId))
+                .andReturn().getResponse().getContentAsString();
+        long maintenanceId = objectMapper.readTree(maintenanceBody).get("id").asLong();
+        Bike inMaintenance = bikeRepository.findById(bike.getId()).orElseThrow();
+        assertThat(inMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        assertThat(inMaintenance.getStation()).isNull();
+        mockMvc.perform(get(availability))
+                .andExpect(jsonPath("$.availableBikes").value(0))
+                .andExpect(jsonPath("$.availableSlots").value(10));
+
+        // Mientras la orden está abierta no se puede sacar de mantenimiento por otro camino.
+        mockMvc.perform(patch("/api/v1/bikes/" + bike.getId() + "/station")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"stationId\":" + stationId + "}"))
+                .andExpect(status().isConflict());
+
+        // Finalizar sin indicar estación: vuelve a la de origen, disponible.
+        mockMvc.perform(patch("/api/v1/maintenance/" + maintenanceId + "/complete")
+                        .header(USER_HEADER, admin.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resolution\":\"Cámara nueva\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+        Bike repaired = bikeRepository.findById(bike.getId()).orElseThrow();
+        assertThat(repaired.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(repaired.getStation().getId()).isEqualTo(stationId);
+        mockMvc.perform(get(availability))
+                .andExpect(jsonPath("$.availableBikes").value(1))
+                .andExpect(jsonPath("$.availableSlots").value(9));
+    }
+
     private User user() {
         return user("USER");
     }

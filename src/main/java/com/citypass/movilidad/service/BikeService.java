@@ -11,9 +11,11 @@ import com.citypass.movilidad.model.BikeStatusHistory;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
+import com.citypass.movilidad.model.enums.MaintenanceStatus;
 import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
+import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,12 +37,15 @@ public class BikeService {
     private final BikeRepository bikeRepository;
     private final StationRepository stationRepository;
     private final BikeStatusHistoryRepository historyRepository;
+    private final MaintenanceRecordRepository maintenanceRepository;
 
     public BikeService(BikeRepository bikeRepository, StationRepository stationRepository,
-                       BikeStatusHistoryRepository historyRepository) {
+                       BikeStatusHistoryRepository historyRepository,
+                       MaintenanceRecordRepository maintenanceRepository) {
         this.bikeRepository = bikeRepository;
         this.stationRepository = stationRepository;
         this.historyRepository = historyRepository;
+        this.maintenanceRepository = maintenanceRepository;
     }
 
     @Transactional
@@ -113,6 +118,13 @@ public class BikeService {
             throw new BusinessRuleException(
                     "Transición administrativa no permitida: " + previousStatus + " -> " + newStatus);
         }
+        // Con una orden abierta, la bicicleta sale de mantenimiento solo al finalizarla: si no, la orden
+        // queda IN_PROGRESS para siempre y bloquea abrir otra para la misma bicicleta.
+        if (previousStatus == BikeStatus.MAINTENANCE
+                && maintenanceRepository.existsByBikeIdAndStatus(id, MaintenanceStatus.IN_PROGRESS)) {
+            throw new BusinessRuleException(
+                    "La bicicleta tiene un mantenimiento en curso: finalizalo desde Mantenimiento");
+        }
         if (newStatus == BikeStatus.AVAILABLE && bike.getStation() == null) {
             throw new BusinessRuleException("Una bicicleta AVAILABLE debe estar asignada a una estación");
         }
@@ -131,6 +143,11 @@ public class BikeService {
         Bike bike = activeBike(id);
         if (bike.getStatus() == BikeStatus.IN_USE) {
             throw new BusinessRuleException("Una bicicleta IN_USE no puede trasladarse administrativamente");
+        }
+        if (bike.getStatus() == BikeStatus.MAINTENANCE
+                && maintenanceRepository.existsByBikeIdAndStatus(id, MaintenanceStatus.IN_PROGRESS)) {
+            throw new BusinessRuleException(
+                    "Una bicicleta en mantenimiento no puede trasladarse: la estación se elige al finalizarlo");
         }
         Station destination = activeStation(stationId);
         if (bike.getStation() != null && bike.getStation().getId().equals(destination.getId())) {
@@ -168,29 +185,58 @@ public class BikeService {
                 .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
     }
 
+    /**
+     * Pasa la bicicleta a MAINTENANCE y la retira de su estación: mientras se repara no ocupa anclaje.
+     *
+     * @return la estación de la que se retiró (null si no tenía), para devolverla ahí al finalizar
+     */
     @Transactional
-    public void sendToMaintenance(Bike bike, User admin, String reason) {
+    public Station sendToMaintenance(Bike bike, User admin, String reason) {
         BikeStatus previous = bike.getStatus();
+        Station origin = bike.getStation();
         // Bicicletas que la versión anterior de reportIncidentOnBike dejó en MAINTENANCE sin orden
-        // de mantenimiento: la orden se abre igual, sin volver a cambiar el estado.
+        // de mantenimiento: la orden se abre igual, sin volver a registrar el cambio de estado.
         if (previous == BikeStatus.MAINTENANCE) {
-            return;
+            bike.setStation(null);
+            bikeRepository.save(bike);
+            return origin;
         }
         if (previous != BikeStatus.AVAILABLE && previous != BikeStatus.OUT_OF_SERVICE) {
             throw new BusinessRuleException("La bicicleta no puede enviarse a mantenimiento desde " + previous);
         }
         bike.setStatus(BikeStatus.MAINTENANCE);
+        bike.setStation(null);
         Bike saved = bikeRepository.save(bike);
         recordStatusChange(saved, previous, BikeStatus.MAINTENANCE, reason, admin);
+        return origin;
     }
 
+    /**
+     * Devuelve la bicicleta a circulación en la estación indicada.
+     *
+     * @param stationId estación destino; null deja la bicicleta donde está (órdenes previas a V4, en las
+     *                  que la bicicleta nunca se retiró de su estación)
+     */
     @Transactional
-    public void returnFromMaintenance(Bike bike, User admin, String reason) {
+    public void returnFromMaintenance(Bike bike, Long stationId, User admin, String reason) {
         if (bike.getStatus() != BikeStatus.MAINTENANCE) {
             throw new BusinessRuleException("La bicicleta no está en mantenimiento: " + bike.getId());
         }
-        if (bike.getStation() == null) {
-            throw new BusinessRuleException("La bicicleta debe tener una estación para volver a AVAILABLE");
+        Station current = bike.getStation();
+        if (stationId == null) {
+            if (current == null) {
+                throw new BusinessRuleException("Indicá la estación donde se devuelve la bicicleta");
+            }
+        } else if (current == null || !current.getId().equals(stationId)) {
+            // Con lock, igual que al devolver una bicicleta de un viaje, para no superar la capacidad.
+            Station destination = stationRepository.findByIdAndDeletedAtIsNullForUpdate(stationId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
+            if (destination.getStatus() != StationStatus.ACTIVE) {
+                throw new BusinessRuleException("La estación no está habilitada: " + stationId
+                        + ". Indicá otra estación para devolver la bicicleta");
+            }
+            ensureCapacity(destination);
+            bike.setStation(destination);
         }
         bike.setStatus(BikeStatus.AVAILABLE);
         bike.setLastMaintenanceAt(Instant.now());

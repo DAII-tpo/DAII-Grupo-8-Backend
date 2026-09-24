@@ -42,6 +42,12 @@ public class MaintenanceRecord {
     @JoinColumn(name = "incident_id", nullable = true)
     private BikeIncident incident;
 
+    // Estación de la que se retiró la bicicleta al abrir el mantenimiento; ahí vuelve al finalizarlo si el
+    // admin no indica otra. Null en órdenes previas a V4 o si la bicicleta no tenía estación.
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "origin_station_id", nullable = true)
+    private Station originStation;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by_user_id", nullable = false)
     private User createdByUser;

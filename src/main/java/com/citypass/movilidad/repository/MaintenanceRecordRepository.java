@@ -12,7 +12,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 public interface MaintenanceRecordRepository extends JpaRepository<MaintenanceRecord, Long> {
-    @EntityGraph(attributePaths = {"bike", "incident", "createdByUser"})
+    @EntityGraph(attributePaths = {"bike", "incident", "createdByUser", "originStation"})
     List<MaintenanceRecord> findAllByOrderByStartedAtDesc();
 
     boolean existsByBikeIdAndStatus(Long bikeId, MaintenanceStatus status);

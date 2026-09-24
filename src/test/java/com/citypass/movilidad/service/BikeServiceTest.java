@@ -10,9 +10,11 @@ import com.citypass.movilidad.model.BikeStatusHistory;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
+import com.citypass.movilidad.model.enums.MaintenanceStatus;
 import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
+import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +38,7 @@ class BikeServiceTest {
     private BikeRepository bikeRepository;
     private StationRepository stationRepository;
     private BikeStatusHistoryRepository historyRepository;
+    private MaintenanceRecordRepository maintenanceRepository;
     private BikeService service;
 
     @BeforeEach
@@ -43,7 +46,8 @@ class BikeServiceTest {
         bikeRepository = mock(BikeRepository.class);
         stationRepository = mock(StationRepository.class);
         historyRepository = mock(BikeStatusHistoryRepository.class);
-        service = new BikeService(bikeRepository, stationRepository, historyRepository);
+        maintenanceRepository = mock(MaintenanceRecordRepository.class);
+        service = new BikeService(bikeRepository, stationRepository, historyRepository, maintenanceRepository);
         when(bikeRepository.save(any(Bike.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -376,10 +380,14 @@ class BikeServiceTest {
 
     @Test
     void sendsEligibleBikeToMaintenanceAndRejectsBikeInUse() {
-        Bike available = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+        Station station = activeStation(10L, 20);
+        Bike available = bike(BikeStatus.AVAILABLE, station);
         User admin = new User();
-        service.sendToMaintenance(available, admin, "Revisión");
+        Station origin = service.sendToMaintenance(available, admin, "Revisión");
         assertThat(available.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        // Mientras se repara no ocupa anclaje: se retira de la estación y se informa de cuál salió.
+        assertThat(available.getStation()).isNull();
+        assertThat(origin).isSameAs(station);
         verify(historyRepository).save(any(BikeStatusHistory.class));
 
         Bike inUse = bike(BikeStatus.IN_USE, null);
@@ -389,32 +397,95 @@ class BikeServiceTest {
 
     @Test
     void opensMaintenanceForBikeAlreadyInMaintenanceByIncidentWithoutChangingStatus() {
-        Bike reported = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
+        Station station = activeStation(10L, 20);
+        Bike reported = bike(BikeStatus.MAINTENANCE, station);
 
-        service.sendToMaintenance(reported, new User(), "Revisión");
+        Station origin = service.sendToMaintenance(reported, new User(), "Revisión");
 
         assertThat(reported.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        assertThat(reported.getStation()).isNull();
+        assertThat(origin).isSameAs(station);
         verifyNoInteractions(historyRepository);
-        verify(bikeRepository, never()).save(any());
     }
 
     @Test
     void returnsBikeFromMaintenanceAndRequiresStation() {
+        // Orden previa a V4: la bicicleta nunca salió de su estación y se queda ahí.
         Station station = activeStation(10L, 20);
         Bike bike = bike(BikeStatus.MAINTENANCE, station);
-        service.returnFromMaintenance(bike, new User(), "Reparada");
+        service.returnFromMaintenance(bike, null, new User(), "Reparada");
         assertThat(bike.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(bike.getStation()).isSameAs(station);
         assertThat(bike.getLastMaintenanceAt()).isNotNull();
+        verify(stationRepository, never()).findByIdAndDeletedAtIsNullForUpdate(any());
 
         Bike withoutStation = bike(BikeStatus.MAINTENANCE, null);
-        assertThatThrownBy(() -> service.returnFromMaintenance(withoutStation, new User(), "Reparada"))
+        assertThatThrownBy(() -> service.returnFromMaintenance(withoutStation, null, new User(), "Reparada"))
                 .isInstanceOf(BusinessRuleException.class)
-                .hasMessageContaining("estación");
+                .hasMessageContaining("Indicá la estación");
 
         Bike available = bike(BikeStatus.AVAILABLE, station);
-        assertThatThrownBy(() -> service.returnFromMaintenance(available, new User(), "Reparada"))
+        assertThatThrownBy(() -> service.returnFromMaintenance(available, 10L, new User(), "Reparada"))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("no está en mantenimiento");
+    }
+
+    @Test
+    void returnsBikeFromMaintenanceToTheRequestedStationCheckingCapacity() {
+        Station destination = activeStation(20L, 10);
+        Bike bike = bike(BikeStatus.MAINTENANCE, null);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(9L);
+
+        service.returnFromMaintenance(bike, 20L, new User(), "Reparada");
+
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(bike.getStation()).isSameAs(destination);
+    }
+
+    @Test
+    void rejectsReturnFromMaintenanceToFullOrDisabledStation() {
+        Station full = activeStation(20L, 10);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(full));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(10L);
+        Bike first = bike(BikeStatus.MAINTENANCE, null);
+        assertThatThrownBy(() -> service.returnFromMaintenance(first, 20L, new User(), "Reparada"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("capacidad");
+        assertThat(first.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        assertThat(first.getStation()).isNull();
+
+        Station disabled = activeStation(30L, 10);
+        disabled.setStatus(StationStatus.INACTIVE);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(30L)).thenReturn(Optional.of(disabled));
+        Bike second = bike(BikeStatus.MAINTENANCE, null);
+        assertThatThrownBy(() -> service.returnFromMaintenance(second, 30L, new User(), "Reparada"))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("no está habilitada");
+    }
+
+    @Test
+    void rejectsTransferOfBikeWithMaintenanceInProgress() {
+        Bike bike = bike(BikeStatus.MAINTENANCE, null);
+        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(maintenanceRepository.existsByBikeIdAndStatus(1L, MaintenanceStatus.IN_PROGRESS)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.transfer(1L, 20L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("mantenimiento");
+        verify(bikeRepository, never()).save(any());
+    }
+
+    @Test
+    void rejectsStatusChangeOutOfMaintenanceWhileAnOrderIsInProgress() {
+        Bike bike = bike(BikeStatus.MAINTENANCE, null);
+        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(maintenanceRepository.existsByBikeIdAndStatus(1L, MaintenanceStatus.IN_PROGRESS)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.changeStatus(1L, new BikeStatusChangeRequest(BikeStatus.OUT_OF_SERVICE, null)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("mantenimiento en curso");
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
     }
 
     @Test
