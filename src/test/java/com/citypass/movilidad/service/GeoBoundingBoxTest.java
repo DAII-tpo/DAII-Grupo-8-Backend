@@ -81,4 +81,26 @@ class GeoBoundingBoxTest {
         assertThat(box.minLongitude()).isEqualTo(-180.0);
         assertThat(box.maxLongitude()).isEqualTo(180.0);
     }
+
+    @Test
+    void exactPoleBoundariesTriggerFullLongitudeRange() {
+        GeoBoundingBox northPole = GeoBoundingBox.around(90.0, 0, 0);
+        assertThat(northPole.minLongitude()).isEqualTo(-180.0);
+        assertThat(northPole.maxLongitude()).isEqualTo(180.0);
+
+        GeoBoundingBox southPole = GeoBoundingBox.around(-90.0, 0, 0);
+        assertThat(southPole.minLongitude()).isEqualTo(-180.0);
+        assertThat(southPole.maxLongitude()).isEqualTo(180.0);
+    }
+
+    @Test
+    void exactAntimeridianBoundariesKeepExactCoordinatesWithoutOpeningFullRange() {
+        GeoBoundingBox eastLimit = GeoBoundingBox.around(0, 180.0, 0);
+        assertThat(eastLimit.minLongitude()).isEqualTo(180.0);
+        assertThat(eastLimit.maxLongitude()).isEqualTo(180.0);
+
+        GeoBoundingBox westLimit = GeoBoundingBox.around(0, -180.0, 0);
+        assertThat(westLimit.minLongitude()).isEqualTo(-180.0);
+        assertThat(westLimit.maxLongitude()).isEqualTo(-180.0);
+    }
 }

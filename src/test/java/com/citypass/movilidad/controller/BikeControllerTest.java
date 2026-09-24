@@ -3,12 +3,14 @@ package com.citypass.movilidad.controller;
 import com.citypass.movilidad.dto.BikeCreateRequest;
 import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
+import com.citypass.movilidad.dto.BikeStatusHistoryResponse;
 import com.citypass.movilidad.dto.BikeTransferRequest;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.service.BikeService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,7 +36,9 @@ class BikeControllerTest {
         when(service.findAvailable(10L)).thenReturn(List.of(bike));
         when(service.changeStatus(1L, status)).thenReturn(bike);
         when(service.transfer(1L, 20L)).thenReturn(bike);
-        when(service.history(1L)).thenReturn(List.of());
+        BikeStatusHistoryResponse historyItem = new BikeStatusHistoryResponse(
+                1L, BikeStatus.AVAILABLE, BikeStatus.MAINTENANCE, 42L, "service", Instant.now());
+        when(service.history(1L)).thenReturn(List.of(historyItem));
 
         assertThat(controller.create(create).getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(controller.findById(1L)).isEqualTo(bike);
@@ -42,7 +46,7 @@ class BikeControllerTest {
         assertThat(controller.findAvailable(10L)).containsExactly(bike);
         assertThat(controller.changeStatus(1L, status)).isEqualTo(bike);
         assertThat(controller.transfer(1L, transfer)).isEqualTo(bike);
-        assertThat(controller.history(1L)).isEmpty();
+        assertThat(controller.history(1L)).containsExactly(historyItem);
         assertThat(controller.delete(1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         verify(service).delete(1L);
     }

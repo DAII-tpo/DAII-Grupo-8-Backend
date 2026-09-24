@@ -27,6 +27,7 @@ class MaintenanceServiceTest {
         var result=service.create(1L,new MaintenanceCreateRequest(2L,null,"Ajuste general"));
         assertThat(result.status()).isEqualTo(MaintenanceStatus.IN_PROGRESS);
         assertThat(result.startedAt()).isNotNull();
+        assertThat(result.description()).isEqualTo("Ajuste general");
         verify(bikes).sendToMaintenance(bike,admin,"Ajuste general");
     }
     @Test void completesMaintenanceAndRecordsResolution(){
@@ -35,7 +36,9 @@ class MaintenanceServiceTest {
         when(records.findByIdForUpdate(3L)).thenReturn(Optional.of(r));
         var result=service.complete(1L,3L,new MaintenanceCompleteRequest("Reparada"));
         assertThat(result.status()).isEqualTo(MaintenanceStatus.COMPLETED);
-        assertThat(result.completedAt()).isNotNull(); verify(bikes).returnFromMaintenance(bike,admin,"Reparada");
+        assertThat(result.completedAt()).isNotNull();
+        assertThat(result.resolution()).isEqualTo("Reparada");
+        verify(bikes).returnFromMaintenance(bike,admin,"Reparada");
     }
     @Test void rejectsInUseThroughBikeServiceAndInvalidIncident(){
         doThrow(new BusinessRuleException("IN_USE")).when(bikes).sendToMaintenance(any(),any(),any());

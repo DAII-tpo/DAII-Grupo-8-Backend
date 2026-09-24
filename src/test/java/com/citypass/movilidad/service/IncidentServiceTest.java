@@ -88,6 +88,7 @@ class IncidentServiceTest {
         assertThat(saved.getValue().getReportedByUser()).isSameAs(user);
         assertThat(saved.getValue().getBike()).isSameAs(bike);
         assertThat(saved.getValue().getIncidentType()).isSameAs(type);
+        assertThat(saved.getValue().getStatus()).isEqualTo(BikeIncidentStatus.OPEN);
         assertThat(saved.getValue().getTrip()).isNull();
     }
 

@@ -56,6 +56,9 @@ class BikeServiceTest {
 
         assertThat(response.code()).isEqualTo("BIKE-10");
         assertThat(response.status()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(response.stationId()).isEqualTo(10L);
+        assertThat(response.model()).isEqualTo("Urbana");
+        assertThat(response.purchaseDate()).isNotNull();
         verify(historyRepository).save(any(BikeStatusHistory.class));
     }
 
@@ -221,6 +224,20 @@ class BikeServiceTest {
         assertThatThrownBy(() -> service.transfer(1L, 20L))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("habilitada");
+    }
+
+    @Test
+    void rejectsTransferWhenDestinationStationIsFull() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 1);
+        Bike bike = bike(BikeStatus.MAINTENANCE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(stationRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(1L);
+
+        assertThatThrownBy(() -> service.transfer(1L, 20L))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("capacidad disponible");
     }
 
     @Test
@@ -393,6 +410,11 @@ class BikeServiceTest {
         service.returnFromMaintenance(bike, new User(), "Reparada");
         assertThat(bike.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
         assertThat(bike.getLastMaintenanceAt()).isNotNull();
+        ArgumentCaptor<BikeStatusHistory> historyCaptor = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository).save(historyCaptor.capture());
+        assertThat(historyCaptor.getValue().getPreviousStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+        assertThat(historyCaptor.getValue().getNewStatus()).isEqualTo(BikeStatus.AVAILABLE);
+        assertThat(historyCaptor.getValue().getBike()).isSameAs(bike);
 
         Bike withoutStation = bike(BikeStatus.MAINTENANCE, null);
         assertThatThrownBy(() -> service.returnFromMaintenance(withoutStation, new User(), "Reparada"))

@@ -84,6 +84,7 @@ class TripServiceTest {
         assertThat(saved.getValue().getUser()).isSameAs(user);
         assertThat(saved.getValue().getBike()).isSameAs(bike);
         assertThat(saved.getValue().getOriginStation()).isSameAs(origin);
+        assertThat(saved.getValue().getStatus()).isEqualTo(TripStatus.ACTIVE);
         verify(eventPublisher).tripStarted(saved.getValue());
     }
 

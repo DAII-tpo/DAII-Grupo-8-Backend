@@ -73,4 +73,44 @@ class EcobiciStationMapperTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("integer");
     }
+
+    @Test
+    void acceptsExactCabaBoundaryCoordinates() {
+        EcobiciStationRow rowMin = new EcobiciStationRow(
+                "1", "MIN", null, "-35", "-59", "10");
+        Station sMin = mapper.toStation(rowMin);
+        assertThat(sMin.getLatitude()).isEqualByComparingTo(new BigDecimal("-35"));
+        assertThat(sMin.getLongitude()).isEqualByComparingTo(new BigDecimal("-59"));
+
+        EcobiciStationRow rowMax = new EcobiciStationRow(
+                "2", "MAX", null, "-34", "-58", "10");
+        Station sMax = mapper.toStation(rowMax);
+        assertThat(sMax.getLatitude()).isEqualByComparingTo(new BigDecimal("-34"));
+        assertThat(sMax.getLongitude()).isEqualByComparingTo(new BigDecimal("-58"));
+    }
+
+    @Test
+    void acceptsStringsAtExactMaxLengthAndRejectsWhenExceeded() {
+        String maxName = "A".repeat(150);
+        String maxExternalId = "E".repeat(64);
+        String maxAddress = "D".repeat(255);
+        EcobiciStationRow row = new EcobiciStationRow(
+                maxExternalId, maxName, maxAddress, "-34.592424", "-58.374710", "20");
+        Station station = mapper.toStation(row);
+        assertThat(station.getName()).isEqualTo(maxName);
+        assertThat(station.getExternalId()).isEqualTo(maxExternalId);
+        assertThat(station.getAddress()).isEqualTo(maxAddress);
+
+        EcobiciStationRow tooLongName = new EcobiciStationRow(
+                maxExternalId, maxName + "X", maxAddress, "-34.592424", "-58.374710", "20");
+        assertThatThrownBy(() -> mapper.toStation(tooLongName))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exceeds 150");
+
+        EcobiciStationRow tooLongAddress = new EcobiciStationRow(
+                maxExternalId, maxName, maxAddress + "X", "-34.592424", "-58.374710", "20");
+        assertThatThrownBy(() -> mapper.toStation(tooLongAddress))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exceeds 255");
+    }
 }
