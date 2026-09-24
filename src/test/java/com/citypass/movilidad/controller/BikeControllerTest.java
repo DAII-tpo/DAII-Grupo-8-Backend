@@ -46,4 +46,15 @@ class BikeControllerTest {
         assertThat(controller.delete(1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         verify(service).delete(1L);
     }
+
+    @Test
+    void listsAllBikesWithOptionalStatusFilter() {
+        BikeResponse bike = new BikeResponse(1L, "BIKE-1", 10L, "Centro", BikeStatus.AVAILABLE,
+                null, null, null, null, null);
+        when(service.findAll(null)).thenReturn(List.of(bike));
+        when(service.findAll(BikeStatus.MAINTENANCE)).thenReturn(List.of());
+
+        assertThat(controller.findAll(null)).containsExactly(bike);
+        assertThat(controller.findAll(BikeStatus.MAINTENANCE)).isEmpty();
+    }
 }

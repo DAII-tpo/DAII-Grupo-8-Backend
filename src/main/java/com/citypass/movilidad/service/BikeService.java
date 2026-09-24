@@ -77,6 +77,14 @@ public class BikeService {
         return toResponse(activeBike(id));
     }
 
+    /** Todas las bicicletas vigentes, opcionalmente filtradas por estado (panel de administración). */
+    public List<BikeResponse> findAll(BikeStatus status) {
+        List<Bike> bikes = status == null
+                ? bikeRepository.findAllForAdminList()
+                : bikeRepository.findAllForAdminListByStatus(status);
+        return bikes.stream().map(this::toResponse).toList();
+    }
+
     public List<BikeResponse> findByStation(Long stationId) {
         existingStation(stationId);
         return bikeRepository.findAllByStationIdAndDeletedAtIsNullOrderByCode(stationId).stream()

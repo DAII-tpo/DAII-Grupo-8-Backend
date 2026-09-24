@@ -1,6 +1,7 @@
 package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.dto.BikeCreateRequest;
+import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
@@ -450,6 +451,22 @@ class BikeServiceTest {
         Bike alreadyMaintenance = bike(BikeStatus.MAINTENANCE, activeStation(10L, 20));
         service.reportIncidentOnBike(alreadyMaintenance, user, "Otro");
         assertThat(alreadyMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
+    }
+
+    @Test
+    void listsAllActiveBikesInOneQueryAndFiltersByStatus() {
+        Bike available = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+        Bike outOfService = bike(BikeStatus.OUT_OF_SERVICE, null);
+        when(bikeRepository.findAllForAdminList()).thenReturn(List.of(available, outOfService));
+        when(bikeRepository.findAllForAdminListByStatus(BikeStatus.AVAILABLE)).thenReturn(List.of(available));
+
+        assertThat(service.findAll(null))
+                .extracting(BikeResponse::status)
+                .containsExactly(BikeStatus.AVAILABLE, BikeStatus.OUT_OF_SERVICE);
+        assertThat(service.findAll(null).get(0).stationId()).isEqualTo(10L);
+        assertThat(service.findAll(null).get(1).stationId()).isNull();
+        assertThat(service.findAll(BikeStatus.AVAILABLE)).hasSize(1);
+        verify(bikeRepository, never()).findAllByStationIdAndDeletedAtIsNullOrderByCode(any());
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.citypass.movilidad.repository;
 
 import com.citypass.movilidad.model.MaintenanceRecord;
 import com.citypass.movilidad.model.enums.MaintenanceStatus;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
@@ -11,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import jakarta.persistence.LockModeType;
 
 public interface MaintenanceRecordRepository extends JpaRepository<MaintenanceRecord, Long> {
+    @EntityGraph(attributePaths = {"bike", "incident", "createdByUser"})
     List<MaintenanceRecord> findAllByOrderByStartedAtDesc();
 
     boolean existsByBikeIdAndStatus(Long bikeId, MaintenanceStatus status);
