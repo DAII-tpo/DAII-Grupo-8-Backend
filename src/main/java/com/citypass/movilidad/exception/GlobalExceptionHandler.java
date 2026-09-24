@@ -215,7 +215,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 : flattened.substring(0, MAX_LOGGED_LENGTH) + "...";
     }
 
-    // "findNearby.lat" -> "lat"
+    // Deja solo el nombre del parámetro (ej. de findNearby.lat queda lat).
     private String lastSegmentOf(String propertyPath) {
         return propertyPath.substring(propertyPath.lastIndexOf('.') + 1);
     }

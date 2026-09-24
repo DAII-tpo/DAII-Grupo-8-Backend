@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Publica los eventos de inicio y fin de viaje.
- * TODO: publicar en el event bus del Grupo 1 cuando definan el contrato; por ahora solo se loguea.
+ * Pendiente: publicar en el event bus del Grupo 1 cuando definan el contrato; por ahora solo se loguea.
  */
 @Component
 @Slf4j

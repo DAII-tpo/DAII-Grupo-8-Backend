@@ -38,7 +38,7 @@ import java.net.URI;
         description = "Inicio, consulta del viaje activo, finalización e historial de viajes")
 public class TripController {
 
-    // TODO: reemplazar por la identidad del JWT cuando esté integrado el Login Federado.
+    // Pendiente: reemplazar por la identidad del JWT cuando esté integrado el Login Federado.
     static final String USER_HEADER = "X-User-Id";
     private static final String USER_HEADER_DESCRIPTION =
             "ID del usuario actual. Mecanismo temporal hasta integrar el login federado de Grupo 2";
