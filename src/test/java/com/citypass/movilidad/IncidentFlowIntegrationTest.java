@@ -210,7 +210,6 @@ class IncidentFlowIntegrationTest {
 
         // Mientras la orden está abierta no se puede sacar de mantenimiento por otro camino.
         mockMvc.perform(patch("/api/v1/bikes/" + bike.getId() + "/station")
-                        .header(USER_HEADER, admin.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"stationId\":" + stationId + "}"))
                 .andExpect(status().isConflict());

@@ -143,12 +143,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                                             WebRequest request) {
         List<ErrorResponse.FieldError> errors = ex.getParameterValidationResults().stream()
                 .flatMap(result -> result.getResolvableErrors().stream()
-                        .map(error -> {
-                            String fieldName = error instanceof org.springframework.validation.FieldError fieldError
-                                    ? fieldError.getField()
-                                    : result.getMethodParameter().getParameterName();
-                            return new ErrorResponse.FieldError(fieldName, error.getDefaultMessage());
-                        }))
+                        .map(error -> new ErrorResponse.FieldError(
+                                result.getMethodParameter().getParameterName(), error.getDefaultMessage())))
                 .toList();
         return asObject(validationError(errors, "Parámetros inválidos", pathOf(request)));
     }
