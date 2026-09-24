@@ -7,6 +7,7 @@ import com.citypass.movilidad.service.StationService;
 import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,6 +31,10 @@ import java.util.List;
 @RequiredArgsConstructor
 @Tag(name = "Estaciones", description = "Consulta y administración del catálogo de estaciones")
 public class StationController {
+
+    static final String USER_HEADER = "X-User-Id";
+    private static final String USER_HEADER_DESCRIPTION =
+            "ID del usuario actual. Mecanismo temporal hasta integrar el login federado de Grupo 2";
 
     private final StationService stationService;
 
@@ -66,8 +72,13 @@ public class StationController {
             content = @Content(schema = @Schema(implementation = StationDTO.class)))
     @ApiResponse(responseCode = "400", description = "Cuerpo ausente, ilegible o inválido",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    public StationDTO createStation(@Valid @RequestBody StationRequestDTO stationRequestDTO) {
-        return stationService.createStation(stationRequestDTO);
+    @ApiResponse(responseCode = "403", description = "El usuario no es ADMIN",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    public StationDTO createStation(
+            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
+            @RequestHeader(USER_HEADER) @EntityId Long adminId,
+            @Valid @RequestBody StationRequestDTO stationRequestDTO) {
+        return stationService.createStation(adminId, stationRequestDTO);
     }
 
     @PatchMapping("/{id}")
@@ -80,12 +91,16 @@ public class StationController {
             content = @Content(schema = @Schema(implementation = StationDTO.class)))
     @ApiResponse(responseCode = "400", description = "Cuerpo ausente, ilegible o inválido",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    @ApiResponse(responseCode = "403", description = "El usuario no es ADMIN",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "La estación no existe",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public StationDTO updateStation(
+            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
+            @RequestHeader(USER_HEADER) @EntityId Long adminId,
             @Parameter(description = "ID de la estación", example = "1") @PathVariable @EntityId Long id,
             @Valid @RequestBody StationRequestDTO stationRequestDTO) {
-        return stationService.updateStation(id, stationRequestDTO);
+        return stationService.updateStation(adminId, id, stationRequestDTO);
     }
 
 }
