@@ -35,7 +35,26 @@ class MaintenanceServiceTest {
         when(records.findByIdForUpdate(3L)).thenReturn(Optional.of(r));
         var result=service.complete(1L,3L,new MaintenanceCompleteRequest("Reparada"));
         assertThat(result.status()).isEqualTo(MaintenanceStatus.COMPLETED);
-        assertThat(result.completedAt()).isNotNull(); verify(bikes).returnFromMaintenance(bike,admin,"Reparada");
+        assertThat(result.completedAt()).isNotNull(); verify(bikes).returnFromMaintenance(bike,null,admin,"Reparada");
+    }
+    @Test void storesOriginStationWhenBikeIsTakenToMaintenance(){
+        Station origin=new Station(); origin.setId(10L); origin.setName("Retiro");
+        when(bikes.sendToMaintenance(bike,admin,"Ajuste")).thenReturn(origin);
+        var result=service.create(1L,new MaintenanceCreateRequest(2L,null,"Ajuste"));
+        assertThat(result.originStationId()).isEqualTo(10L);
+        assertThat(result.originStationName()).isEqualTo("Retiro");
+    }
+    @Test void completesReturningBikeToOriginStationUnlessAnotherIsRequested(){
+        Station origin=new Station(); origin.setId(10L);
+        MaintenanceRecord r=new MaintenanceRecord(); r.setId(3L); r.setBike(bike); r.setCreatedByUser(admin);
+        r.setOriginStation(origin); r.setDescription("Ajuste"); r.setStatus(MaintenanceStatus.IN_PROGRESS);
+        when(records.findByIdForUpdate(3L)).thenReturn(Optional.of(r));
+        service.complete(1L,3L,new MaintenanceCompleteRequest("Reparada"));
+        verify(bikes).returnFromMaintenance(bike,10L,admin,"Reparada");
+
+        r.setStatus(MaintenanceStatus.IN_PROGRESS);
+        service.complete(1L,3L,new MaintenanceCompleteRequest("Reparada",20L));
+        verify(bikes).returnFromMaintenance(bike,20L,admin,"Reparada");
     }
     @Test void rejectsInUseThroughBikeServiceAndInvalidIncident(){
         doThrow(new BusinessRuleException("IN_USE")).when(bikes).sendToMaintenance(any(),any(),any());
