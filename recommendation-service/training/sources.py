@@ -1,15 +1,7 @@
-"""Fuentes de datos de entrenamiento.
+"""Datos de entrenamiento.
 
-Un *escenario* es una consulta de recomendación: una ubicación y N estaciones candidatas. Cada candidata
-es una fila (features) con una etiqueta 1/0 ("buena elección" o no) y el id del escenario al que pertenece,
-que se usa para separar train/test sin mezclar candidatas de una misma consulta y para medir el acierto
-top-1.
-
-- `SyntheticDataSource`: escenarios generados con una regla de sentido común que vive SOLO en el
-  etiquetado. El modelo no ve la regla: aprende la relación a partir de los ejemplos.
-
-Otra fuente (por ejemplo, un historial de recomendaciones con la estación que el usuario efectivamente eligió)
-se incorpora implementando `TrainingDataSource`, sin tocar el modelo ni la inferencia.
+Un escenario es una consulta (ubicación + candidatas); cada candidata es una fila etiquetada 1/0.
+Hoy se usa un dataset sintético; otra fuente se agrega implementando TrainingDataSource.
 """
 
 from __future__ import annotations
@@ -54,7 +46,7 @@ def _assemble(scenarios: list[tuple[np.ndarray, np.ndarray]]) -> TrainingSet:
 
 # --- Dataset sintético ------------------------------------------------------------------------------
 
-# Parámetros de la regla de etiquetado (documentados en el README del servicio).
+# Parámetros de la regla de etiquetado.
 SAFE_UNITS = {Purpose.PICKUP: 4, Purpose.DROPOFF: 3}   # unidades a partir de las cuales no hay riesgo
 SCARCITY_COST_PER_UNIT = 2.0                          # 1 unidad faltante "equivale" a caminar 200 m
 WALK_COST_PER_100M = 1.0

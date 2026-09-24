@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/** Disponibilidad de bicis y anclajes por estación. */
 @RestController
 @RequestMapping("/api/v1/stations")
 @Tag(name = "Disponibilidad de estaciones",
@@ -30,6 +31,7 @@ public class StationAvailabilityController {
         this.stationAvailabilityService = stationAvailabilityService;
     }
 
+    /** GET /stations/availability: disponibilidad de todas las estaciones. */
     @GetMapping("/availability")
     @Operation(summary = "Disponibilidad de todas las estaciones vigentes",
             description = "Operación pública, incluso en modo seguro. Incluye estaciones activas, inactivas "
@@ -41,6 +43,7 @@ public class StationAvailabilityController {
         return stationAvailabilityService.getAll();
     }
 
+    /** GET /stations/{id}/availability: disponibilidad de una estación. */
     @GetMapping("/{stationId}/availability")
     @Operation(summary = "Disponibilidad de una estación",
             description = "Devuelve capacidad, bicicletas disponibles y anclajes libres al momento de la consulta")

@@ -22,6 +22,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 
+/** Usuario del módulo. */
 @Entity
 @Table(name = "users")
 @Getter

@@ -32,11 +32,13 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 import java.util.List;
 
+/** Endpoints de incidencias: reporte de usuarios y gestión de administradores. */
 @RestController
 @RequestMapping("/api/v1/incidents")
 @Tag(name = "Incidencias", description = "Consulta de tipos y reporte de incidencias de bicicletas")
 public class IncidentController {
 
+    // Identifica al usuario hasta que esté integrado el Login Federado.
     static final String USER_HEADER = "X-User-Id";
     private static final String USER_HEADER_DESCRIPTION =
             "ID del usuario actual. Mecanismo temporal hasta integrar el login federado de Grupo 2";
@@ -47,6 +49,7 @@ public class IncidentController {
         this.incidentService = incidentService;
     }
 
+    /** GET /incidents/types: tipos de incidencia disponibles. */
     @GetMapping("/types")
     @Operation(summary = "Consultar tipos de incidencia activos")
     @ApiResponse(responseCode = "200", description = "Tipos disponibles",
@@ -56,6 +59,7 @@ public class IncidentController {
         return incidentService.findActiveTypes();
     }
 
+    /** POST /incidents: el usuario reporta un problema con una bici. */
     @PostMapping
     @Operation(summary = "Reportar una incidencia",
             description = "Registra una incidencia OPEN asociada al usuario y a la bicicleta")
@@ -75,6 +79,7 @@ public class IncidentController {
         return ResponseEntity.created(URI.create("/api/v1/incidents/" + created.id())).body(created);
     }
 
+    /** GET /incidents: listado con filtros (solo admin). */
     @GetMapping
     @Operation(summary = "Listar y filtrar incidencias",
             description = "Operación administrativa. Admite filtros opcionales por estado, bicicleta, usuario y tipo")
@@ -93,6 +98,7 @@ public class IncidentController {
         return incidentService.findAllForAdmin(adminId, status, bikeId, userId, typeId);
     }
 
+    /** GET /incidents/{id}: detalle de una incidencia (solo admin). */
     @GetMapping("/{id}")
     @Operation(summary = "Consultar el detalle de una incidencia",
             description = "Operación administrativa")
@@ -109,6 +115,7 @@ public class IncidentController {
         return incidentService.findByIdForAdmin(adminId, id);
     }
 
+    /** PATCH /incidents/{id}/status: revisar, resolver o rechazar (solo admin). */
     @PatchMapping("/{id}/status")
     @Operation(summary = "Actualizar el estado de una incidencia",
             description = "Operación administrativa. Al resolver o rechazar registra fecha y administrador")

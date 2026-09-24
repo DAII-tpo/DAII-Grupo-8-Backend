@@ -23,15 +23,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
+/** Gestión de bicicletas: alta, consultas, estados, traslados, viajes, incidencias y mantenimiento. */
 @Service
 @Transactional(readOnly = true)
 public class BikeService {
 
-    /**
-     * Prefijo del motivo con que se registra en el historial la baja de circulación por una
-     * incidencia. Permite reconocer, al rechazar la incidencia, que la bicicleta salió de servicio
-     * por el reporte y no por una decisión administrativa.
-     */
+    // Prefijo del motivo en el historial: identifica que la bici salió de servicio por un reporte.
     public static final String INCIDENT_REASON_PREFIX = "Incidencia reportada";
 
     private final BikeRepository bikeRepository;
@@ -48,6 +45,7 @@ public class BikeService {
         this.maintenanceRepository = maintenanceRepository;
     }
 
+    /** Da de alta una bici validando código único, estación activa y capacidad. */
     @Transactional
     public BikeResponse create(BikeCreateRequest request) {
         String code = request.code().trim();
@@ -82,7 +80,7 @@ public class BikeService {
         return toResponse(activeBike(id));
     }
 
-    /** Todas las bicicletas vigentes, opcionalmente filtradas por estado (panel de administración). */
+    /** Todas las bicis vigentes, opcionalmente filtradas por estado. */
     public List<BikeResponse> findAll(BikeStatus status) {
         List<Bike> bikes = status == null
                 ? bikeRepository.findAllForAdminList()
@@ -97,6 +95,7 @@ public class BikeService {
                 .toList();
     }
 
+    /** Bicis disponibles de todas las estaciones o de una en particular. */
     public List<BikeResponse> findAvailable(Long stationId) {
         List<Bike> bikes;
         if (stationId == null) {
@@ -109,6 +108,7 @@ public class BikeService {
         return bikes.stream().map(this::toResponse).toList();
     }
 
+    /** Cambio de estado administrativo, validado contra BikeStatusTransitionPolicy. */
     @Transactional
     public BikeResponse changeStatus(Long id, BikeStatusChangeRequest request) {
         Bike bike = activeBike(id);
@@ -118,8 +118,7 @@ public class BikeService {
             throw new BusinessRuleException(
                     "Transición administrativa no permitida: " + previousStatus + " -> " + newStatus);
         }
-        // Con una orden abierta, la bicicleta sale de mantenimiento solo al finalizarla: si no, la orden
-        // queda IN_PROGRESS para siempre y bloquea abrir otra para la misma bicicleta.
+        // Con una orden abierta, solo sale de mantenimiento al finalizar la orden.
         if (previousStatus == BikeStatus.MAINTENANCE
                 && maintenanceRepository.existsByBikeIdAndStatus(id, MaintenanceStatus.IN_PROGRESS)) {
             throw new BusinessRuleException(
@@ -138,6 +137,7 @@ public class BikeService {
         return toResponse(saved);
     }
 
+    /** Traslada la bici a otra estación activa con lugar. */
     @Transactional
     public BikeResponse transfer(Long id, Long stationId) {
         Bike bike = activeBike(id);
@@ -158,6 +158,7 @@ public class BikeService {
         return toResponse(bikeRepository.save(bike));
     }
 
+    /** Baja lógica: la bici queda OUT_OF_SERVICE con fecha de baja. */
     @Transactional
     public void delete(Long id) {
         Bike bike = activeBike(id);
@@ -173,29 +174,21 @@ public class BikeService {
         }
     }
 
-    /*
-     * Operaciones que dispara el ciclo de vida de un viaje (MOV-026 / MOV-028). No pasan por
-     * BikeStatusTransitionPolicy: AVAILABLE <-> IN_USE no es una transición administrativa, solo
-     * la puede producir un viaje. Se ejecutan dentro de la transacción de TripService.
-     */
+    // Operaciones internas de viajes, incidencias y mantenimiento: no pasan por la política administrativa.
 
+    /** Obtiene la bici con lock pesimista, para operaciones que no pueden correr en paralelo. */
     @Transactional
     public Bike lockActiveBike(Long id) {
         return bikeRepository.findByIdAndDeletedAtIsNullForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
     }
 
-    /**
-     * Pasa la bicicleta a MAINTENANCE y la retira de su estación: mientras se repara no ocupa anclaje.
-     *
-     * @return la estación de la que se retiró (null si no tenía), para devolverla ahí al finalizar
-     */
+    /** Pasa la bici a MAINTENANCE y la retira de su estación. Devuelve la estación de origen. */
     @Transactional
     public Station sendToMaintenance(Bike bike, User admin, String reason) {
         BikeStatus previous = bike.getStatus();
         Station origin = bike.getStation();
-        // Bicicletas que la versión anterior de reportIncidentOnBike dejó en MAINTENANCE sin orden
-        // de mantenimiento: la orden se abre igual, sin volver a registrar el cambio de estado.
+        // Bicis que ya estaban en MAINTENANCE sin orden (versión anterior): solo se retiran de la estación.
         if (previous == BikeStatus.MAINTENANCE) {
             bike.setStation(null);
             bikeRepository.save(bike);
@@ -211,12 +204,7 @@ public class BikeService {
         return origin;
     }
 
-    /**
-     * Devuelve la bicicleta a circulación en la estación indicada.
-     *
-     * @param stationId estación destino; null deja la bicicleta donde está (órdenes previas a V4, en las
-     *                  que la bicicleta nunca se retiró de su estación)
-     */
+    /** Vuelve la bici a AVAILABLE en la estación indicada (null: se queda en la que está). */
     @Transactional
     public void returnFromMaintenance(Bike bike, Long stationId, User admin, String reason) {
         if (bike.getStatus() != BikeStatus.MAINTENANCE) {
@@ -228,7 +216,7 @@ public class BikeService {
                 throw new BusinessRuleException("Indicá la estación donde se devuelve la bicicleta");
             }
         } else if (current == null || !current.getId().equals(stationId)) {
-            // Con lock, igual que al devolver una bicicleta de un viaje, para no superar la capacidad.
+            // Con lock para no superar la capacidad de la estación.
             Station destination = stationRepository.findByIdAndDeletedAtIsNullForUpdate(stationId)
                     .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
             if (destination.getStatus() != StationStatus.ACTIVE) {
@@ -244,7 +232,7 @@ public class BikeService {
         recordStatusChange(saved, BikeStatus.MAINTENANCE, BikeStatus.AVAILABLE, reason, admin);
     }
 
-    /** Retira la bicicleta de su estación para un viaje y devuelve la estación de origen. */
+    /** Retira la bici de su estación al iniciar un viaje. Devuelve la estación de origen. */
     @Transactional
     public Station checkOutForTrip(Bike bike, User user) {
         if (bike.getStatus() != BikeStatus.AVAILABLE) {
@@ -255,7 +243,7 @@ public class BikeService {
         if (origin == null) {
             throw new BusinessRuleException("La bicicleta no está asignada a ninguna estación: " + bike.getId());
         }
-        // Una bicicleta IN_USE no ocupa anclaje: station_id queda en NULL mientras dura el viaje (ver DER).
+        // Durante el viaje no ocupa anclaje.
         bike.setStation(null);
         bike.setStatus(BikeStatus.IN_USE);
         Bike saved = bikeRepository.save(bike);
@@ -264,12 +252,8 @@ public class BikeService {
     }
 
     /**
-     * Saca de circulación una bicicleta con una incidencia: queda OUT_OF_SERVICE hasta que un admin
-     * la revise. Pasa a MAINTENANCE recién cuando se abre la orden de mantenimiento.
-     *
-     * Una bicicleta IN_USE no se toca: sacarla de IN_USE con el viaje abierto la deja fuera de esa
-     * protección (un admin podría trasladarla, cambiarle el estado o darla de baja) y el usuario no
-     * podría devolverla. TripService la saca de circulación al finalizar el viaje.
+     * Saca de circulación una bici reportada (queda OUT_OF_SERVICE). Si está en un viaje no se toca:
+     * TripService la saca de circulación cuando se devuelve.
      */
     @Transactional
     public void reportIncidentOnBike(Bike bike, User user, String reason) {
@@ -281,11 +265,7 @@ public class BikeService {
         }
     }
 
-    /**
-     * Devuelve a circulación una bicicleta cuya incidencia se rechazó (reporte falso). Solo actúa si
-     * el último cambio de estado fue la baja por una incidencia: si un admin la desactivó por otro
-     * motivo, o ya se abrió un mantenimiento, la bicicleta queda como está.
-     */
+    /** Tras rechazar un reporte, vuelve la bici a AVAILABLE si había salido de servicio por ese reporte. */
     @Transactional
     public void returnToServiceAfterRejectedIncident(Long bikeId, User admin) {
         Bike bike = bikeRepository.findByIdAndDeletedAtIsNullForUpdate(bikeId).orElse(null);
@@ -305,11 +285,10 @@ public class BikeService {
         recordStatusChange(saved, BikeStatus.OUT_OF_SERVICE, BikeStatus.AVAILABLE, "Incidencia rechazada", admin);
     }
 
-    /** Devuelve la bicicleta en la estación destino al finalizar un viaje y devuelve esa estación. */
+    /** Deja la bici en la estación destino al terminar un viaje. */
     @Transactional
     public Station checkInFromTrip(Bike bike, Long stationId, User user) {
-        // MAINTENANCE se sigue aceptando por las bicicletas que la versión anterior de
-        // reportIncidentOnBike dejó en ese estado con el viaje todavía activo.
+        // MAINTENANCE: bicis que la versión anterior pasó a mantenimiento en pleno viaje.
         if (bike.getStatus() != BikeStatus.IN_USE && bike.getStatus() != BikeStatus.MAINTENANCE) {
             throw new BusinessRuleException(
                     "La bicicleta no está en uso: " + bike.getId() + " (" + bike.getStatus() + ")");
@@ -336,6 +315,7 @@ public class BikeService {
         return destination;
     }
 
+    /** Historial de cambios de estado, del más reciente al más antiguo. */
     public List<BikeStatusHistoryResponse> history(Long id) {
         bikeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
@@ -365,6 +345,7 @@ public class BikeService {
                 .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + id));
     }
 
+    // Todas las bicis presentes ocupan anclaje, sin importar su estado.
     private void ensureCapacity(Station station) {
         if (bikeRepository.countByStationIdAndDeletedAtIsNull(station.getId()) >= station.getCapacity()) {
             throw new BusinessRuleException("La estación no tiene capacidad disponible: " + station.getId());

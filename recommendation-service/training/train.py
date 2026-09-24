@@ -1,11 +1,6 @@
-"""Entrenamiento del modelo de recomendación.
+"""Entrena el modelo y lo deja como vigente: `python -m training.train`.
 
-Uso:
-    python -m training.train      # dataset sintético → logreg-synthetic-v1, queda como modelo vigente
-
-El entrenamiento separa un holdout por escenario, mide el modelo sobre él y deja todo en el model card
-(`models/<versión>/model_card.json`, también expuesto en `GET /v1/model`). Otra fuente de datos (por ejemplo,
-un historial real) se incorpora implementando `TrainingDataSource` y pasándola a `train_bundle`.
+Las métricas sobre el holdout quedan en el model card (también en GET /v1/model).
 """
 
 from __future__ import annotations

@@ -18,7 +18,7 @@ public interface StationRepository extends JpaRepository<Station, Long> {
 
     Optional<Station> findByIdAndDeletedAtIsNull(Long id);
 
-    /** Bloquea la estación destino al devolver una bicicleta para no superar su capacidad. */
+    /** Estación con lock pesimista, para no superar su capacidad al dejar una bici. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from Station s where s.id = :id and s.deletedAt is null")
     Optional<Station> findByIdAndDeletedAtIsNullForUpdate(@Param("id") Long id);
@@ -26,27 +26,9 @@ public interface StationRepository extends JpaRepository<Station, Long> {
     List<Station> findAllByDeletedAtIsNullOrderByName();
 
     /**
-     * Estaciones activas dentro del radio, ordenadas de más cercana a más lejana (MOV-017).
-     *
-     * La distancia se calcula con la formula de Haversine sobre una esfera, en metros.
-     *
-     * Se hace con funciones matematicas comunes (ACOS/COS/SIN/RADIANS) y no con
-     * ST_Distance_Sphere porque la base de produccion no implementa las funciones espaciales de
-     * MySQL: la version anterior fallaba ahi con "FUNCTION movilidad.point does not exist",
-     * aunque pasara en los tests, que corren contra un MySQL real.
-     *
-     * El 6370986 es el radio terrestre en metros que ST_Distance_Sphere usa por defecto, asi que
-     * las distancias y el orden no cambian respecto de la version anterior.
-     *
-     * El GREATEST/LEAST acota el argumento de ACOS a [-1, 1]: en coordenadas identicas el
-     * redondeo en punto flotante puede pasarse de 1 y ACOS devolveria NULL.
-     *
-     * El BETWEEN sobre latitud/longitud es un prefiltro por caja que permite usar el índice
-     * idx_stations_lat_lng; sin él, la función sobre las columnas obligaría a recorrer la
-     * tabla entera. El filtro exacto por radio se aplica después, sobre la distancia real.
-     *
-     * Se usa una tabla derivada en lugar de HAVING porque HAVING sin GROUP BY puede fallar
-     * según el sql_mode del servidor (ONLY_FULL_GROUP_BY).
+     * Estaciones activas dentro del radio, de la más cercana a la más lejana.
+     * Distancia con Haversine (sin funciones espaciales: la base de producción no las soporta).
+     * El BETWEEN es un prefiltro por caja que usa el índice (lat, lng).
      */
     @Query(value = """
             SELECT * FROM (

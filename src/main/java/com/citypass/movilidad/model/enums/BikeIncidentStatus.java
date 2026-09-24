@@ -10,7 +10,7 @@ public enum BikeIncidentStatus {
     RESOLVED,
     REJECTED;
 
-    /** Incidencias que todavía no se cerraron: la bicicleta no debe volver a circular. */
+    /** Estados de una incidencia todavía abierta. */
     public static final Set<BikeIncidentStatus> PENDING =
             Collections.unmodifiableSet(EnumSet.of(OPEN, UNDER_REVIEW));
 }

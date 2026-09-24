@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/** Búsqueda de estaciones cercanas. */
 @RestController
 @RequestMapping("/api/v1/stations")
 @Tag(name = "Mapas y rutas", description = "Búsqueda de estaciones por cercanía a una ubicación")
@@ -31,6 +32,7 @@ public class NearbyStationController {
         this.nearbyStationService = nearbyStationService;
     }
 
+    /** GET /stations/nearby: estaciones activas cercanas con su disponibilidad. */
     @GetMapping("/nearby")
     @Operation(summary = "Estaciones cercanas a una ubicación",
             description = "Devuelve las estaciones activas dentro del radio indicado, ordenadas de más "

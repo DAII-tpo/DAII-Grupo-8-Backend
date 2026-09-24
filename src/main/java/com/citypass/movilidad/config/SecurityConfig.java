@@ -17,6 +17,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
+/** Seguridad: modo local (todo abierto) o modo seguro (JWT), y configuración de CORS. */
 @Configuration
 @EnableWebSecurity
 @SuppressWarnings("java:S4502")
@@ -25,13 +26,11 @@ public class SecurityConfig {
     @Value("${security.jwt.jwk-set-uri:http://localhost:9000/.well-known/jwks.json}")
     private String jwkSetUri;
 
-    // Origenes habilitados para CORS: se configuran con CORS_ALLOWED_ORIGINS (separados por coma).
-    // Admiten comodin (ver corsConfigurationSource), para cubrir los dominios que Vercel genera
-    // en cada deploy de preview: https://daii-grupo-8-frontend-*.vercel.app
+    // Orígenes CORS (CORS_ALLOWED_ORIGINS, separados por coma). Admiten comodines para los previews de Vercel.
     @Value("${app.cors.allowed-origins}")
     private List<String> allowedOriginPatterns;
 
-    // Modo local (security.local.enabled=true o por defecto): endpoints abiertos y CORS habilitado
+    // Modo local (default): todos los endpoints abiertos.
     @Bean
     @ConditionalOnProperty(name = "security.local.enabled", havingValue = "true", matchIfMissing = true)
     public SecurityFilterChain localSecurityFilterChain(HttpSecurity http) throws Exception {
@@ -42,7 +41,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // Modo seguro / producción (security.local.enabled=false): requiere JWT y valida endpoints
+    // Modo seguro: exige JWT salvo en los endpoints públicos.
     @Bean
     @ConditionalOnProperty(name = "security.local.enabled", havingValue = "false")
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -50,10 +49,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        // (dependencia externa - squad Login Federado): la consulta de disponibilidad
-                        // queda pública de forma temporal para que el frontend (MOV-019/MOV-020) pueda
-                        // consumirla mientras no exista el authorization server del proyecto. Cuando esté
-                        // disponible hay que revisar si estas operaciones requieren usuario autenticado.
+                        // Públicos por ahora; revisar cuando esté el Login Federado.
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/stations/availability",
                                 "/api/v1/stations/*/availability",
@@ -82,10 +78,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // setAllowedOriginPatterns en lugar de setAllowedOrigins: este acepta comodines y sigue
-        // siendo compatible con allowCredentials=true (setAllowedOrigins compara texto exacto, asi
-        // que un patron con "*" no matchearia nunca). Los patrones tienen que seguir acotados al
-        // proyecto: un "https://*.vercel.app" habilitaria el front de cualquiera con credenciales.
+        // Patterns en vez de origins para admitir comodines. No usar "https://*.vercel.app": habilita a cualquiera.
         configuration.setAllowedOriginPatterns(allowedOriginPatterns);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));

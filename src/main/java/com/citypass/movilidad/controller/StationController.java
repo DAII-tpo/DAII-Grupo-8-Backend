@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/** Alta, consulta y edición de estaciones. */
 @RestController
 @RequestMapping("/api/v1/stations")
 @RequiredArgsConstructor
@@ -32,6 +33,7 @@ public class StationController {
 
     private final StationService stationService;
 
+    /** GET /stations: todas las estaciones. */
     @GetMapping()
     @Operation(summary = "Obtener todas las estaciones",
             description = "Roles funcionales esperados: USER y ADMIN. Autenticación gestionada por "
@@ -42,6 +44,7 @@ public class StationController {
         return stationService.getAllStations();
     }
 
+    /** GET /stations/{id}: una estación. */
     @GetMapping("/{id}")
     @Operation(summary = "Obtener una estación por ID",
             description = "Roles funcionales esperados: USER y ADMIN. Autenticación gestionada por "
@@ -57,6 +60,7 @@ public class StationController {
         return stationService.getStationById(id);
     }
 
+    /** POST /stations: crea una estación. */
     @PostMapping()
     @Operation(summary = "Crear una nueva estación",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado "
@@ -70,6 +74,7 @@ public class StationController {
         return stationService.createStation(stationRequestDTO);
     }
 
+    /** PATCH /stations/{id}: actualiza una estación (incluye activarla o desactivarla). */
     @PatchMapping("/{id}")
     @Operation(summary = "Actualizar una estación existente",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado "

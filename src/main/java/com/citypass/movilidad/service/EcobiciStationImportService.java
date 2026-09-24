@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.HashSet;
 import java.util.Set;
 
+/** Importa las estaciones del dataset oficial de Ecobici. Idempotente: saltea las que ya existen. */
 @Service
 public class EcobiciStationImportService {
 
@@ -39,9 +40,7 @@ public class EcobiciStationImportService {
         int imported = 0;
         int duplicates = 0;
         int invalid = 0;
-        // Una sola consulta para las estaciones ya importadas: la importación corre en cada arranque
-        // (en Render el plan free reinicia la app al despertarla) y consultar fila por fila serían
-        // cientos de viajes a la base antes de poder atender requests.
+        // Una sola consulta de las ya importadas: corre en cada arranque y fila por fila sería lento.
         Set<String> seenExternalIds = new HashSet<>(stationRepository.findAllExternalIds());
 
         JsonNode features;

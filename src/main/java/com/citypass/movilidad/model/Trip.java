@@ -22,6 +22,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.math.BigDecimal;
 import java.time.Instant;
 
+/** Viaje de un usuario con una bicicleta. */
 @Entity
 @Table(name = "trips")
 @Getter
@@ -47,7 +48,7 @@ public class Trip {
     @JoinColumn(name = "origin_station_id", nullable = false)
     private Station originStation;
 
-    // Nullable: null hasta que el viaje finaliza (ver DER).
+    // Null hasta que el viaje finaliza.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "destination_station_id", nullable = true)
     private Station destinationStation;

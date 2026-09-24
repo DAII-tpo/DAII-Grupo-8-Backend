@@ -17,13 +17,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * Disponibilidad de estaciones (MOV-016).
- *
- * La disponibilidad se calcula en el momento de la consulta a partir del parque de
- * bicicletas y de la capacidad de la estación: no se persiste ningún contador, para no
- * mantener valores que puedan quedar desfasados respecto de la tabla de bicicletas.
- */
+/** Disponibilidad de estaciones, calculada al momento de la consulta (no se guardan contadores). */
 @Service
 @Transactional(readOnly = true)
 public class StationAvailabilityService {
@@ -36,28 +30,19 @@ public class StationAvailabilityService {
         this.bikeRepository = bikeRepository;
     }
 
-    /**
-     * Disponibilidad de una estación puntual. Responde también para estaciones INACTIVE o en
-     * MAINTENANCE: el estado viaja en la respuesta para que el cliente decida qué mostrar.
-     */
+    /** Disponibilidad de una estación, en cualquier estado (el estado viaja en la respuesta). */
     public StationAvailabilityResponse getByStationId(Long stationId) {
         Station station = stationRepository.findByIdAndDeletedAtIsNull(stationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
         return buildAvailability(List.of(station)).getFirst();
     }
 
-    /** Disponibilidad de todas las estaciones vigentes, resuelta con una sola consulta de conteo. */
+    /** Disponibilidad de todas las estaciones vigentes, con una sola consulta de conteo. */
     public List<StationAvailabilityResponse> getAll() {
         return buildAvailability(stationRepository.findAllByDeletedAtIsNullOrderByName());
     }
 
-    /**
-     * Disponibilidad de un conjunto arbitrario de estaciones, dadas sus capacidades, con una
-     * única consulta agrupada. Lo consume la búsqueda de estaciones cercanas (MOV-017) para
-     * no duplicar ni el conteo ni la regla de negocio.
-     *
-     * @param capacityByStationId capacidad declarada de cada estación, por ID
-     */
+    /** Disponibilidad de un grupo de estaciones (id -> capacidad) con una única consulta agrupada. */
     public Map<Long, StationAvailability> availabilityFor(Map<Long, Integer> capacityByStationId) {
         if (capacityByStationId.isEmpty()) {
             return Map.of();
@@ -69,7 +54,7 @@ public class StationAvailabilityService {
         Map<Long, StationAvailability> availability = new HashMap<>();
         capacityByStationId.forEach((stationId, capacity) -> {
             StationBikeCountProjection counts = countsByStation.get(stationId);
-            // Sin fila de conteo significa estación sin bicicletas, no error.
+            // Sin fila de conteo = estación sin bicis.
             availability.put(stationId, counts == null
                     ? StationAvailability.empty(capacity)
                     : StationAvailability.of(capacity, counts.getTotalBikes(), counts.getAvailableBikes()));

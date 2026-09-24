@@ -1,10 +1,9 @@
-# Servicio de recomendación de estaciones (MOV-041)
+# Servicio de recomendación de estaciones
 
 Microservicio Python (FastAPI + scikit-learn) que recomienda la estación más conveniente para **retirar**
 (`PICKUP`) o **devolver** (`DROPOFF`) una bicicleta, a partir de la ubicación del usuario y del estado actual
-de las estaciones. No tiene base de datos propia: recibe el snapshot de candidatas en cada request (ver
-[ADR-001](../docs/adr/ADR-001-recomendacion-http-sincrona.md)). La integración con el backend Java es MOV-042; el
-contrato para integrarlo está en [docs/MOV-041](../docs/MOV-041-recomendacion-inteligente.md#contrato-para-la-integración-mov-042).
+de las estaciones. No tiene base de datos propia: el backend le envía el estado de las candidatas en cada
+request y, si el servicio no responde, usa un criterio de respaldo.
 
 ## Qué parte es IA y qué parte no
 
@@ -15,8 +14,8 @@ contrato para integrarlo está en [docs/MOV-041](../docs/MOV-041-recomendacion-i
 | Código de explicación (`NEAREST_LOW_AVAILABILITY`, etc.) | No: describe el estado actual de la estación más cercana | `app/explainer.py` |
 | Guardrail "una estación sin recurso nunca se recomienda" | No: regla de negocio | `app/recommender.py` |
 | Desempate por stock → distancia → id | No: determinismo | `app/recommender.py` |
-| Fallback cuando el servicio no responde | No: responsabilidad del consumidor | MOV-042 |
-| Filtro de estaciones deshabilitadas | No: el consumidor envía solo estaciones habilitadas | MOV-042 |
+| Fallback cuando el servicio no responde | No: responsabilidad del consumidor | Backend (`StationRecommendationService`) |
+| Filtro de estaciones deshabilitadas | No: el consumidor envía solo estaciones habilitadas | Backend (`NearbyStationService`) |
 
 ## Model card
 

@@ -16,10 +16,7 @@ import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 
-/**
- * Latitud geográfica válida. El rango se declara una sola vez acá y se reutiliza en DTOs y
- * parámetros de controller, en lugar de repetir @DecimalMin/@DecimalMax en cada uno (MOV-021).
- */
+/** Latitud válida (-90 a 90). */
 @Documented
 @Target({FIELD, PARAMETER, METHOD, ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)

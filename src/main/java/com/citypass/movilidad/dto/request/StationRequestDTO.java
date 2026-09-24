@@ -18,10 +18,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 
-/**
- * Los límites replican las columnas de la tabla stations: así un dato fuera de rango se rechaza
- * con 400 y el detalle del campo, en lugar de llegar a la base y terminar en un 500 (MOV-021).
- */
+/** Datos para crear o actualizar una estación. Los límites coinciden con las columnas de la tabla. */
 @Getter
 @Setter
 @NoArgsConstructor

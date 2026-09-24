@@ -15,13 +15,7 @@ import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 
-/**
- * Identificador de una entidad: los IDs son autoincrementales, así que cualquier valor menor o
- * igual a cero es una solicitud mal formada y se rechaza con 400 antes de tocar la base, en
- * lugar de buscarlo y devolver un 404 engañoso (MOV-021).
- *
- * No implica que el ID exista: eso lo resuelve el service con ResourceNotFoundException.
- */
+/** ID de entidad: tiene que ser positivo (si no, 400). No valida que exista. */
 @Documented
 @Target({FIELD, PARAMETER, METHOD, ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)

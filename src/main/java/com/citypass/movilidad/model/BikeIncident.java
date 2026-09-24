@@ -21,6 +21,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.Instant;
 
+/** Incidencia reportada por un usuario sobre una bicicleta. */
 @Entity
 @Table(name = "bike_incidents")
 @Getter
@@ -42,7 +43,7 @@ public class BikeIncident {
     @JoinColumn(name = "reported_by_user_id", nullable = false)
     private User reportedByUser;
 
-    // Nullable: null si el incidente no ocurrió durante un viaje (ver DER).
+    // Null si no ocurrió durante un viaje.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "trip_id", nullable = true)
     private Trip trip;
@@ -66,7 +67,7 @@ public class BikeIncident {
     @Column(name = "resolved_at")
     private Instant resolvedAt;
 
-    // Nullable: null hasta que el incidente se resuelve (ver DER).
+    // Null hasta que se resuelve.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "resolved_by_user_id", nullable = true)
     private User resolvedByUser;

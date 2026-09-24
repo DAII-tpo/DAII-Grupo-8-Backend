@@ -1,12 +1,8 @@
 package com.citypass.movilidad.client;
 
 /**
- * El servicio de recomendación no pudo dar una respuesta utilizable: no respondió, tardó de más,
- * devolvió un error o un cuerpo que no se entiende.
- *
- * A propósito <strong>no</strong> extiende ApiException: nunca tiene que llegar al cliente como
- * error HTTP. Es una señal interna para que StationRecommendationService use el criterio de
- * respaldo y el módulo de Movilidad siga respondiendo.
+ * El servicio de recomendación no dio una respuesta utilizable. Señal interna para usar el respaldo:
+ * no extiende ApiException porque nunca llega al cliente.
  */
 public class RecommendationUnavailableException extends RuntimeException {
 

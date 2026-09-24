@@ -1,16 +1,13 @@
 package com.citypass.movilidad.repository.projection;
 
-/**
- * Conteo de bicicletas por estación, resuelto en una sola consulta agrupada para evitar N+1
- * cuando se pide la disponibilidad de varias estaciones (MOV-016 y, más adelante, MOV-017).
- */
+/** Conteo de bicis por estación, resuelto en una sola consulta agrupada. */
 public interface StationBikeCountProjection {
 
     Long getStationId();
 
-    /** Bicicletas presentes en la estación en cualquier estado: son las que ocupan un anclaje. */
+    /** Bicis presentes en cualquier estado (ocupan anclaje). */
     Long getTotalBikes();
 
-    /** Bicicletas en estado AVAILABLE: son las únicas que un usuario puede retirar. */
+    /** Bicis AVAILABLE (las que se pueden retirar). */
     Long getAvailableBikes();
 }

@@ -20,6 +20,7 @@ import lombok.Setter;
 
 import java.time.Instant;
 
+/** Orden de mantenimiento de una bicicleta. */
 @Entity
 @Table(name = "maintenance_records")
 @Getter
@@ -37,13 +38,12 @@ public class MaintenanceRecord {
     @JoinColumn(name = "bike_id", nullable = false)
     private Bike bike;
 
-    // Nullable: null si es mantenimiento preventivo, sin incidente asociado.
+    // Null si es un mantenimiento preventivo.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "incident_id", nullable = true)
     private BikeIncident incident;
 
-    // Estación de la que se retiró la bicicleta al abrir el mantenimiento; ahí vuelve al finalizarlo si el
-    // admin no indica otra. Null en órdenes previas a V4 o si la bicicleta no tenía estación.
+    // Estación de la que salió la bici; vuelve ahí al finalizar si no se indica otra.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "origin_station_id", nullable = true)
     private Station originStation;

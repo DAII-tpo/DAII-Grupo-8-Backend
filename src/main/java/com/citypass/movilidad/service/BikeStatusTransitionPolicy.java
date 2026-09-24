@@ -7,6 +7,7 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 
+/** Transiciones de estado que puede hacer un administrador (AVAILABLE <-> IN_USE queda para los viajes). */
 public final class BikeStatusTransitionPolicy {
 
     private static final Map<BikeStatus, Set<BikeStatus>> ADMIN_TRANSITIONS = new EnumMap<>(BikeStatus.class);

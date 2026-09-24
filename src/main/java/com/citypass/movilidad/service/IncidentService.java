@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 
+/** Reporte de incidencias por los usuarios y su gestión por los administradores. */
 @Service
 @Transactional(readOnly = true)
 public class IncidentService {
@@ -49,6 +50,7 @@ public class IncidentService {
         this.bikeService = bikeService;
     }
 
+    /** Tipos de incidencia que se pueden reportar. */
     public List<IncidentTypeResponse> findActiveTypes() {
         return incidentTypeRepository.findAllByActiveTrueOrderByName().stream()
                 .map(type -> new IncidentTypeResponse(
@@ -56,6 +58,7 @@ public class IncidentService {
                 .toList();
     }
 
+    /** Listado filtrable de incidencias (solo admin). */
     public List<AdminIncidentResponse> findAllForAdmin(Long adminId, BikeIncidentStatus status,
                                                         Long bikeId, Long userId, Long typeId) {
         requireAdmin(adminId);
@@ -72,6 +75,7 @@ public class IncidentService {
     }
 
     @Transactional
+    /** Cambia el estado de una incidencia (solo admin). Al rechazarla puede liberar la bici. */
     public AdminIncidentResponse changeStatus(Long adminId, Long incidentId, BikeIncidentStatus newStatus) {
         User admin = requireAdmin(adminId);
         BikeIncident incident = incidentRepository.findByIdForUpdate(incidentId)
@@ -86,7 +90,7 @@ public class IncidentService {
             incident.setResolvedAt(Instant.now());
             incident.setResolvedByUser(admin);
         }
-        // Reporte falso: la bicicleta vuelve a circular, salvo que tenga otra incidencia pendiente.
+        // Reporte falso: la bici vuelve a circular si no tiene otras incidencias pendientes.
         Long bikeId = incident.getBike().getId();
         if (newStatus == BikeIncidentStatus.REJECTED
                 && !incidentRepository.existsByBikeIdAndStatusInAndIdNot(bikeId, BikeIncidentStatus.PENDING, incidentId)) {
@@ -96,14 +100,14 @@ public class IncidentService {
     }
 
     @Transactional
+    /** Registra un reporte y saca la bici de circulación. */
     public IncidentResponse report(Long userId, IncidentCreateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + userId));
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new BusinessRuleException("El usuario no está habilitado para reportar incidencias: " + userId);
         }
-        // Con lock: sin él, un viaje que arranca en paralelo podría quedar pisado por el save de
-        // esta bicicleta leída antes del inicio (estado y estación viejos).
+        // Con lock para no pisar un viaje que arranque en paralelo sobre la misma bici.
         Bike bike = bikeRepository.findByIdAndDeletedAtIsNullForUpdate(request.bikeId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Bicicleta no encontrada: " + request.bikeId()));

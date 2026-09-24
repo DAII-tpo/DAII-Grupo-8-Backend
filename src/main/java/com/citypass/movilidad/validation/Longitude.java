@@ -16,10 +16,7 @@ import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 
-/**
- * Longitud geográfica válida. Contraparte de {@link Latitude}: mismo criterio de definir el
- * rango en un único lugar (MOV-021).
- */
+/** Longitud válida (-180 a 180). */
 @Documented
 @Target({FIELD, PARAMETER, METHOD, ANNOTATION_TYPE})
 @Retention(RetentionPolicy.RUNTIME)

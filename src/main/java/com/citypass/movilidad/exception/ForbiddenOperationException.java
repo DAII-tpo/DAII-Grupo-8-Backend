@@ -2,7 +2,7 @@ package com.citypass.movilidad.exception;
 
 import org.springframework.http.HttpStatus;
 
-/** El usuario existe pero no tiene el rol requerido para la operación. */
+/** El usuario no tiene el rol requerido. Responde 403. */
 public class ForbiddenOperationException extends ApiException {
 
     public static final String CODE = "FORBIDDEN_OPERATION";

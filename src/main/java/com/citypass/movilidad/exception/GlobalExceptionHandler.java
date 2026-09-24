@@ -33,15 +33,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 import java.util.List;
 import java.util.regex.Pattern;
 
-/**
- * Traducción única de excepción a respuesta HTTP para toda la API (MOV-021).
- *
- * Extiende ResponseEntityExceptionHandler para heredar el mapeo que Spring MVC ya hace de sus
- * propias excepciones (cuerpo ilegible, header o parámetro faltante, método no soportado, ruta
- * inexistente...) y reescribe únicamente el cuerpo de la respuesta, de modo que todas salgan
- * con el formato de ErrorResponse. Así ningún error esperable termina en un 500 genérico y las
- * validaciones no hay que repetirlas en cada controller.
- */
+/** Convierte cualquier excepción en una respuesta HTTP con el formato de ErrorResponse. */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -55,10 +47,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Pattern CONTROL_CHARACTERS = Pattern.compile("[\\p{Cntrl}]");
     private static final int MAX_LOGGED_LENGTH = 200;
 
-    /**
-     * Todas las excepciones de dominio (404, 409, 400 de negocio) con un solo handler: el
-     * estado y el código los aporta la propia excepción.
-     */
+    /** Excepciones de dominio: el estado y el código los define la propia excepción. */
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ErrorResponse> handleApiException(ApiException ex, WebRequest request) {
         String path = pathOf(request);
@@ -68,7 +57,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return respond(ex.getStatus(), ex.getCode(), ex.getMessage(), path, null);
     }
 
-    /** Parámetros de query, path o header que incumplen sus restricciones de Bean Validation. */
+    /** Parámetros de query, path o header inválidos. */
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex,
                                                                    WebRequest request) {
@@ -79,19 +68,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return validationError(errors, "Parámetros inválidos", pathOf(request));
     }
 
-    /** Restricción de la base de datos que no se pudo anticipar, típicamente una clave duplicada. */
+    /** Violación de una restricción de la base (ej. clave duplicada). */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex,
                                                              WebRequest request) {
         String path = pathOf(request);
         String loggedPath = forLog(path);
-        // El mensaje del driver puede exponer nombres de constraints y datos: queda solo en el log.
+        // El mensaje del driver puede exponer datos internos: solo va al log.
         LOG.warn("Violación de integridad en {}", loggedPath, ex);
         return respond(HttpStatus.CONFLICT, DATA_INTEGRITY_CODE,
                 "La operación entra en conflicto con datos ya existentes", path, null);
     }
 
-    /** Otra transacción tocó el mismo recurso primero: el cliente puede reintentar. */
+    /** Otra transacción modificó el recurso primero: se puede reintentar. */
     @ExceptionHandler({OptimisticLockingFailureException.class, PessimisticLockingFailureException.class})
     public ResponseEntity<ErrorResponse> handleConcurrentUpdate(Exception ex, WebRequest request) {
         String path = pathOf(request);
@@ -102,16 +91,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "El recurso fue modificado por otra operación, volvé a intentarlo", path, null);
     }
 
-    /**
-     * Las excepciones de seguridad se devuelven al filtro de Spring Security, que es quien sabe
-     * si corresponde 401 o 403. Sin esto el handler genérico las convertiría en 500.
-     */
+    /** Las de seguridad se relanzan para que Spring Security responda 401/403 (y no 500). */
     @ExceptionHandler({AccessDeniedException.class, AuthenticationException.class})
     public void rethrowSecurityException(RuntimeException ex) {
         throw ex;
     }
 
-    /** Última red: nada sale al cliente salvo un mensaje genérico; el detalle va al log. */
+    /** Cualquier otro error: 500 con mensaje genérico; el detalle va al log. */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, WebRequest request) {
         String path = pathOf(request);
@@ -120,7 +106,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return respond(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL_ERROR_CODE, UNEXPECTED_MESSAGE, path, null);
     }
 
-    /** Cuerpo de la solicitud que no pasa las anotaciones del DTO: un detalle por campo. */
+    /** Body inválido: un error por campo. */
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
                                                                   HttpHeaders headers, HttpStatusCode status,
@@ -132,10 +118,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return asObject(validationError(errors, "Datos inválidos", pathOf(request)));
     }
 
-    /**
-     * Restricciones sobre parámetros del controller (query, path o header): Spring MVC las valida
-     * por su cuenta a partir de las anotaciones, sin que el controller tenga que hacer nada.
-     */
+    /** Parámetros del controller que no pasan sus anotaciones de validación. */
     @Override
     protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException ex,
                                                                             HttpHeaders headers,
@@ -149,10 +132,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return asObject(validationError(errors, "Parámetros inválidos", pathOf(request)));
     }
 
-    /**
-     * Punto por el que pasan todas las excepciones que resuelve la clase base: acá se descarta
-     * el cuerpo que arma Spring (ProblemDetail) y se reemplaza por el ErrorResponse común.
-     */
+    /** Reemplaza el cuerpo que arma Spring para sus propias excepciones por ErrorResponse. */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,
                                                              HttpStatusCode statusCode, WebRequest request) {
@@ -184,11 +164,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(status).body(ErrorResponse.of(status, code, message, path, errors));
     }
 
-    /**
-     * Mensajes propios para las excepciones de Spring MVC. El getMessage() original suele
-     * arrastrar nombres de clases y rutas de parseo de Jackson, que no aportan al cliente y
-     * filtran detalle interno.
-     */
+    // Mensajes propios para las excepciones de Spring: los originales exponen detalles internos.
     private String messageOf(Exception ex, HttpStatus status) {
         return switch (ex) {
             case HttpMessageNotReadableException ignored ->
@@ -217,7 +193,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return detail == null || detail.isBlank() ? status.getReasonPhrase() : detail;
     }
 
-    /** Código derivado del estado HTTP, para las excepciones que no son de dominio. */
+    // Código de error a partir del estado HTTP, para excepciones que no son de dominio.
     private String codeOf(HttpStatus status) {
         return status.is5xxServerError() ? INTERNAL_ERROR_CODE : status.name();
     }
@@ -229,10 +205,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return request.getDescription(false);
     }
 
-    /**
-     * Neutraliza el texto de origen externo antes de mandarlo al log: sin saltos de línea ni
-     * caracteres de control, un path manipulado no puede inyectar entradas falsas (log forging).
-     */
+    // Quita saltos de línea y caracteres de control para evitar inyección en el log.
     private String forLog(String value) {
         if (value == null) {
             return "";
@@ -242,7 +215,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 : flattened.substring(0, MAX_LOGGED_LENGTH) + "...";
     }
 
-    /** "findNearby.lat" -> "lat": al cliente le sirve el parámetro, no la ruta interna. */
+    // "findNearby.lat" -> "lat"
     private String lastSegmentOf(String propertyPath) {
         return propertyPath.substring(propertyPath.lastIndexOf('.') + 1);
     }

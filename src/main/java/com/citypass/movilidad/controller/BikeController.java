@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 import java.util.List;
 
+/** Endpoints de bicicletas: consulta y administración del parque. */
 @RestController
 @RequestMapping("/api/v1/bikes")
 @Tag(name = "Bicicletas", description = "Consulta y administración del parque de bicicletas")
@@ -43,6 +44,7 @@ public class BikeController {
         this.bikeService = bikeService;
     }
 
+    /** POST /bikes: da de alta una bicicleta. */
     @PostMapping
     @Operation(summary = "Dar de alta una bicicleta",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")
@@ -59,6 +61,7 @@ public class BikeController {
         return ResponseEntity.created(URI.create("/api/v1/bikes/" + created.id())).body(created);
     }
 
+    /** GET /bikes: todas las bicis vigentes en una sola respuesta (filtro opcional por estado). */
     @GetMapping
     @Operation(summary = "Listar bicicletas",
             description = "Devuelve todas las bicicletas que no fueron dadas de baja, ordenadas por código, "
@@ -74,6 +77,7 @@ public class BikeController {
         return bikeService.findAll(status);
     }
 
+    /** GET /bikes/{id}: una bicicleta. */
     @GetMapping("/{id}")
     @Operation(summary = "Consultar una bicicleta por ID",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")
@@ -85,6 +89,7 @@ public class BikeController {
         return bikeService.findById(id);
     }
 
+    /** GET /bikes/station/{stationId}: bicis de una estación, en cualquier estado. */
     @GetMapping("/station/{stationId}")
     @Operation(summary = "Consultar bicicletas de una estación",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")
@@ -97,6 +102,7 @@ public class BikeController {
         return bikeService.findByStation(stationId);
     }
 
+    /** GET /bikes/available: bicis que se pueden retirar (opcionalmente de una estación). */
     @GetMapping("/available")
     @Operation(summary = "Consultar bicicletas disponibles",
             description = "Roles funcionales esperados: USER y ADMIN. Autenticación gestionada por "
@@ -116,6 +122,7 @@ public class BikeController {
         return bikeService.findAvailable(stationId);
     }
 
+    /** PATCH /bikes/{id}/status: cambio de estado administrativo. */
     @PatchMapping("/{id}/status")
     @Operation(summary = "Cambiar el estado de una bicicleta",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")
@@ -133,6 +140,7 @@ public class BikeController {
         return bikeService.changeStatus(id, request);
     }
 
+    /** PATCH /bikes/{id}/station: traslado a otra estación. */
     @PatchMapping("/{id}/station")
     @Operation(summary = "Trasladar una bicicleta",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")
@@ -150,6 +158,7 @@ public class BikeController {
         return bikeService.transfer(id, request.stationId());
     }
 
+    /** GET /bikes/{id}/status-history: historial de estados. */
     @GetMapping("/{id}/status-history")
     @Operation(summary = "Consultar el historial de estados",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")
@@ -163,6 +172,7 @@ public class BikeController {
         return bikeService.history(id);
     }
 
+    /** DELETE /bikes/{id}: baja lógica. */
     @DeleteMapping("/{id}")
     @Operation(summary = "Dar de baja lógica una bicicleta",
             description = "Rol funcional esperado: ADMIN. Autenticación gestionada por Login Federado (Grupo 2).")

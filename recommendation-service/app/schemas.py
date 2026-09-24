@@ -1,4 +1,4 @@
-"""Contrato HTTP del servicio (ver docs/adr/ADR-001). JSON en camelCase, igual que el backend Java."""
+"""Request y response del servicio. JSON en camelCase, igual que el backend Java."""
 
 from __future__ import annotations
 

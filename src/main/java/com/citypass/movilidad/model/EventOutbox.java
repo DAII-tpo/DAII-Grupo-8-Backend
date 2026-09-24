@@ -20,6 +20,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
+/** Eventos pendientes de publicar en el event bus (todavía sin uso). */
 @Entity
 @Table(name = "event_outbox")
 @Getter
@@ -38,8 +39,7 @@ public class EventOutbox {
     @Column(name = "aggregate_type", nullable = false, length = 20)
     private AggregateType aggregateType;
 
-    // Referencia polimórfica a bikes/trips/stations/bike_incidents según aggregateType.
-    // Deliberadamente sin @ManyToOne/FK formal: se valida a nivel de aplicación.
+    // Id de la entidad según aggregateType (sin FK, puede apuntar a distintas tablas).
     @Column(name = "aggregate_id", nullable = false, length = 64)
     private String aggregateId;
 

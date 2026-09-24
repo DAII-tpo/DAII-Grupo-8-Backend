@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/** Recomendación inteligente de estaciones. */
 @RestController
 @RequestMapping("/api/v1/stations")
 @Tag(name = "Recomendación inteligente",
@@ -29,13 +30,14 @@ public class StationRecommendationController {
         this.stationRecommendationService = stationRecommendationService;
     }
 
+    /** GET /stations/recommendation: mejor estación para retirar o devolver una bici. */
     @GetMapping("/recommendation")
     @Operation(summary = "Estación recomendada para retirar o devolver una bicicleta",
             description = """
                     Devuelve la estación más conveniente considerando la distancia y la \
                     disponibilidad actual, por lo que puede sugerir una estación más lejana que la \
                     más cercana si a esa le queda poco stock. La decisión la toma un modelo de \
-                    machine learning (MOV-041) y la respuesta incluye la justificación y un mensaje \
+                    machine learning y la respuesta incluye la justificación y un mensaje \
                     listo para mostrar.
 
                     Responde 200 también cuando no hay nada para recomendar: en ese caso `status` \

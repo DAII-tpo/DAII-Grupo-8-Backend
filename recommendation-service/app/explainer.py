@@ -1,9 +1,4 @@
-"""Explicación de la recomendación para el usuario final.
-
-El `code` describe el estado *actual* de la estación más cercana (nunca afirma nada sobre su historial).
-Los `factors` salen del modelo: diferencia de aporte al logit entre la recomendada y la más cercana, es
-decir, qué features hicieron que el modelo prefiera una sobre la otra.
-"""
+"""Explicación de la recomendación: un código según la estación más cercana y los factores del modelo."""
 
 from __future__ import annotations
 

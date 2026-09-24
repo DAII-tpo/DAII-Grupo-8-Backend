@@ -18,12 +18,7 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
 
     Optional<Bike> findByCode(String code);
 
-    /**
-     * Cuenta, por estación, las bicicletas presentes y cuántas de ellas están disponibles.
-     * Las bicicletas IN_USE tienen station_id en NULL, así que quedan fuera del conteo por
-     * construcción: no ocupan anclaje mientras dura el viaje.
-     * Una estación sin bicicletas no genera fila; el service la interpreta como cero.
-     */
+    /** Por estación: bicis presentes y cuántas están disponibles. Las IN_USE no tienen estación y no cuentan. */
     @Query("""
             select b.station.id as stationId,
                    count(b) as totalBikes,
@@ -39,7 +34,7 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
 
     Optional<Bike> findByIdAndDeletedAtIsNull(Long id);
 
-    /** Bloquea la bicicleta durante el inicio/fin de un viaje para que no pueda usarse dos veces a la vez. */
+    /** Bici con lock pesimista, para que no se use dos veces a la vez. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from Bike b where b.id = :id and b.deletedAt is null")
     Optional<Bike> findByIdAndDeletedAtIsNullForUpdate(@Param("id") Long id);
@@ -52,10 +47,7 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
 
     long countByStationIdAndDeletedAtIsNull(Long stationId);
 
-    /**
-     * Parque completo para el panel de administración, en una sola consulta: la estación viene
-     * en el mismo join para que armar la respuesta no dispare una consulta por estación.
-     */
+    /** Todas las bicis vigentes con su estación en la misma consulta (panel de administración). */
     @EntityGraph(attributePaths = "station")
     @Query("select b from Bike b where b.deletedAt is null order by b.code")
     List<Bike> findAllForAdminList();

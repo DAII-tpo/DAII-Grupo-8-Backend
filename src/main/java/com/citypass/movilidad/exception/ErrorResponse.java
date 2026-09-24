@@ -7,13 +7,7 @@ import org.springframework.http.HttpStatus;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Formato único de error de toda la API (MOV-021). Cualquier respuesta 4xx o 5xx tiene esta
- * forma, la genere un controller, una validación de Bean Validation o el propio framework.
- *
- * Nunca lleva stack traces ni detalles internos: el detalle técnico se registra en el log del
- * servidor y al cliente solo le llega un mensaje accionable.
- */
+/** Formato único de las respuestas de error de la API. Nunca incluye detalles internos. */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @Schema(description = "Formato común de error de la API")
 public record ErrorResponse(

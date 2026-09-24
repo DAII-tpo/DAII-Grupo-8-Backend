@@ -8,17 +8,13 @@ import org.springframework.web.client.RestClient;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
-/**
- * Cliente HTTP del servicio de recomendación (MOV-042). Se arma acá y no dentro del cliente
- * para que los tests puedan inyectar un RestClient con un servidor simulado.
- */
+/** RestClient del servicio de recomendación, con sus timeouts. */
 @Configuration
 public class RecommendationClientConfig {
 
     @Bean
     public RestClient recommendationRestClient(RecommendationProperties properties) {
-        // HTTP/1.1 explícito: uvicorn no negocia el upgrade a HTTP/2 que el cliente del JDK
-        // intenta por defecto, y la conexión queda esperando hasta el timeout.
+        // HTTP/1.1 explícito: uvicorn no soporta el upgrade a HTTP/2 que intenta el JDK.
         HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofMillis(properties.connectTimeoutMillis()))

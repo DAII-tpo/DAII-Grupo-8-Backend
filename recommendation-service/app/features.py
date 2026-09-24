@@ -1,8 +1,6 @@
-"""Ingeniería de features compartida entre entrenamiento e inferencia.
+"""Features del modelo, compartidas entre entrenamiento e inferencia.
 
-Todas las features se expresan en términos del *recurso* que le importa al usuario según el propósito:
-bicicletas disponibles para retirar (PICKUP) o anclajes libres para devolver (DROPOFF). Así un mismo
-pipeline sirve para los dos modelos y el entrenamiento y la inferencia nunca calculan cosas distintas.
+"Recurso" = bicis disponibles (PICKUP) o anclajes libres (DROPOFF).
 """
 
 from __future__ import annotations
@@ -14,11 +12,7 @@ import numpy as np
 
 EARTH_RADIUS_M = 6_371_008.8
 
-# Por encima de este número de unidades, tener más ya no reduce el riesgo de encontrar la estación sin
-# recurso al llegar. Con log(1+u) en su lugar, el modelo lineal subestimaba el salto de riesgo entre 1 y 5
-# unidades (prefería una estación cercana con 1 bici a otra a 400 m con 12) y acertaba menos (top-1 90% vs
-# 95%). La abundancia por encima del tope la sigue viendo `resource_share`. El tope es feature engineering:
-# el peso de la feature lo aprende el modelo.
+# Por encima de este número de unidades, tener más ya no reduce el riesgo de llegar y no encontrar lugar.
 SECURE_UNITS_CAP = 5
 
 FEATURE_NAMES: tuple[str, ...] = (
@@ -45,11 +39,7 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def build_features(distances_m, resource_units, capacities) -> np.ndarray:
-    """Matriz (n_candidatas, len(FEATURE_NAMES)) para las candidatas de UN escenario.
-
-    Las features relativas (exceso de distancia, share) dependen del resto de las candidatas, por eso
-    se calculan siempre sobre el escenario completo y nunca estación por estación.
-    """
+    """Matriz de features de las candidatas de una consulta (algunas son relativas entre candidatas)."""
     distances = np.asarray(distances_m, dtype=float)
     units = np.asarray(resource_units, dtype=float)
     capacity = np.asarray(capacities, dtype=float)

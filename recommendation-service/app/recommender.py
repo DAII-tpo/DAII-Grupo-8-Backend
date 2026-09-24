@@ -1,11 +1,6 @@
-"""Inferencia: arma las features, pide el score al modelo y rankea las candidatas.
+"""Rankea las candidatas con el modelo.
 
-Qué decide el modelo y qué no:
-- El *orden* de las candidatas lo decide el modelo entrenado (score = probabilidad de buena elección).
-- Una estación sin el recurso necesario (0 bicis / 0 anclajes) nunca se recomienda: es un guardrail de
-  negocio, no parte del ranking.
-- Los empates de score se resuelven por más recurso, después por cercanía y por último por id, para que
-  la respuesta sea determinística.
+Una estación sin recurso nunca se recomienda. Empates: más recurso, más cerca, menor id.
 """
 
 from __future__ import annotations

@@ -1,11 +1,11 @@
 package com.citypass.movilidad.model.enums;
 
-/** Resultado de una consulta de recomendación (MOV-042). */
+/** Resultado de una consulta de recomendación. */
 public enum RecommendationStatus {
 
     /** Hay una estación recomendada. */
     RECOMMENDED,
 
-    /** No se puede recomendar ninguna estación; el motivo viaja en el campo reason. */
+    /** No hay estación para recomendar; el motivo va en reason. */
     NO_RECOMMENDATION
 }

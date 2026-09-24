@@ -23,6 +23,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 
+/** Bicicleta del parque. */
 @Entity
 @Table(name = "bikes")
 @Getter
@@ -39,7 +40,7 @@ public class Bike {
     @Column(nullable = false, length = 50, unique = true)
     private String code;
 
-    // Nullable a propósito: una bici IN_USE no tiene estación asignada (ver DER, comentario en bikes.station_id).
+    // Null mientras la bici está en un viaje o en mantenimiento.
     @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "station_id", nullable = true)
     private Station station;
