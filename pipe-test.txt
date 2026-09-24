@@ -1,3 +1,2 @@
 archivo para prueba del pipe en presentacion 
 borrar despues de la presentacion 
-estado: false
