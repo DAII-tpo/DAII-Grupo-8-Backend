@@ -2,12 +2,17 @@ package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.dto.request.StationRequestDTO;
 import com.citypass.movilidad.dto.response.StationDTO;
+import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.station.StationNotFoundException;
 import com.citypass.movilidad.mapper.StationMapper;
+import com.citypass.movilidad.model.Role;
 import com.citypass.movilidad.model.Station;
+import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.StationSource;
 import com.citypass.movilidad.model.enums.StationStatus;
+import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.StationRepository;
+import com.citypass.movilidad.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -35,8 +40,20 @@ class StationServiceTest {
     @Mock
     private StationMapper stationMapper;
 
+    @Mock
+    private UserRepository userRepository;
+
     @InjectMocks
     private StationService stationService;
+
+    private static User adminUser(Long id) {
+        return User.builder()
+                .id(id)
+                .email("admin@example.com")
+                .role(Role.builder().id(1L).name("ADMIN").build())
+                .status(UserStatus.ACTIVE)
+                .build();
+    }
 
     private static Station estacion(Long id, String nombre) {
         return Station.builder()
@@ -103,6 +120,7 @@ class StationServiceTest {
 
     @Test
     void createStationPersisteLaEstacionMapeadaDesdeElPedido() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser(1L)));
         StationRequestDTO request = pedido("Estación Nueva");
         Station aPersistir = estacion(null, "Estación Nueva");
         Station persistida = estacion(5L, "Estación Nueva");
@@ -111,13 +129,14 @@ class StationServiceTest {
         when(stationRepository.save(aPersistir)).thenReturn(persistida);
         when(stationMapper.toStationDTO(persistida)).thenReturn(esperado);
 
-        StationDTO resultado = stationService.createStation(request);
+        StationDTO resultado = stationService.createStation(1L, request);
 
         assertThat(resultado).isEqualTo(esperado);
     }
 
     @Test
     void updateStationActualizaLosCamposYPersisteLaEstacion() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser(1L)));
         Station existente = estacion(1L, "Estación Vieja");
         StationRequestDTO request = pedido("Estación Renombrada");
         StationDTO esperado = respuesta(1L, "Estación Renombrada");
@@ -125,7 +144,7 @@ class StationServiceTest {
         when(stationRepository.save(existente)).thenReturn(existente);
         when(stationMapper.toStationDTO(existente)).thenReturn(esperado);
 
-        StationDTO resultado = stationService.updateStation(1L, request);
+        StationDTO resultado = stationService.updateStation(1L, 1L, request);
 
         ArgumentCaptor<Station> captor = ArgumentCaptor.forClass(Station.class);
         verify(stationRepository).save(captor.capture());
@@ -142,10 +161,11 @@ class StationServiceTest {
 
     @Test
     void updateStationLanzaExcepcionSiLaEstacionNoExiste() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser(1L)));
         when(stationRepository.findById(99L)).thenReturn(Optional.empty());
         StationRequestDTO request = pedido("Estación Fantasma");
 
-        assertThatThrownBy(() -> stationService.updateStation(99L, request))
+        assertThatThrownBy(() -> stationService.updateStation(1L, 99L, request))
                 .isInstanceOf(StationNotFoundException.class)
                 .hasMessage("La estación con ID 99 no existe");
 
@@ -154,6 +174,7 @@ class StationServiceTest {
 
     @Test
     void createStationCompletaStatusYSourceCuandoElPedidoLosOmite() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser(1L)));
         StationRequestDTO request = StationRequestDTO.builder()
                 .name("Estación Sin Estado")
                 .latitude(new BigDecimal("-34.6000"))
@@ -166,7 +187,7 @@ class StationServiceTest {
         when(stationMapper.toStation(request)).thenReturn(sinDefaults);
         when(stationRepository.save(any(Station.class))).thenReturn(sinDefaults);
 
-        stationService.createStation(request);
+        stationService.createStation(1L, request);
 
         ArgumentCaptor<Station> captor = ArgumentCaptor.forClass(Station.class);
         verify(stationRepository).save(captor.capture());
@@ -177,6 +198,7 @@ class StationServiceTest {
 
     @Test
     void updateStationConservaUnSourceValidoCuandoElPedidoLoOmite() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser(1L)));
         Station existente = estacion(1L, "Estación Vieja");
         StationRequestDTO request = StationRequestDTO.builder()
                 .name("Estación Renombrada")
@@ -187,9 +209,43 @@ class StationServiceTest {
         when(stationRepository.findById(1L)).thenReturn(Optional.of(existente));
         when(stationRepository.save(existente)).thenReturn(existente);
 
-        stationService.updateStation(1L, request);
+        stationService.updateStation(1L, 1L, request);
 
         assertThat(existente.getStatus()).isEqualTo(StationStatus.ACTIVE);
         assertThat(existente.getSource()).isEqualTo(StationSource.MANUAL);
+    }
+
+    @Test
+    void createStationRechazaUsuarioNoAdmin() {
+        User user = User.builder()
+                .id(2L)
+                .email("user@example.com")
+                .role(Role.builder().id(2L).name("USER").build())
+                .status(UserStatus.ACTIVE)
+                .build();
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> stationService.createStation(2L, pedido("Estación")))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessageContaining("no tiene permisos de administrador");
+
+        verify(stationRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStationRechazaUsuarioNoAdmin() {
+        User user = User.builder()
+                .id(2L)
+                .email("user@example.com")
+                .role(Role.builder().id(2L).name("USER").build())
+                .status(UserStatus.ACTIVE)
+                .build();
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> stationService.updateStation(2L, 1L, pedido("Estación")))
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessageContaining("no tiene permisos de administrador");
+
+        verify(stationRepository, never()).save(any());
     }
 }
