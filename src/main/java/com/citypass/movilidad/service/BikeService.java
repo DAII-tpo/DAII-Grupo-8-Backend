@@ -5,7 +5,6 @@ import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.dto.BikeStatusHistoryResponse;
 import com.citypass.movilidad.exception.BusinessRuleException;
-import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeStatusHistory;
@@ -14,12 +13,10 @@ import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.model.enums.MaintenanceStatus;
 import com.citypass.movilidad.model.enums.StationStatus;
-import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
 import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
-import com.citypass.movilidad.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,22 +38,18 @@ public class BikeService {
     private final StationRepository stationRepository;
     private final BikeStatusHistoryRepository historyRepository;
     private final MaintenanceRecordRepository maintenanceRepository;
-    private final UserRepository userRepository;
 
     public BikeService(BikeRepository bikeRepository, StationRepository stationRepository,
                        BikeStatusHistoryRepository historyRepository,
-                       MaintenanceRecordRepository maintenanceRepository,
-                       UserRepository userRepository) {
+                       MaintenanceRecordRepository maintenanceRepository) {
         this.bikeRepository = bikeRepository;
         this.stationRepository = stationRepository;
         this.historyRepository = historyRepository;
         this.maintenanceRepository = maintenanceRepository;
-        this.userRepository = userRepository;
     }
 
     @Transactional
-    public BikeResponse create(Long adminId, BikeCreateRequest request) {
-        User admin = requireAdmin(adminId);
+    public BikeResponse create(BikeCreateRequest request) {
         String code = request.code().trim();
         if (bikeRepository.existsByCode(code)) {
             throw new BusinessRuleException("Ya existe una bicicleta con el código " + code);
@@ -81,26 +74,23 @@ public class BikeService {
         bike.setModel(trimToNull(request.model()));
         bike.setPurchaseDate(request.purchaseDate());
         Bike saved = bikeRepository.save(bike);
-        recordStatusChange(saved, null, initialStatus, "Alta de bicicleta", admin);
+        recordStatusChange(saved, null, initialStatus, "Alta de bicicleta");
         return toResponse(saved);
     }
 
-    public BikeResponse findById(Long adminId, Long id) {
-        requireAdmin(adminId);
+    public BikeResponse findById(Long id) {
         return toResponse(activeBike(id));
     }
 
     /** Todas las bicicletas vigentes, opcionalmente filtradas por estado (panel de administración). */
-    public List<BikeResponse> findAll(Long adminId, BikeStatus status) {
-        requireAdmin(adminId);
+    public List<BikeResponse> findAll(BikeStatus status) {
         List<Bike> bikes = status == null
                 ? bikeRepository.findAllForAdminList()
                 : bikeRepository.findAllForAdminListByStatus(status);
         return bikes.stream().map(this::toResponse).toList();
     }
 
-    public List<BikeResponse> findByStation(Long adminId, Long stationId) {
-        requireAdmin(adminId);
+    public List<BikeResponse> findByStation(Long stationId) {
         existingStation(stationId);
         return bikeRepository.findAllByStationIdAndDeletedAtIsNullOrderByCode(stationId).stream()
                 .map(this::toResponse)
@@ -120,8 +110,7 @@ public class BikeService {
     }
 
     @Transactional
-    public BikeResponse changeStatus(Long adminId, Long id, BikeStatusChangeRequest request) {
-        User admin = requireAdmin(adminId);
+    public BikeResponse changeStatus(Long id, BikeStatusChangeRequest request) {
         Bike bike = activeBike(id);
         BikeStatus previousStatus = bike.getStatus();
         BikeStatus newStatus = request.status();
@@ -145,13 +134,12 @@ public class BikeService {
             bike.setLastMaintenanceAt(Instant.now());
         }
         Bike saved = bikeRepository.save(bike);
-        recordStatusChange(saved, previousStatus, newStatus, request.reason(), admin);
+        recordStatusChange(saved, previousStatus, newStatus, request.reason());
         return toResponse(saved);
     }
 
     @Transactional
-    public BikeResponse transfer(Long adminId, Long id, Long stationId) {
-        requireAdmin(adminId);
+    public BikeResponse transfer(Long id, Long stationId) {
         Bike bike = activeBike(id);
         if (bike.getStatus() == BikeStatus.IN_USE) {
             throw new BusinessRuleException("Una bicicleta IN_USE no puede trasladarse administrativamente");
@@ -171,8 +159,7 @@ public class BikeService {
     }
 
     @Transactional
-    public void delete(Long adminId, Long id) {
-        User admin = requireAdmin(adminId);
+    public void delete(Long id) {
         Bike bike = activeBike(id);
         if (bike.getStatus() == BikeStatus.IN_USE) {
             throw new BusinessRuleException("Una bicicleta IN_USE no puede darse de baja");
@@ -182,7 +169,7 @@ public class BikeService {
         bike.setDeletedAt(Instant.now());
         Bike saved = bikeRepository.save(bike);
         if (previousStatus != BikeStatus.OUT_OF_SERVICE) {
-            recordStatusChange(saved, previousStatus, BikeStatus.OUT_OF_SERVICE, "Baja lógica de bicicleta", admin);
+            recordStatusChange(saved, previousStatus, BikeStatus.OUT_OF_SERVICE, "Baja lógica de bicicleta");
         }
     }
 
@@ -349,8 +336,7 @@ public class BikeService {
         return destination;
     }
 
-    public List<BikeStatusHistoryResponse> history(Long adminId, Long id) {
-        requireAdmin(adminId);
+    public List<BikeStatusHistoryResponse> history(Long id) {
         bikeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
         return historyRepository.findAllByBikeIdOrderByChangedAtDesc(id).stream()
@@ -359,19 +345,6 @@ public class BikeService {
                         item.getChangedByUser() == null ? null : item.getChangedByUser().getId(),
                         item.getReason(), item.getChangedAt()))
                 .toList();
-    }
-
-    private User requireAdmin(Long userId) {
-        if (userId == null) {
-            throw new ForbiddenOperationException("Se requiere un usuario administrador para realizar esta operación");
-        }
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + userId));
-        if (user.getStatus() != UserStatus.ACTIVE || user.getRole() == null
-                || !"ADMIN".equals(user.getRole().getName())) {
-            throw new ForbiddenOperationException("El usuario no tiene permisos de administrador: " + userId);
-        }
-        return user;
     }
 
     private Bike activeBike(Long id) {

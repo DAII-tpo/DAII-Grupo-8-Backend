@@ -95,10 +95,9 @@ class StationControllerTest {
 
     @Test
     void postCreaLaEstacion() throws Exception {
-        when(stationService.createStation(eq(1L), any(StationRequestDTO.class))).thenReturn(respuesta(5L, "Estación Nueva"));
+        when(stationService.createStation(any(StationRequestDTO.class))).thenReturn(respuesta(5L, "Estación Nueva"));
 
         mockMvc.perform(post("/api/v1/stations")
-                        .header("X-User-Id", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(pedido())))
                 .andExpect(status().isOk())
@@ -108,11 +107,10 @@ class StationControllerTest {
 
     @Test
     void patchActualizaLaEstacion() throws Exception {
-        when(stationService.updateStation(eq(1L), eq(1L), any(StationRequestDTO.class)))
+        when(stationService.updateStation(eq(1L), any(StationRequestDTO.class)))
                 .thenReturn(respuesta(1L, "Estación Renombrada"));
 
         mockMvc.perform(patch("/api/v1/stations/1")
-                        .header("X-User-Id", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(pedido())))
                 .andExpect(status().isOk())
@@ -122,7 +120,6 @@ class StationControllerTest {
     @Test
     void postRechazaUnaEstacionSinLosCamposObligatorios() throws Exception {
         mockMvc.perform(post("/api/v1/stations")
-                        .header("X-User-Id", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
@@ -131,7 +128,7 @@ class StationControllerTest {
                 .andExpect(jsonPath("$.errors", hasSize(4)))
                 .andExpect(jsonPath("$.path").value("/api/v1/stations"));
 
-        verify(stationService, never()).createStation(any(), any(StationRequestDTO.class));
+        verify(stationService, never()).createStation(any(StationRequestDTO.class));
     }
 
     @Test
@@ -140,13 +137,12 @@ class StationControllerTest {
         invalida.setLatitude(new BigDecimal("91.0"));
 
         mockMvc.perform(post("/api/v1/stations")
-                        .header("X-User-Id", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalida)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("latitude"));
 
-        verify(stationService, never()).createStation(any(), any(StationRequestDTO.class));
+        verify(stationService, never()).createStation(any(StationRequestDTO.class));
     }
 
     @Test
@@ -155,7 +151,6 @@ class StationControllerTest {
         invalida.setCapacity(0);
 
         mockMvc.perform(post("/api/v1/stations")
-                        .header("X-User-Id", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalida)))
                 .andExpect(status().isBadRequest())
@@ -165,58 +160,11 @@ class StationControllerTest {
     @Test
     void patchRechazaUnIdQueNoEsPositivo() throws Exception {
         mockMvc.perform(patch("/api/v1/stations/0")
-                        .header("X-User-Id", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(pedido())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
-        verify(stationService, never()).updateStation(any(), any(), any(StationRequestDTO.class));
-    }
-
-    @Test
-    void postRechazaSiFaltaHeaderUsuario() throws Exception {
-        mockMvc.perform(post("/api/v1/stations")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(pedido())))
-                .andExpect(status().isBadRequest());
-
-        verify(stationService, never()).createStation(any(), any(StationRequestDTO.class));
-    }
-
-    @Test
-    void patchRechazaSiFaltaHeaderUsuario() throws Exception {
-        mockMvc.perform(patch("/api/v1/stations/1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(pedido())))
-                .andExpect(status().isBadRequest());
-
-        verify(stationService, never()).updateStation(any(), any(), any(StationRequestDTO.class));
-    }
-
-    @Test
-    void postRechazaUsuarioNoAdmin() throws Exception {
-        when(stationService.createStation(eq(2L), any(StationRequestDTO.class)))
-                .thenThrow(new com.citypass.movilidad.exception.ForbiddenOperationException("El usuario no tiene permisos de administrador: 2"));
-
-        mockMvc.perform(post("/api/v1/stations")
-                        .header("X-User-Id", 2L)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(pedido())))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN_OPERATION"));
-    }
-
-    @Test
-    void patchRechazaUsuarioNoAdmin() throws Exception {
-        when(stationService.updateStation(eq(2L), eq(1L), any(StationRequestDTO.class)))
-                .thenThrow(new com.citypass.movilidad.exception.ForbiddenOperationException("El usuario no tiene permisos de administrador: 2"));
-
-        mockMvc.perform(patch("/api/v1/stations/1")
-                        .header("X-User-Id", 2L)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(pedido())))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("FORBIDDEN_OPERATION"));
+        verify(stationService, never()).updateStation(any(), any(StationRequestDTO.class));
     }
 }

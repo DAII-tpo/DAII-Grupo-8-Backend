@@ -28,33 +28,33 @@ class BikeControllerTest {
         BikeCreateRequest create = new BikeCreateRequest("BIKE-1", 10L, BikeStatus.AVAILABLE, null, null);
         BikeStatusChangeRequest status = new BikeStatusChangeRequest(BikeStatus.MAINTENANCE, "service");
         BikeTransferRequest transfer = new BikeTransferRequest(20L);
-        when(service.create(1L, create)).thenReturn(bike);
-        when(service.findById(1L, 1L)).thenReturn(bike);
-        when(service.findByStation(1L, 10L)).thenReturn(List.of(bike));
+        when(service.create(create)).thenReturn(bike);
+        when(service.findById(1L)).thenReturn(bike);
+        when(service.findByStation(10L)).thenReturn(List.of(bike));
         when(service.findAvailable(10L)).thenReturn(List.of(bike));
-        when(service.changeStatus(1L, 1L, status)).thenReturn(bike);
-        when(service.transfer(1L, 1L, 20L)).thenReturn(bike);
-        when(service.history(1L, 1L)).thenReturn(List.of());
+        when(service.changeStatus(1L, status)).thenReturn(bike);
+        when(service.transfer(1L, 20L)).thenReturn(bike);
+        when(service.history(1L)).thenReturn(List.of());
 
-        assertThat(controller.create(1L, create).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(controller.findById(1L, 1L)).isEqualTo(bike);
-        assertThat(controller.findByStation(1L, 10L)).containsExactly(bike);
+        assertThat(controller.create(create).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(controller.findById(1L)).isEqualTo(bike);
+        assertThat(controller.findByStation(10L)).containsExactly(bike);
         assertThat(controller.findAvailable(10L)).containsExactly(bike);
-        assertThat(controller.changeStatus(1L, 1L, status)).isEqualTo(bike);
-        assertThat(controller.transfer(1L, 1L, transfer)).isEqualTo(bike);
-        assertThat(controller.history(1L, 1L)).isEmpty();
-        assertThat(controller.delete(1L, 1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        verify(service).delete(1L, 1L);
+        assertThat(controller.changeStatus(1L, status)).isEqualTo(bike);
+        assertThat(controller.transfer(1L, transfer)).isEqualTo(bike);
+        assertThat(controller.history(1L)).isEmpty();
+        assertThat(controller.delete(1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(service).delete(1L);
     }
 
     @Test
     void listsAllBikesWithOptionalStatusFilter() {
         BikeResponse bike = new BikeResponse(1L, "BIKE-1", 10L, "Centro", BikeStatus.AVAILABLE,
                 null, null, null, null, null);
-        when(service.findAll(1L, null)).thenReturn(List.of(bike));
-        when(service.findAll(1L, BikeStatus.MAINTENANCE)).thenReturn(List.of());
+        when(service.findAll(null)).thenReturn(List.of(bike));
+        when(service.findAll(BikeStatus.MAINTENANCE)).thenReturn(List.of());
 
-        assertThat(controller.findAll(1L, null)).containsExactly(bike);
-        assertThat(controller.findAll(1L, BikeStatus.MAINTENANCE)).isEmpty();
+        assertThat(controller.findAll(null)).containsExactly(bike);
+        assertThat(controller.findAll(BikeStatus.MAINTENANCE)).isEmpty();
     }
 }
