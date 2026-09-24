@@ -4,6 +4,7 @@ import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.repository.projection.StationBikeCountProjection;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -50,4 +51,16 @@ public interface BikeRepository extends JpaRepository<Bike, Long> {
     List<Bike> findAllByStationIdAndStatusAndDeletedAtIsNullOrderByCode(Long stationId, BikeStatus status);
 
     long countByStationIdAndDeletedAtIsNull(Long stationId);
+
+    /**
+     * Parque completo para el panel de administración, en una sola consulta: la estación viene
+     * en el mismo join para que armar la respuesta no dispare una consulta por estación.
+     */
+    @EntityGraph(attributePaths = "station")
+    @Query("select b from Bike b where b.deletedAt is null order by b.code")
+    List<Bike> findAllForAdminList();
+
+    @EntityGraph(attributePaths = "station")
+    @Query("select b from Bike b where b.deletedAt is null and b.status = :status order by b.code")
+    List<Bike> findAllForAdminListByStatus(@Param("status") BikeStatus status);
 }

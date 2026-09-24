@@ -6,6 +6,7 @@ import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.dto.BikeStatusHistoryResponse;
 import com.citypass.movilidad.dto.BikeTransferRequest;
 import com.citypass.movilidad.exception.ErrorResponse;
+import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.service.BikeService;
 import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.Operation;
@@ -56,6 +57,21 @@ public class BikeController {
     public ResponseEntity<BikeResponse> create(@Valid @RequestBody BikeCreateRequest request) {
         BikeResponse created = bikeService.create(request);
         return ResponseEntity.created(URI.create("/api/v1/bikes/" + created.id())).body(created);
+    }
+
+    @GetMapping
+    @Operation(summary = "Listar bicicletas",
+            description = "Devuelve todas las bicicletas que no fueron dadas de baja, ordenadas por código, "
+                    + "en una sola respuesta. Pensado para el panel de administración, que antes necesitaba "
+                    + "una consulta por estación. Puede filtrarse por estado.")
+    @ApiResponse(responseCode = "200", description = "Bicicletas encontradas (puede venir vacía)",
+            content = @Content(array = @ArraySchema(schema = @Schema(implementation = BikeResponse.class))))
+    @ApiResponse(responseCode = "400", description = "El estado indicado no es válido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    public List<BikeResponse> findAll(
+            @Parameter(description = "Estado opcional para filtrar", example = "AVAILABLE")
+            @RequestParam(required = false) BikeStatus status) {
+        return bikeService.findAll(status);
     }
 
     @GetMapping("/{id}")
