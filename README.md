@@ -467,3 +467,4 @@ cada PR.
 - **Recomendación con datos reales**: el modelo está entrenado con datos sintéticos (ver sus limitaciones en
   [recommendation-service/README.md](recommendation-service/README.md)).
 - **Historial de disponibilidad**: la tabla `station_availability_history` está creada pero todavía no se completa.
+.
