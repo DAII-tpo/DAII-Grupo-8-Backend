@@ -77,22 +77,26 @@ public class EventGatewayClient {
 
     private <T> T withToken(Function<String, T> call) {
         try {
-            try {
-                return call.apply(tokenProvider.token());
-            } catch (RestClientResponseException ex) {
-                if (ex.getStatusCode().value() != HttpStatus.UNAUTHORIZED.value()) {
-                    throw ex;
-                }
-                // El servicio de identidad pudo haber rotado la clave: un token nuevo suele alcanzar.
-                tokenProvider.invalidate();
-                return call.apply(tokenProvider.token());
-            }
+            return callRenewingTokenOnce(call);
         } catch (RestClientResponseException ex) {
             int status = ex.getStatusCode().value();
             throw new EventGatewayException("El gateway respondió HTTP " + status + ": " + bodyOf(ex),
                     status, isRetryable(status), ex);
         } catch (RestClientException | HttpMessageConversionException ex) {
             throw new EventGatewayException("No se pudo contactar al gateway: " + ex.getMessage(), 0, true, ex);
+        }
+    }
+
+    private <T> T callRenewingTokenOnce(Function<String, T> call) {
+        try {
+            return call.apply(tokenProvider.token());
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() != HttpStatus.UNAUTHORIZED.value()) {
+                throw ex;
+            }
+            // El servicio de identidad pudo haber rotado la clave: un token nuevo suele alcanzar.
+            tokenProvider.invalidate();
+            return call.apply(tokenProvider.token());
         }
     }
 

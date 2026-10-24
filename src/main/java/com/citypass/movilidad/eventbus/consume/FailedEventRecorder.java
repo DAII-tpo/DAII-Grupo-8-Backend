@@ -33,7 +33,7 @@ public class FailedEventRecorder {
     }
 
     @Transactional
-    public void record(ConsumerRecord<?, ?> consumerRecord, Exception failure) {
+    public void recover(ConsumerRecord<?, ?> consumerRecord, Exception failure) {
         Throwable cause = rootCause(failure);
         IncomingEvent event;
         try {

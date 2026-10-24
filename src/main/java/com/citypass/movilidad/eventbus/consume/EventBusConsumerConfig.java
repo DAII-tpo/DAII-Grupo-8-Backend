@@ -58,7 +58,7 @@ public class EventBusConsumerConfig {
     @Bean
     public DefaultErrorHandler eventBusErrorHandler(FailedEventRecorder recorder, EventBusProperties properties) {
         EventBusProperties.Consumer settings = properties.consumer();
-        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recorder::record,
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recorder::recover,
                 new FixedBackOff(settings.retryInterval().toMillis(), Math.max(0, settings.maxAttempts() - 1)));
         errorHandler.addNotRetryableExceptions(InvalidEventException.class);
         errorHandler.setCommitRecovered(true);

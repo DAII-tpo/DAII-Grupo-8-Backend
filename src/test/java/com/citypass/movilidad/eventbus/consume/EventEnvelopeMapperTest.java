@@ -45,13 +45,13 @@ class EventEnvelopeMapperTest {
 
     @Test
     void rechazaMensajesQueNoSonEventosDelBus() {
-        assertThatThrownBy(() -> mapper.map(new ConsumerRecord<>(TOPIC, 0, 0L, null, "texto")))
-                .isInstanceOf(InvalidEventException.class);
-        assertThatThrownBy(() -> mapper.map(new ConsumerRecord<>(TOPIC, 0, 0L, null, null)))
-                .isInstanceOf(InvalidEventException.class);
+        ConsumerRecord<String, Object> texto = new ConsumerRecord<>(TOPIC, 0, 0L, null, "texto");
+        ConsumerRecord<String, Object> vacio = new ConsumerRecord<>(TOPIC, 0, 0L, null, null);
+        ConsumerRecord<String, Object> sinEventId =
+                new ConsumerRecord<>(TOPIC, 0, 0L, null, AvroEvents.envelope("", TOPIC, false));
 
-        GenericRecord sinEventId = AvroEvents.envelope("", TOPIC, false);
-        assertThatThrownBy(() -> mapper.map(new ConsumerRecord<>(TOPIC, 0, 0L, null, sinEventId)))
-                .isInstanceOf(InvalidEventException.class);
+        assertThatThrownBy(() -> mapper.map(texto)).isInstanceOf(InvalidEventException.class);
+        assertThatThrownBy(() -> mapper.map(vacio)).isInstanceOf(InvalidEventException.class);
+        assertThatThrownBy(() -> mapper.map(sinEventId)).isInstanceOf(InvalidEventException.class);
     }
 }

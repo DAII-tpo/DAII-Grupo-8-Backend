@@ -1,5 +1,6 @@
 package com.citypass.movilidad.eventbus.consume;
 
+import com.citypass.movilidad.eventbus.EventBusProperties;
 import com.citypass.movilidad.eventbus.EventBusTestProperties;
 import org.junit.jupiter.api.Test;
 
@@ -45,8 +46,9 @@ class EventBusConsumerConfigTest {
 
     @Test
     void conSaslExigeCredenciales() {
-        assertThatThrownBy(() -> EventBusConsumerConfig.kafkaConfig(
-                EventBusTestProperties.withConsumer("SASL_SSL", "grupo3", " ")))
+        EventBusProperties sinSecreto = EventBusTestProperties.withConsumer("SASL_SSL", "grupo3", " ");
+
+        assertThatThrownBy(() -> EventBusConsumerConfig.kafkaConfig(sinSecreto))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("EVENTBUS_CLIENT_SECRET");
     }

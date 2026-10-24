@@ -43,7 +43,7 @@ class EventDispatcherTest {
 
     @Test
     void entregaElEventoAlHandlerDeSuTopicoYLoRegistraComoProcesado() {
-        dispatcher.dispatch(record("e-1"));
+        dispatcher.dispatch(consumerRecord("e-1"));
 
         ArgumentCaptor<IncomingEvent> event = ArgumentCaptor.forClass(IncomingEvent.class);
         verify(handler).handle(event.capture());
@@ -64,7 +64,7 @@ class EventDispatcherTest {
     void descartaUnEventoYaProcesado() {
         when(inboxRepository.existsByEventIdAndStatus("e-1", EventInboxStatus.PROCESSED)).thenReturn(true);
 
-        dispatcher.dispatch(record("e-1"));
+        dispatcher.dispatch(consumerRecord("e-1"));
 
         verify(handler, never()).handle(any());
         verify(inboxRepository, never()).save(any());
@@ -74,7 +74,9 @@ class EventDispatcherTest {
     void siElHandlerFallaNoLoRegistraComoProcesado() {
         doThrow(new IllegalStateException("falló")).when(handler).handle(any());
 
-        assertThatThrownBy(() -> dispatcher.dispatch(record("e-1"))).isInstanceOf(IllegalStateException.class);
+        ConsumerRecord<String, Object> consumerRecord = consumerRecord("e-1");
+
+        assertThatThrownBy(() -> dispatcher.dispatch(consumerRecord)).isInstanceOf(IllegalStateException.class);
         verify(inboxRepository, never()).save(any());
     }
 
@@ -96,7 +98,7 @@ class EventDispatcherTest {
                 .hasMessageContaining(TOPIC);
     }
 
-    private static ConsumerRecord<String, Object> record(String eventId) {
+    private static ConsumerRecord<String, Object> consumerRecord(String eventId) {
         return new ConsumerRecord<>(TOPIC, 0, 42L, "clave", AvroEvents.envelope(eventId, TOPIC, false));
     }
 }

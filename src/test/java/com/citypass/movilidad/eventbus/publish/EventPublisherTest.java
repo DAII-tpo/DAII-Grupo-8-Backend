@@ -46,7 +46,9 @@ class EventPublisherTest {
     @ParameterizedTest
     @ValueSource(strings = {"viajeFinalizado", "Viaje_Finalizado", "com.citypass.movilidad.ViajeFinalizado", ""})
     void rechazaNombresQueNoSonPascalCase(String eventName) {
-        assertThatThrownBy(() -> publisher.publish(eventName, AggregateType.TRIP, 7L, new ViajeFinalizado(7L, 35)))
+        ViajeFinalizado data = new ViajeFinalizado(7L, 35);
+
+        assertThatThrownBy(() -> publisher.publish(eventName, AggregateType.TRIP, 7L, data))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(repository);
     }

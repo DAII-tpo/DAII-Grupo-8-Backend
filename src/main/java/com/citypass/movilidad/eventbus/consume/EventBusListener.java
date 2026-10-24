@@ -42,7 +42,7 @@ public class EventBusListener implements SmartLifecycle {
             // El commit del offset lo hace el contenedor después de que dispatch termina bien (ack-mode=record).
             container.setupMessageListener((MessageListener<Object, Object>) dispatcher::dispatch);
             container.start();
-            LOG.info("Consumiendo del bus los tópicos {}", String.join(", ", topics));
+            LOG.info("Consumiendo del bus los tópicos {}", (Object) topics);
         }
         running = true;
     }
