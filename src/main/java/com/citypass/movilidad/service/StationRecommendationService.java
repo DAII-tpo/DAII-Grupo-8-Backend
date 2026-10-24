@@ -42,15 +42,18 @@ public class StationRecommendationService {
     private final RecommendationClient recommendationClient;
     private final RecommendationMessageComposer messageComposer;
     private final RecommendationProperties properties;
+    private final IncidentProximityFilter incidentFilter;
 
     public StationRecommendationService(NearbyStationService nearbyStationService,
                                         RecommendationClient recommendationClient,
                                         RecommendationMessageComposer messageComposer,
-                                        RecommendationProperties properties) {
+                                        RecommendationProperties properties,
+                                        IncidentProximityFilter incidentFilter) {
         this.nearbyStationService = nearbyStationService;
         this.recommendationClient = recommendationClient;
         this.messageComposer = messageComposer;
         this.properties = properties;
+        this.incidentFilter = incidentFilter;
     }
 
     /** Estación recomendada para retirar (PICKUP) o devolver (DROPOFF) cerca de la ubicación. */
@@ -58,8 +61,9 @@ public class StationRecommendationService {
                                                    RecommendationPurpose purpose) {
         RecommendationPurpose target = purpose == null ? RecommendationPurpose.PICKUP : purpose;
 
-        List<NearbyStationResponse> candidates = nearbyStationService.findNearby(
-                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates());
+        // CU-INT-01: las estaciones cerca de un incidente activo no se ofrecen ni al modelo ni al respaldo.
+        List<NearbyStationResponse> candidates = incidentFilter.apply(nearbyStationService.findNearby(
+                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
 
         // Sin candidatas no hace falta consultar al modelo.
         if (candidates.isEmpty()) {

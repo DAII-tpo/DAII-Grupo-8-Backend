@@ -54,8 +54,13 @@ public class SecurityConfig {
                                 "/api/v1/stations/availability",
                                 "/api/v1/stations/*/availability",
                                 "/api/v1/stations/nearby",
-                                "/api/v1/stations/recommendation"
+                                "/api/v1/stations/recommendation",
+                                "/api/v1/destinations/events",
+                                "/api/v1/destinations/events/*/recommendation"
                         ).permitAll()
+                        // Webhook del gateway: no trae JWT, se autentica con el token de la URL
+                        // (lo valida CitypassWebhookController).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/citypass").permitAll()
                         .requestMatchers(
                                 "/api/v1/ping",
                                 "/actuator/health",

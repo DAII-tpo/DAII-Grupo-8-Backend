@@ -48,7 +48,8 @@ class StationRecommendationServiceTest {
         recommendationClient = mock(RecommendationClient.class);
         service = new StationRecommendationService(nearbyStationService, recommendationClient,
                 new RecommendationMessageComposer(),
-                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true));
+                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true),
+                passThroughIncidentFilter());
     }
 
     @Test
@@ -298,5 +299,12 @@ class StationRecommendationServiceTest {
     private NearbyStationResponse otra(long id, String name) {
         return new NearbyStationResponse(id, name, "Dirección de " + name,
                 new BigDecimal("-34.6010"), new BigDecimal("-58.3850"), 400, 20, 6, 14);
+    }
+
+    /** Sin incidentes activos: el filtro devuelve las candidatas tal cual. */
+    private static IncidentProximityFilter passThroughIncidentFilter() {
+        IncidentProximityFilter filter = mock(IncidentProximityFilter.class);
+        when(filter.apply(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        return filter;
     }
 }

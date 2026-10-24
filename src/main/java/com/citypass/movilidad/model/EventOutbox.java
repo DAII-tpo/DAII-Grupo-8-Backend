@@ -20,7 +20,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
-/** Eventos pendientes de publicar en el event bus (todavía sin uso). */
+/** Eventos pendientes de publicar en el gateway del Grupo 1 (los despacha OutboxDispatcher). */
 @Entity
 @Table(name = "event_outbox")
 @Getter
@@ -61,5 +61,12 @@ public class EventOutbox {
 
     @Column(name = "published_at")
     private Instant publishedAt;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private int attempts = 0;
+
+    @Column(name = "last_error", length = 1000)
+    private String lastError;
 
 }
