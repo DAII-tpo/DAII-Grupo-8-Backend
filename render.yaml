@@ -49,6 +49,27 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: default
 
+      # --- Bus de eventos (Grupo 1), ver docs/event-bus.md ---
+      # Ambiente de pruebas del bus. Las URLs son públicas; las credenciales no.
+      # Activados: EVENTBUS_CLIENT_ID / EVENTBUS_CLIENT_SECRET tienen que estar cargados en el dashboard,
+      # si no el backend no arranca (falla a propósito en lugar de acumular eventos que no van a salir).
+      - key: EVENTBUS_PUBLISHER_ENABLED
+        value: "true"
+      - key: EVENTBUS_CONSUMER_ENABLED
+        value: "true"
+      - key: EVENTBUS_CLIENT_ID
+        sync: false
+      - key: EVENTBUS_CLIENT_SECRET
+        sync: false
+      - key: EVENTBUS_GATEWAY_URL
+        value: https://test.citypass.mrfranco.net.ar/api/v1
+      - key: EVENTBUS_TOKEN_URL
+        value: https://test.citypass.mrfranco.net.ar/auth/oauth/token
+      - key: EVENTBUS_KAFKA_BOOTSTRAP_SERVERS
+        value: test.citypass.mrfranco.net.ar:9092
+      - key: EVENTBUS_KAFKA_SECURITY_PROTOCOL
+        value: SASL_SSL
+
       # --- Estaciones Ecobici ---
       # Importa el dataset en cada arranque; saltea las existentes, así que puede quedar siempre activo.
       - key: ECOBICI_IMPORT_ENABLED

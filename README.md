@@ -41,7 +41,7 @@ inteligente de estaciones.
 | Mapeo | Spring Data JPA (Hibernate), MapStruct, Lombok |
 | Auth | JWT (Spring Security + `NimbusJwtDecoder`), desactivable para desarrollo |
 | IA / recomendación | Python 3.12 + FastAPI + scikit-learn (microservicio en [`recommendation-service/`](recommendation-service)) |
-| Event Bus | Apache Kafka (Grupo 1). La dependencia está incluida; la publicación de eventos está pendiente del contrato |
+| Event Bus | Bus CityPass+ (Grupo 1): publicación por HTTP con outbox, consumo desde Kafka (Avro + SASL/OAUTHBEARER) con inbox. Ver [docs/event-bus.md](docs/event-bus.md) |
 | Testing | JUnit 5, Mockito, Testcontainers (MySQL real), Jacoco · pytest + pytest-cov |
 | CI/CD | GitHub Actions + SonarQube (quality gate) · deploy en Render |
 
@@ -79,6 +79,7 @@ Spring Boot 4.x) y el serializador Avro de Confluent.
 │   ├── dto/           # Requests y responses de la API
 │   ├── mapper/        # Conversión entidad ↔ DTO (MapStruct) y mapeo del dataset Ecobici
 │   ├── client/        # Cliente HTTP del servicio de recomendación
+│   ├── eventbus/      # Integración con el bus de eventos: publicación (outbox) y consumo (Kafka + inbox)
 │   ├── importer/      # Modelos de la importación del dataset Ecobici
 │   ├── config/        # Seguridad, CORS, OpenAPI, propiedades y runner de importación
 │   ├── validation/    # Restricciones de Bean Validation reutilizables (@EntityId, @Latitude, @Longitude)
@@ -86,10 +87,12 @@ Spring Boot 4.x) y el serializador Avro de Confluent.
 ├── src/main/resources/
 │   ├── application.properties
 │   ├── db/migration/  # Migraciones Flyway (V1, V2, ...)
+│   ├── eventbus/event-types/  # Contratos (schemas) de los eventos que publica el módulo
 │   └── datasets/      # Dataset oficial de estaciones Ecobici (GeoJSON)
 ├── src/test/java/...  # Tests unitarios y de integración
 ├── recommendation-service/   # Microservicio Python de recomendación
 ├── docs/adr/          # Decisión de arquitectura del modelo de IA
+├── docs/event-bus.md  # Integración con el bus de eventos
 ├── Dockerfile         # Imagen del backend (build multi-stage)
 ├── render.yaml        # Blueprint de Render (backend + servicio de recomendación)
 └── .github/workflows/ # CI (PRs) y CD (push a main)
@@ -202,7 +205,8 @@ Todas tienen un default pensado para desarrollo local.
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
 | `ECOBICI_DATASET_LOCATION` | `classpath:datasets/ecobici-stations.geojson` | Dataset a importar |
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker de Kafka (todavía sin uso, ver [Pendientes](#pendientes-y-dependencias-externas)) |
+| `EVENTBUS_PUBLISHER_ENABLED` / `EVENTBUS_CONSUMER_ENABLED` | `false` | Activan la publicación y el consumo en el bus de eventos |
+| `EVENTBUS_CLIENT_ID` / `EVENTBUS_CLIENT_SECRET` | — | Credenciales de servicio del bus. El resto de las variables `EVENTBUS_*` está en [docs/event-bus.md](docs/event-bus.md#configuración) |
 | `SPRING_PROFILES_ACTIVE` | `local` | Perfil de Spring |
 
 Otros parámetros de negocio viven en [`application.properties`](src/main/resources/application.properties):
@@ -365,8 +369,9 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | `V2__seed_reference_data.sql` | Roles (`ADMIN`, `OPERATOR`, `USER`) y tipos de incidencia (pinchazo, frenos, cadena, vandalismo, otro) |
 | `V3__seed_demo_user.sql` | Usuario demo con id = 1 y rol `USER` |
 | `V4__maintenance_origin_station.sql` | Estación de origen de cada orden de mantenimiento |
+| `V5__event_bus_outbox_inbox.sql` | Reintentos del outbox de eventos y tabla `event_inbox` de eventos recibidos |
 
-Las tablas `station_availability_history` y `event_outbox` ya existen en el esquema, pero todavía no se usan.
+La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 
 ## Estaciones Ecobici (dataset oficial)
 
@@ -462,8 +467,9 @@ cada PR.
 
 - **Login Federado (Grupo 2)**: reemplazar el header `X-User-Id` por la identidad del JWT y pasar producción a
   `SECURITY_LOCAL_ENABLED=false`.
-- **Event bus (Grupo 1)**: publicar los eventos de viaje (`movilidad.viaje.iniciado` / `movilidad.viaje.finalizado`)
-  cuando esté definido el contrato. Hoy `TripEventPublisher` solo los registra en el log.
+- **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)), pero todavía no se
+  publica ni se consume ningún evento concreto. Falta definir los contratos (por ejemplo, los de viaje, que hoy
+  `TripEventPublisher` solo registra en el log) y los eventos de otros grupos que interesan a Movilidad.
 - **Recomendación con datos reales**: el modelo está entrenado con datos sintéticos (ver sus limitaciones en
   [recommendation-service/README.md](recommendation-service/README.md)).
 - **Historial de disponibilidad**: la tabla `station_availability_history` está creada pero todavía no se completa.
