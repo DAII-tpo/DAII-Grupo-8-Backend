@@ -1,12 +1,12 @@
 package com.citypass.movilidad.service;
 
-import com.citypass.movilidad.config.GatewayProperties;
 import com.citypass.movilidad.dto.NearbyStationResponse;
 import com.citypass.movilidad.model.CityIncident;
 import com.citypass.movilidad.repository.CityIncidentRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 
@@ -23,11 +23,12 @@ public class IncidentProximityFilter {
     private static final Logger LOG = LoggerFactory.getLogger(IncidentProximityFilter.class);
 
     private final CityIncidentRepository incidentRepository;
-    private final GatewayProperties properties;
+    private final int incidentRadiusMeters;
 
-    public IncidentProximityFilter(CityIncidentRepository incidentRepository, GatewayProperties properties) {
+    public IncidentProximityFilter(CityIncidentRepository incidentRepository,
+                                   @Value("${movilidad.incidents.radius-meters:300}") int incidentRadiusMeters) {
         this.incidentRepository = incidentRepository;
-        this.properties = properties;
+        this.incidentRadiusMeters = incidentRadiusMeters;
     }
 
     public List<NearbyStationResponse> apply(List<NearbyStationResponse> candidates) {
@@ -45,8 +46,8 @@ public class IncidentProximityFilter {
                 .toList();
 
         if (clear.isEmpty()) {
-            LOG.info("Todas las candidatas están cerca de un incidente activo; se recomiendan igual");
-            return candidates;
+            LOG.warn("No hay estaciones seguras: todas las candidatas están próximas a incidentes activos");
+            return List.of();
         }
 
         if (clear.size() < candidates.size()) {
@@ -59,6 +60,6 @@ public class IncidentProximityFilter {
         return GeoDistance.meters(
                 station.latitude().doubleValue(), station.longitude().doubleValue(),
                 incident.getLatitude().doubleValue(), incident.getLongitude().doubleValue())
-                <= properties.incidentRadiusMeters();
+                <= incidentRadiusMeters;
     }
 }

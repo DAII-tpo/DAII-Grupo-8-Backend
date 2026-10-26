@@ -47,8 +47,7 @@ public class StationRecommendationService {
     public StationRecommendationService(NearbyStationService nearbyStationService,
                                         RecommendationClient recommendationClient,
                                         RecommendationMessageComposer messageComposer,
-                                        RecommendationProperties properties,
-                                        IncidentProximityFilter incidentFilter) {
+                                        RecommendationProperties properties, IncidentProximityFilter incidentFilter) {
         this.nearbyStationService = nearbyStationService;
         this.recommendationClient = recommendationClient;
         this.messageComposer = messageComposer;
@@ -61,7 +60,6 @@ public class StationRecommendationService {
                                                    RecommendationPurpose purpose) {
         RecommendationPurpose target = purpose == null ? RecommendationPurpose.PICKUP : purpose;
 
-        // CU-INT-01: las estaciones cerca de un incidente activo no se ofrecen ni al modelo ni al respaldo.
         List<NearbyStationResponse> candidates = incidentFilter.apply(nearbyStationService.findNearby(
                 latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
 

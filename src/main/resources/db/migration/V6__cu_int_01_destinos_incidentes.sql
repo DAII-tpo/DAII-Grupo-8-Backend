@@ -1,19 +1,3 @@
--- CU-INT-01: ruta urbana inteligente con incidentes en tiempo real.
-
--- Reintentos del outbox contra el gateway del Grupo 1.
-ALTER TABLE event_outbox
-    ADD COLUMN attempts   INT           NOT NULL DEFAULT 0,
-    ADD COLUMN last_error VARCHAR(1000) NULL;
-
-CREATE INDEX idx_event_outbox_status_created ON event_outbox (status, created_at);
-
--- Idempotencia de los webhooks: la entrega del gateway es at-least-once.
-CREATE TABLE inbound_events (
-    event_id    VARCHAR(64)  PRIMARY KEY,
-    event_type  VARCHAR(150) NOT NULL,
-    received_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 -- Incidentes de otros modulos que afectan la circulacion (reclamos y emergencias).
 CREATE TABLE city_incidents (
     id          BIGINT AUTO_INCREMENT PRIMARY KEY,

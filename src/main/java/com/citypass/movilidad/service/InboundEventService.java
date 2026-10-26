@@ -2,26 +2,21 @@ package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.model.CityIncident;
 import com.citypass.movilidad.model.CulturalDestination;
-import com.citypass.movilidad.model.InboundEvent;
 import com.citypass.movilidad.model.enums.IncidentSource;
 import com.citypass.movilidad.repository.CityIncidentRepository;
 import com.citypass.movilidad.repository.CulturalDestinationRepository;
-import com.citypass.movilidad.repository.InboundEventRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Set;
 
 /**
- * Procesa los eventos que llegan por webhook desde el gateway (CU-INT-01).
+ * Procesa eventos de Kafka vía EventHandler (CU-INT-01).
  *
- * El sobre es el del gateway: {@code {"metadata": {eventId, eventType, ...}, "data": {...}}}.
- * Todo corre en una transacción: si algo falla, tampoco queda registrado el eventId,
- * el webhook responde error y el dispatcher del Grupo 1 lo reintenta.
+ * EventDispatcher registra event_inbox de forma transaccional y evita reentregas.
  */
 @Service
 @Slf4j
@@ -35,36 +30,17 @@ public class InboundEventService {
     private static final Set<String> CLAIM_CLOSED = Set.of("RESUELTO", "RECHAZADO", "CERRADO");
     private static final Set<String> EMERGENCY_CLOSED = Set.of("RESUELTA", "CERRADA", "DESCARTADA", "CANCELADA");
 
-    private final InboundEventRepository inboundEventRepository;
     private final CulturalDestinationRepository destinationRepository;
     private final CityIncidentRepository incidentRepository;
 
-    public InboundEventService(InboundEventRepository inboundEventRepository,
-                               CulturalDestinationRepository destinationRepository,
+    public InboundEventService(CulturalDestinationRepository destinationRepository,
                                CityIncidentRepository incidentRepository) {
-        this.inboundEventRepository = inboundEventRepository;
         this.destinationRepository = destinationRepository;
         this.incidentRepository = incidentRepository;
     }
 
-    /** @return false si el evento ya se había procesado (reentrega del gateway). */
-    @Transactional
-    public boolean handle(JsonNode envelope) {
-        JsonNode metadata = envelope.path("metadata");
-        String eventId = metadata.path("eventId").asText(null);
-        String eventType = metadata.path("eventType").asText(null);
-        JsonNode data = envelope.path("data");
-
-        if (eventId == null || eventType == null || data.isMissingNode()) {
-            throw new IllegalArgumentException("El evento no tiene metadata.eventId, metadata.eventType o data");
-        }
-
-        if (inboundEventRepository.existsById(eventId)) {
-            log.debug("Evento {} ya procesado, se ignora la reentrega", eventId);
-            return false;
-        }
-        inboundEventRepository.save(new InboundEvent(eventId, eventType, null));
-
+    /** Invocado por el dispatcher transaccional Kafka: la idempotencia la maneja event_inbox. */
+    public void handle(String eventType, JsonNode data) {
         switch (eventType) {
             case ESPACIOS + "EventoComunitarioPublicado" -> upsertDestination(data);
             case ESPACIOS + "EventoCancelado" -> cancelDestination(data);
@@ -80,7 +56,6 @@ public class InboundEventService {
                     closeIfFinal(IncidentSource.EMERGENCIAS, text(data, "emergenciaId"), text(data, "estadoNuevo"), EMERGENCY_CLOSED);
             default -> log.info("Tipo de evento sin manejo en Movilidad: {}", eventType);
         }
-        return true;
     }
 
     // --- Destinos (Espacios Públicos) ---------------------------------------

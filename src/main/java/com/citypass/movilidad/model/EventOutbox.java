@@ -20,7 +20,10 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
-/** Eventos pendientes de publicar en el gateway del Grupo 1 (los despacha OutboxDispatcher). */
+/**
+ * Evento a publicar en el bus (patrón transactional outbox): se guarda en la misma transacción que el
+ * cambio de dominio y OutboxRelay lo publica después, con reintentos.
+ */
 @Entity
 @Table(name = "event_outbox")
 @Getter
@@ -43,7 +46,8 @@ public class EventOutbox {
     @Column(name = "aggregate_id", nullable = false, length = 64)
     private String aggregateId;
 
-    @Column(name = "event_type", nullable = false, length = 100)
+    // Fqn del event type (com.citypass.movilidad.<Nombre>), que es también el tópico en Kafka.
+    @Column(name = "event_type", nullable = false, length = 150)
     private String eventType;
 
     @JdbcTypeCode(SqlTypes.JSON)
@@ -55,18 +59,26 @@ public class EventOutbox {
     @Builder.Default
     private EventOutboxStatus status = EventOutboxStatus.PENDING;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private int attempts = 0;
+
+    @Column(name = "next_attempt_at", nullable = false)
+    @Builder.Default
+    private Instant nextAttemptAt = Instant.now();
+
+    @Column(name = "last_error", length = 1000)
+    private String lastError;
+
+    // eventId que le asignó el gateway al publicarlo.
+    @Column(name = "bus_event_id", columnDefinition = "CHAR(36)")
+    private String busEventId;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
     @Column(name = "published_at")
     private Instant publishedAt;
-
-    @Column(nullable = false)
-    @Builder.Default
-    private int attempts = 0;
-
-    @Column(name = "last_error", length = 1000)
-    private String lastError;
 
 }
