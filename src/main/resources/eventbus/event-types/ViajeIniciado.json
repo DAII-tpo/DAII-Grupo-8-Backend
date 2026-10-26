@@ -1,0 +1,41 @@
+{
+  "name": "ViajeIniciado",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string"
+    },
+    {
+      "name": "estacion",
+      "type": "string"
+    },
+    {
+      "name": "barrioInicio",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "latitud",
+      "type": "double"
+    },
+    {
+      "name": "longitud",
+      "type": "double"
+    },
+    {
+      "name": "horaInicio",
+      "type": "string"
+    },
+    {
+      "name": "correlationId",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}

@@ -1,25 +1,50 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.eventbus.publish.EventPublisher;
+import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.Trip;
-import lombok.extern.slf4j.Slf4j;
+import com.citypass.movilidad.model.enums.AggregateType;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
- * Publica los eventos de inicio y fin de viaje.
- * Pendiente: publicar en el event bus del Grupo 1 cuando definan el contrato; por ahora solo se loguea.
+ * Publica los dos eventos contratados con BI por el bus del Grupo 1.
+ * Se invoca dentro de las transacciones startTrip/endTrip de TripService.
+ * EventPublisher escribe en el outbox; OutboxRelay realiza el HTTP al gateway.
  */
 @Component
-@Slf4j
 public class TripEventPublisher {
 
+    private final EventPublisher eventPublisher;
+
+    public TripEventPublisher(EventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
+
     public void tripStarted(Trip trip) {
-        log.info("Viaje iniciado: tripId={}, userId={}, bikeId={}, originStationId={}",
-                trip.getId(), trip.getUser().getId(), trip.getBike().getId(), trip.getOriginStation().getId());
+        Station station = trip.getOriginStation();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", trip.getId().toString());
+        data.put("estacion", station.getName());
+        data.put("barrioInicio", null);
+        data.put("latitud", station.getLatitude().doubleValue());
+        data.put("longitud", station.getLongitude().doubleValue());
+        data.put("horaInicio", trip.getStartedAt().toString());
+        data.put("correlationId", "viaje-" + trip.getId());
+        eventPublisher.publish("ViajeIniciado", AggregateType.TRIP, trip.getId(), data);
     }
 
     public void tripEnded(Trip trip) {
-        log.info("Viaje finalizado: tripId={}, userId={}, bikeId={}, destinationStationId={}, durationSeconds={}",
-                trip.getId(), trip.getUser().getId(), trip.getBike().getId(),
-                trip.getDestinationStation().getId(), trip.getDurationSeconds());
+        Station station = trip.getDestinationStation();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", trip.getId().toString());
+        data.put("estacion", station.getName());
+        data.put("latitud", station.getLatitude().doubleValue());
+        data.put("longitud", station.getLongitude().doubleValue());
+        data.put("horaFinalizacion", trip.getEndedAt().toString());
+        data.put("correlationId", "viaje-" + trip.getId());
+        eventPublisher.publish("ViajeTerminado", AggregateType.TRIP, trip.getId(), data);
     }
 }

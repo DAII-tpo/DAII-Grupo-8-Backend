@@ -1,0 +1,33 @@
+{
+  "name": "ViajeTerminado",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string"
+    },
+    {
+      "name": "estacion",
+      "type": "string"
+    },
+    {
+      "name": "latitud",
+      "type": "double"
+    },
+    {
+      "name": "longitud",
+      "type": "double"
+    },
+    {
+      "name": "horaFinalizacion",
+      "type": "string"
+    },
+    {
+      "name": "correlationId",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    }
+  ]
+}
