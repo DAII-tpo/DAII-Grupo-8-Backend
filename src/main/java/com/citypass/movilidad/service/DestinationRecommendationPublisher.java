@@ -120,6 +120,12 @@ public class DestinationRecommendationPublisher {
                 recommendationProperties.maxCandidates());
         IncidentProximityFilter.FilterResult filtered = incidentFilter.filter(candidates);
 
+        if (filtered.safe().isEmpty() && filtered.discarded() == 0) {
+            outbox.publish(eventId, payload(eventId, null, 0,
+                    "No hay estaciones cercanas disponibles para recomendar"));
+            return;
+        }
+
         if (filtered.safe().isEmpty() && filtered.discarded() > 0) {
             outbox.publish(eventId, payload(eventId, null, filtered.discarded(),
                     "No hay estaciones seguras cerca del evento: todas están afectadas por incidentes"));
