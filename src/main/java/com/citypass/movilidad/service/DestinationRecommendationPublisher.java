@@ -78,8 +78,14 @@ public class DestinationRecommendationPublisher {
     }
 
     private List<CulturalDestination> upcoming(Instant now) {
-        return destinations.findByStartsAtBetweenOrderByStartsAtAsc(now, now.plusSeconds(24 * 3600))
-                .stream().filter(CulturalDestination::isRoutable).toList();
+        // Incluye eventos que ya comenzaron pero todavía no terminaron.
+        // Excluye los que empiezan dentro de más de 24 horas.
+        Instant horizon = now.plusSeconds(24 * 3600);
+        return destinations.findByEndsAtAfterOrderByStartsAtAsc(now).stream()
+                .filter(CulturalDestination::isRoutable)
+                .filter(destination -> destination.getStartsAt() != null
+                        && !destination.getStartsAt().isAfter(horizon))
+                .toList();
     }
 
     private void safelyPublish(String eventId) {

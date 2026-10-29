@@ -101,7 +101,11 @@ public class InboundEventService {
     }
 
     private void updateSpaceStatus(JsonNode data) {
-        boolean enabled = "ENABLED".equals(text(data, "estadoNuevo"));
+        String status = text(data, "estadoNuevo");
+        if (!"ENABLED".equals(status) && !"DISABLED".equals(status)) {
+            throw new IllegalArgumentException("Estado de espacio desconocido: " + status);
+        }
+        boolean enabled = "ENABLED".equals(status);
         for (CulturalDestination destination : destinationRepository.findBySpaceId(text(data, "espacioId"))) {
             destination.setSpaceEnabled(enabled);
             destination.setUpdatedAt(Instant.now());

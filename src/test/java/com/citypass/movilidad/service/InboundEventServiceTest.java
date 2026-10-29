@@ -21,6 +21,7 @@ class InboundEventServiceTest {
 
     private CulturalDestinationRepository destinations;
     private ApplicationEventPublisher changes;
+    private CityIncidentRepository incidentRepo;
     private InboundEventService service;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -28,7 +29,8 @@ class InboundEventServiceTest {
     void setUp() {
         destinations = mock(CulturalDestinationRepository.class);
         changes = mock(ApplicationEventPublisher.class);
-        service = new InboundEventService(destinations, mock(CityIncidentRepository.class), changes);
+        incidentRepo = mock(CityIncidentRepository.class);
+        service = new InboundEventService(destinations, incidentRepo, changes);
         when(destinations.findById("ev-42")).thenReturn(Optional.empty());
     }
 
@@ -73,4 +75,34 @@ class InboundEventServiceTest {
                 .hasMessageContaining("cupoMaximo/capacidad");
         verify(destinations, never()).save(any());
     }
+    @Test
+    void eventoCanceladoMarcaDestinoEInvalida() throws Exception {
+        CulturalDestination event = CulturalDestination.builder().eventId("ev-42")
+                .spaceId("esp-7").title("Evento").maxCapacity(100).build();
+        when(destinations.findById("ev-42")).thenReturn(Optional.of(event));
+        service.handle("com.citypass.espacios.EventoCancelado",
+                mapper.readTree("{\"eventoId\":\"ev-42\",\"estado\":\"CANCELLED\"}"));
+        assertThat(event.isCancelled()).isTrue();
+        verify(changes).publishEvent(eq(new CulturalDestinationChanged("ev-42")));
+    }
+
+    @Test
+    void estadoDesconocidoDeEspacioNoDeshabilitaPorError() throws Exception {
+        assertThatThrownBy(() -> service.handle("com.citypass.espacios.EspacioEstadoCambiado",
+                mapper.readTree("{\"espacioId\":\"esp-7\",\"estadoNuevo\":\"UNKNOWN\"}")))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(destinations, never()).findBySpaceId(any());
+    }
+
+    @Test
+    void reclamoSinAfectacionDeCirculacionNoSeRegistra() throws Exception {
+        service.handle("com.citypass.reclamos.ReclamoCreado",
+                mapper.readTree("{\"reclamoId\":\"r-1\",\"afectaCirculacion\":false,\"latitud\":-34.6,\"longitud\":-58.4}"));
+        verifyNoInteractions(incidents());
+    }
+
+    private CityIncidentRepository incidents() {
+        return incidentRepo;
+    }
+
 }
