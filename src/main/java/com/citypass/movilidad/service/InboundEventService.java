@@ -8,6 +8,7 @@ import com.citypass.movilidad.repository.CulturalDestinationRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,11 +33,14 @@ public class InboundEventService {
 
     private final CulturalDestinationRepository destinationRepository;
     private final CityIncidentRepository incidentRepository;
+    private final ApplicationEventPublisher domainEvents;
 
     public InboundEventService(CulturalDestinationRepository destinationRepository,
-                               CityIncidentRepository incidentRepository) {
+                               CityIncidentRepository incidentRepository,
+                               ApplicationEventPublisher domainEvents) {
         this.destinationRepository = destinationRepository;
         this.incidentRepository = incidentRepository;
+        this.domainEvents = domainEvents;
     }
 
     /** Invocado por el dispatcher transaccional Kafka: la idempotencia la maneja event_inbox. */
@@ -79,6 +83,7 @@ public class InboundEventService {
         destination.setCancelled("CANCELLED".equals(optionalText(data, "estado")));
         destination.setUpdatedAt(Instant.now());
         destinationRepository.save(destination);
+        domainEvents.publishEvent(new CulturalDestinationChanged(eventId));
     }
 
     private void cancelDestination(JsonNode data) {
@@ -86,6 +91,7 @@ public class InboundEventService {
             destination.setCancelled(true);
             destination.setUpdatedAt(Instant.now());
             destinationRepository.save(destination);
+            domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
         });
     }
 
@@ -95,6 +101,7 @@ public class InboundEventService {
             destination.setSpaceEnabled(enabled);
             destination.setUpdatedAt(Instant.now());
             destinationRepository.save(destination);
+            domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
         }
     }
 
@@ -130,6 +137,7 @@ public class InboundEventService {
         incident.setReportedAt(reportedAt == null ? Instant.now() : reportedAt);
         incident.setUpdatedAt(Instant.now());
         incidentRepository.save(incident);
+        domainEvents.publishEvent(new TrafficIncidentChanged(latitude.doubleValue(), longitude.doubleValue()));
     }
 
     private void closeIfFinal(IncidentSource source, String externalId, String newStatus, Set<String> finalStates) {
@@ -137,9 +145,12 @@ public class InboundEventService {
             return;
         }
         incidentRepository.findBySourceAndExternalId(source, externalId).ifPresent(incident -> {
+            if (!incident.isActive()) return;
             incident.setActive(false);
             incident.setUpdatedAt(Instant.now());
             incidentRepository.save(incident);
+            domainEvents.publishEvent(new TrafficIncidentChanged(
+                    incident.getLatitude().doubleValue(), incident.getLongitude().doubleValue()));
         });
     }
 

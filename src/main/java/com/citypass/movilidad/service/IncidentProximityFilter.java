@@ -14,8 +14,8 @@ import java.util.List;
  * Saca de las candidatas las estaciones que quedan cerca de un incidente activo
  * (un corte de tránsito, un incendio). CU-INT-01, paso 8.
  *
- * Si TODAS las candidatas están cerca de algún incidente se devuelven igual: es
- * preferible una recomendación con aviso a dejar al usuario sin ninguna.
+ * Si todas las candidatas están afectadas, devuelve una lista vacía: no se recomienda
+ * una estación insegura incluso cuando no haya alternativas.
  */
 @Component
 public class IncidentProximityFilter {
@@ -32,14 +32,14 @@ public class IncidentProximityFilter {
     }
 
     public List<NearbyStationResponse> apply(List<NearbyStationResponse> candidates) {
-        if (candidates.isEmpty()) {
-            return candidates;
-        }
+        return filter(candidates).safe();
+    }
 
+    /** Resultado útil para informar a Espacios cuántas estaciones se descartaron. */
+    public FilterResult filter(List<NearbyStationResponse> candidates) {
+        if (candidates.isEmpty()) return new FilterResult(candidates, 0);
         List<CityIncident> incidents = incidentRepository.findByActiveTrue();
-        if (incidents.isEmpty()) {
-            return candidates;
-        }
+        if (incidents.isEmpty()) return new FilterResult(candidates, 0);
 
         List<NearbyStationResponse> clear = candidates.stream()
                 .filter(station -> incidents.stream().noneMatch(incident -> isNear(station, incident)))
@@ -47,14 +47,16 @@ public class IncidentProximityFilter {
 
         if (clear.isEmpty()) {
             LOG.warn("No hay estaciones seguras: todas las candidatas están próximas a incidentes activos");
-            return List.of();
+            return new FilterResult(List.of(), candidates.size());
         }
 
         if (clear.size() < candidates.size()) {
             LOG.info("Se descartaron {} estaciones cercanas a incidentes activos", candidates.size() - clear.size());
         }
-        return clear;
+        return new FilterResult(clear, candidates.size() - clear.size());
     }
+
+    public record FilterResult(List<NearbyStationResponse> safe, int discarded) { }
 
     private boolean isNear(NearbyStationResponse station, CityIncident incident) {
         return GeoDistance.meters(

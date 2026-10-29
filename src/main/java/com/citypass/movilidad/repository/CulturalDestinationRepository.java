@@ -12,4 +12,7 @@ public interface CulturalDestinationRepository extends JpaRepository<CulturalDes
 
     /** Eventos que todavía no terminaron, del más próximo al más lejano. */
     List<CulturalDestination> findByEndsAtAfterOrderByStartsAtAsc(Instant now);
+
+    /** Próximos eventos para recalcular recomendaciones (máximo 24 horas). */
+    List<CulturalDestination> findByStartsAtBetweenOrderByStartsAtAsc(Instant from, Instant to);
 }
