@@ -1,0 +1,17 @@
+{
+  "name": "MovilidadObstruccionEvaluada",
+  "fields": [
+    { "name": "reclamoId", "type": "string" },
+    { "name": "correlationId", "type": ["null", "string"], "default": null },
+    { "name": "latitud", "type": "double" },
+    { "name": "longitud", "type": "double" },
+    { "name": "direccion", "type": ["null", "string"], "default": null },
+    { "name": "barrio", "type": ["null", "string"], "default": null },
+    { "name": "afectaCiclovia", "type": "boolean" },
+    { "name": "estacionesAfectadasIds", "type": { "type": "array", "items": "long" } },
+    { "name": "impactoCirculacion", "type": "string" },
+    { "name": "desvioSugerido", "type": ["null", "string"], "default": null },
+    { "name": "requiereIntervencionInmediata", "type": "boolean" },
+    { "name": "evaluadoAt", "type": { "type": "long", "logicalType": "timestamp-millis" } }
+  ]
+}
