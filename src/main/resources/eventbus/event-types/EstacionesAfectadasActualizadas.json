@@ -1,0 +1,17 @@
+{
+  "name": "EstacionesAfectadasActualizadas",
+  "fields": [
+    {
+      "name": "cantidadEstacionesAfectadas",
+      "type": "int"
+    },
+    {
+      "name": "cantidadIncidentesActivos",
+      "type": "int"
+    },
+    {
+      "name": "calculadaEn",
+      "type": "string"
+    }
+  ]
+}
