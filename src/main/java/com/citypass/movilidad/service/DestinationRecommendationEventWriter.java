@@ -4,6 +4,7 @@ import com.citypass.movilidad.eventbus.publish.EventPublisher;
 import com.citypass.movilidad.model.enums.AggregateType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.util.Map;
 
@@ -17,7 +18,8 @@ public class DestinationRecommendationEventWriter {
         this.eventPublisher = eventPublisher;
     }
 
-    @Transactional
+    // Se llama también desde AFTER_COMMIT: requiere una transacción nueva para persistir el outbox.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void publish(String eventId, Map<String, Object> data) {
         eventPublisher.publish("RecomendacionDestinoActualizada",
                 AggregateType.CULTURAL_EVENT, eventId, data);

@@ -49,7 +49,6 @@ public class InboundEventService {
             case ESPACIOS + "EventoComunitarioPublicado" -> upsertDestination(data);
             case ESPACIOS + "EventoCancelado" -> cancelDestination(data);
             case ESPACIOS + "EspacioEstadoCambiado" -> updateSpaceStatus(data);
-            case ESPACIOS + "ReservaCreada" -> addRegistration(data);
             case RECLAMOS + "ReclamoCreado" ->
                     openIncident(IncidentSource.RECLAMOS, text(data, "reclamoId"), data, epochMillis(data, "createdAt"));
             case RECLAMOS + "ReclamoActualizado" ->
@@ -77,8 +76,14 @@ public class InboundEventService {
         destination.setLongitude(decimal(data, "longitud"));
         destination.setStartsAt(iso(data, "inicio"));
         destination.setEndsAt(iso(data, "fin"));
-        destination.setMaxCapacity(data.path("cupoMaximo").asInt());
-        // Las inscripciones que llegaron antes que el evento (por orden de entrega) no se pisan.
+        // Espacios enviará ambos campos con el mismo valor. No convertir un faltante en cero.
+        JsonNode capacity = data.path("cupoMaximo");
+        if (!capacity.isIntegralNumber()) capacity = data.path("capacidad");
+        if (!capacity.isIntegralNumber()) {
+            throw new IllegalArgumentException("Falta cupoMaximo/capacidad en EventoComunitarioPublicado");
+        }
+        destination.setMaxCapacity(capacity.intValue());
+        // El registro incremental por ReservaConfirmada se implementa cuando Espacios envíe su contrato.
         destination.setRegistrations(Math.max(destination.getRegistrations(), data.path("inscriptos").asInt(0)));
         destination.setCancelled("CANCELLED".equals(optionalText(data, "estado")));
         destination.setUpdatedAt(Instant.now());
@@ -103,18 +108,6 @@ public class InboundEventService {
             destinationRepository.save(destination);
             domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
         }
-    }
-
-    private void addRegistration(JsonNode data) {
-        // Solo las inscripciones a eventos suman demanda; las reservas de espacios no son destinos.
-        if (!"EVENTO".equals(optionalText(data, "tipoReserva"))) {
-            return;
-        }
-        destinationRepository.findById(text(data, "recursoId")).ifPresent(destination -> {
-            destination.setRegistrations(destination.getRegistrations() + data.path("cantidadPersonas").asInt(1));
-            destination.setUpdatedAt(Instant.now());
-            destinationRepository.save(destination);
-        });
     }
 
     // --- Incidentes (Reclamos y Emergencias) --------------------------------
