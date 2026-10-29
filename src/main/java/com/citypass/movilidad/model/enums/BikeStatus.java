@@ -5,5 +5,7 @@ public enum BikeStatus {
     IN_USE,
     MAINTENANCE,
     OUT_OF_SERVICE,
-    STOLEN
+    STOLEN,
+    // Bloqueada por una emergencia durante el viaje: nadie la puede retirar hasta recuperarla.
+    BLOCKED
 }

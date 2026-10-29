@@ -253,6 +253,15 @@ está en Swagger UI. Resumen:
 | `POST` | `/trips/{id}/end` | Finalizar el viaje devolviendo la bici en una estación |
 | `GET` | `/trips/history?page&size` | Historial paginado de viajes finalizados |
 
+### Emergencias durante un viaje (requieren `X-User-Id`)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/trips/{tripId}/emergencies` | Pedir ayuda (SOS) con la ubicación actual: pausa el viaje y bloquea la bici |
+| `GET` | `/emergencies/current` | Emergencia en curso del usuario (`204` si no tiene) |
+| `POST` | `/emergencies/{id}/cancel` | Cancelar un SOS enviado por error, dentro de la ventana de cancelación |
+| `POST` | `/emergencies/{id}/triage` | Enviar el cuestionario; avisa a Emergencias por el bus de eventos |
+
 ### Incidencias
 
 | Método | Ruta | Header | Descripción |
@@ -307,8 +316,10 @@ Todos los errores responden con el mismo cuerpo:
 | `OUT_OF_SERVICE` | Fuera de circulación (por ejemplo, reportada y pendiente de revisión) | Sí | No |
 | `MAINTENANCE` | En reparación, con una orden de mantenimiento abierta (sin estación asignada) | No | No |
 | `STOLEN` | Robada | Sí, si sigue asignada a una estación | No |
+| `BLOCKED` | Bloqueada por una emergencia durante el viaje (sin estación asignada) | No | No |
 
-- `AVAILABLE ↔ IN_USE` solo lo producen los viajes; no es una transición administrativa.
+- `AVAILABLE ↔ IN_USE` solo lo producen los viajes, e `IN_USE ↔ BLOCKED` las emergencias; no son transiciones
+  administrativas.
 - Transiciones administrativas permitidas (`PATCH /bikes/{id}/status`):
   `AVAILABLE → MAINTENANCE | OUT_OF_SERVICE | STOLEN`,
   `MAINTENANCE → AVAILABLE | OUT_OF_SERVICE | STOLEN`,
@@ -335,6 +346,22 @@ que la estación esté activa y tenga capacidad.
    calcula la duración. Un usuario bloqueado durante el viaje igual puede devolver la bici.
 3. Las operaciones usan locks pesimistas para que dos requests simultáneas no generen dos viajes para el mismo
    usuario, no usen la misma bici ni superen la capacidad de una estación.
+
+### Emergencias durante un viaje (SOS)
+
+1. **Pedir ayuda**: con un viaje `ACTIVE`, el usuario manda su ubicación actual (la toma el navegador). El viaje
+   pasa a `EMERGENCY` (pausado: no se puede finalizar ni iniciar otro) y la bici a `BLOCKED`.
+2. **Ventana de cancelación** (10 s, `movilidad.emergency.cancel-window`): si fue un error, se cancela y el
+   viaje y la bici vuelven a `ACTIVE` / `IN_USE`. Durante la ventana no se avisa a nadie.
+3. **Cuestionario** (60 s más, `movilidad.emergency.triage-window`): tres preguntas (¿podés moverte?, ¿estás
+   sangrando?, ¿hay un vehículo involucrado?) que definen la prioridad sugerida: `P1` si hay sangrado o
+   vehículo, `P2` si no puede moverse, `P3` si se mueve sin lesiones graves.
+4. **Aviso a Emergencias**: un **único** evento `com.citypass.movilidad.EmergenciaBicicleta` en el bus, con la
+   emergencia, la ubicación, el cuestionario, el viaje y el usuario. Sale al enviar el cuestionario o, si no
+   llega, al vencer su plazo (lo controla el servidor, así sale aunque se cierre la app), sin respuestas y con
+   prioridad `P1`. El contrato está en
+   [`EmergenciaBicicleta.json`](src/main/resources/eventbus/event-types/EmergenciaBicicleta.json).
+5. El viaje queda pausado hasta que Emergencias lo resuelva (ver [Pendientes](#pendientes-y-dependencias-externas)).
 
 ### Incidencias
 
@@ -370,6 +397,7 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | `V3__seed_demo_user.sql` | Usuario demo con id = 1 y rol `USER` |
 | `V4__maintenance_origin_station.sql` | Estación de origen de cada orden de mantenimiento |
 | `V5__event_bus_outbox_inbox.sql` | Reintentos del outbox de eventos y tabla `event_inbox` de eventos recibidos |
+| `V6__bike_emergencies.sql` | Tabla `bike_emergencies`, estado `EMERGENCY` de viajes y `BLOCKED` de bicicletas |
 
 La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 
@@ -467,9 +495,12 @@ cada PR.
 
 - **Login Federado (Grupo 2)**: reemplazar el header `X-User-Id` por la identidad del JWT y pasar producción a
   `SECURITY_LOCAL_ENABLED=false`.
-- **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)), pero todavía no se
-  publica ni se consume ningún evento concreto. Falta definir los contratos (por ejemplo, los de viaje, que hoy
-  `TripEventPublisher` solo registra en el log) y los eventos de otros grupos que interesan a Movilidad.
+- **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publica
+  `EmergenciaBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
+  consumir los de otros grupos.
+- **Cierre de emergencias (Grupo 6)**: un viaje pausado por una emergencia queda en `EMERGENCY` con la bici
+  `BLOCKED` hasta que Emergencias lo resuelva. Falta consumir sus eventos para cerrar el viaje sin cargo y
+  ordenar la recuperación de la bici.
 - **Recomendación con datos reales**: el modelo está entrenado con datos sintéticos (ver sus limitaciones en
   [recommendation-service/README.md](recommendation-service/README.md)).
 - **Historial de disponibilidad**: la tabla `station_availability_history` está creada pero todavía no se completa.

@@ -1,0 +1,65 @@
+{
+  "name": "EmergenciaBicicleta",
+  "fields": [
+    { "name": "emergenciaId", "type": "string" },
+    { "name": "actorSub", "type": ["null", "string"], "default": null },
+    { "name": "reportadaEn", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    {
+      "name": "ubicacion",
+      "type": {
+        "type": "record",
+        "name": "Ubicacion",
+        "fields": [
+          { "name": "latitud", "type": "double" },
+          { "name": "longitud", "type": "double" },
+          { "name": "precisionMetros", "type": ["null", "double"], "default": null }
+        ]
+      }
+    },
+    {
+      "name": "triage",
+      "type": {
+        "type": "record",
+        "name": "Triage",
+        "fields": [
+          { "name": "respondido", "type": "boolean" },
+          { "name": "puedeMoverse", "type": ["null", "boolean"], "default": null },
+          { "name": "estaSangrando", "type": ["null", "boolean"], "default": null },
+          { "name": "vehiculoInvolucrado", "type": ["null", "boolean"], "default": null },
+          {
+            "name": "prioridadSugerida",
+            "type": { "type": "enum", "name": "Prioridad", "symbols": ["P1", "P2", "P3", "P4"] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "viaje",
+      "type": {
+        "type": "record",
+        "name": "Viaje",
+        "fields": [
+          { "name": "viajeId", "type": "long" },
+          { "name": "iniciadoEn", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+          { "name": "estacionOrigenId", "type": "long" },
+          { "name": "estacionOrigenNombre", "type": "string" },
+          { "name": "bicicletaId", "type": "long" },
+          { "name": "bicicletaCodigo", "type": "string" }
+        ]
+      }
+    },
+    {
+      "name": "usuario",
+      "type": {
+        "type": "record",
+        "name": "Usuario",
+        "fields": [
+          { "name": "usuarioId", "type": "long" },
+          { "name": "nombre", "type": "string" },
+          { "name": "apellido", "type": "string" },
+          { "name": "email", "type": "string" }
+        ]
+      }
+    }
+  ]
+}
