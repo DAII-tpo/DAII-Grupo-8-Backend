@@ -4,6 +4,7 @@ import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
+import com.citypass.movilidad.eventbus.publish.EventPublisher;
 import com.citypass.movilidad.model.BikeIncident;
 import com.citypass.movilidad.model.IncidentType;
 import com.citypass.movilidad.model.Role;
@@ -44,7 +45,8 @@ class IncidentAdminServiceTest {
         userRepository = mock(UserRepository.class);
         bikeService = mock(BikeService.class);
         service = new IncidentService(incidentRepository, mock(IncidentTypeRepository.class),
-                mock(BikeRepository.class), userRepository, mock(TripRepository.class), bikeService);
+                mock(BikeRepository.class), userRepository, mock(TripRepository.class), bikeService,
+                mock(EventPublisher.class));
         when(incidentRepository.save(any(BikeIncident.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }

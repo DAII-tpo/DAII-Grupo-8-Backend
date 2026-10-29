@@ -2,6 +2,7 @@ package com.citypass.movilidad;
 
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeIncident;
+import com.citypass.movilidad.model.EventOutbox;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.BikeIncidentStatus;
@@ -9,6 +10,7 @@ import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.model.enums.StationSource;
 import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.BikeRepository;
+import com.citypass.movilidad.repository.EventOutboxRepository;
 import com.citypass.movilidad.repository.IncidentTypeRepository;
 import com.citypass.movilidad.repository.RoleRepository;
 import com.citypass.movilidad.repository.StationRepository;
@@ -73,6 +75,9 @@ class IncidentFlowIntegrationTest {
     @Autowired
     private BikeIncidentRepository incidentRepository;
 
+    @Autowired
+    private EventOutboxRepository outboxRepository;
+
     @Test
     void listsTypesAndPersistsValidIncident() throws Exception {
         User user = user();
@@ -86,7 +91,8 @@ class IncidentFlowIntegrationTest {
         String body = mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, user.getId())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
-                                + ",\"description\":\"Rueda trasera desinflada\"}"))
+                                + ",\"description\":\"Rueda trasera desinflada\""
+                                + ",\"latitude\":-34.6037,\"longitude\":-58.3816,\"accuracyMeters\":15}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("OPEN"))
                 .andExpect(jsonPath("$.bikeId").value(bike.getId()))
@@ -101,6 +107,38 @@ class IncidentFlowIntegrationTest {
         assertThat(saved.getIncidentType().getId()).isEqualTo(typeId);
         assertThat(saved.getStatus()).isEqualTo(BikeIncidentStatus.OPEN);
         assertThat(saved.getReportedAt()).isNotNull();
+
+        // El reporte sale al bus como ReporteBicicleta, en la misma transacción.
+        EventOutbox event = outboxRepository.findAll().stream()
+                .filter(candidate -> "com.citypass.movilidad.ReporteBicicleta".equals(candidate.getEventType()))
+                .filter(candidate -> String.valueOf(saved.getId()).equals(candidate.getAggregateId()))
+                .findFirst().orElseThrow();
+        JsonNode data = objectMapper.readTree(event.getPayload());
+        assertThat(data.get("reporteId").asLong()).isEqualTo(saved.getId());
+        assertThat(data.at("/tipo/codigo").asText()).isEqualTo("FLAT_TIRE");
+        assertThat(data.get("descripcion").asText()).isEqualTo("Rueda trasera desinflada");
+        assertThat(data.at("/bicicleta/bicicletaId").asLong()).isEqualTo(bike.getId());
+        assertThat(data.at("/bicicleta/estacionId").asLong()).isEqualTo(bike.getStation().getId());
+        assertThat(data.get("viaje").isNull()).isTrue();
+        assertThat(data.at("/ubicacion/latitud").asDouble()).isEqualTo(-34.6037);
+        assertThat(data.at("/ubicacion/precisionMetros").asDouble()).isEqualTo(15.0);
+        assertThat(data.at("/usuario/email").asText()).isEqualTo(user.getEmail());
+    }
+
+    @Test
+    void rejectsReportWithHalfALocation() throws Exception {
+        User user = user();
+        Bike bike = bike();
+        Long typeId = typeRepository.findByCode("OTHER").orElseThrow().getId();
+        long before = incidentRepository.count();
+
+        mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, user.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
+                                + ",\"description\":\"Sin longitud\",\"latitude\":-34.6037}"))
+                .andExpect(status().isBadRequest());
+
+        assertThat(incidentRepository.count()).isEqualTo(before);
     }
 
     @Test

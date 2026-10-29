@@ -370,6 +370,10 @@ que la estación esté activa y tenga capacidad.
 3. Si se reporta durante un viaje, la bici sigue `IN_USE` para que el usuario pueda terminar el viaje. Al
    devolverla, pasa a `OUT_OF_SERVICE` en la estación de destino si la incidencia sigue pendiente.
 4. El admin revisa: `OPEN → UNDER_REVIEW → RESOLVED | REJECTED` (también `OPEN → RESOLVED | REJECTED`).
+5. Cada reporte se publica en el bus como `com.citypass.movilidad.ReporteBicicleta`: tipo, descripción, bici (y
+   estación si estaba anclada), viaje si se reportó durante uno, ubicación si el navegador la compartió
+   (`latitude`/`longitude`/`accuracyMeters`, opcionales y siempre juntas) y usuario. Contrato en
+   [`ReporteBicicleta.json`](src/main/resources/eventbus/event-types/ReporteBicicleta.json).
 5. **Rechazada (reporte falso)**: la bici vuelve sola a `AVAILABLE`, siempre que haya salido de servicio por
    ese reporte y no tenga otras incidencias pendientes.
 6. **Resuelta**: la bici no cambia; vuelve a circular a través del mantenimiento.
@@ -495,8 +499,8 @@ cada PR.
 
 - **Login Federado (Grupo 2)**: reemplazar el header `X-User-Id` por la identidad del JWT y pasar producción a
   `SECURITY_LOCAL_ENABLED=false`.
-- **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publica
-  `EmergenciaBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
+- **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publican
+  `EmergenciaBicicleta` y `ReporteBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
   consumir los de otros grupos.
 - **Cierre de emergencias (Grupo 6)**: un viaje pausado por una emergencia queda en `EMERGENCY` con la bici
   `BLOCKED` hasta que Emergencias lo resuelva. Falta consumir sus eventos para cerrar el viaje sin cargo y

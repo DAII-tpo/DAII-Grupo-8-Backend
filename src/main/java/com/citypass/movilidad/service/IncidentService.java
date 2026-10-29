@@ -4,13 +4,17 @@ import com.citypass.movilidad.dto.IncidentCreateRequest;
 import com.citypass.movilidad.dto.IncidentResponse;
 import com.citypass.movilidad.dto.AdminIncidentResponse;
 import com.citypass.movilidad.dto.IncidentTypeResponse;
+import com.citypass.movilidad.event.ReporteBicicletaEvent;
+import com.citypass.movilidad.eventbus.publish.EventPublisher;
 import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeIncident;
 import com.citypass.movilidad.model.IncidentType;
+import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.User;
+import com.citypass.movilidad.model.enums.AggregateType;
 import com.citypass.movilidad.model.enums.BikeIncidentStatus;
 import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.BikeIncidentRepository;
@@ -31,23 +35,28 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class IncidentService {
 
+    static final String REPORT_EVENT = "ReporteBicicleta";
+
     private final BikeIncidentRepository incidentRepository;
     private final IncidentTypeRepository incidentTypeRepository;
     private final BikeRepository bikeRepository;
     private final UserRepository userRepository;
     private final TripRepository tripRepository;
     private final BikeService bikeService;
+    private final EventPublisher eventPublisher;
 
     public IncidentService(BikeIncidentRepository incidentRepository,
                            IncidentTypeRepository incidentTypeRepository,
                            BikeRepository bikeRepository, UserRepository userRepository,
-                           TripRepository tripRepository, BikeService bikeService) {
+                           TripRepository tripRepository, BikeService bikeService,
+                           EventPublisher eventPublisher) {
         this.incidentRepository = incidentRepository;
         this.incidentTypeRepository = incidentTypeRepository;
         this.bikeRepository = bikeRepository;
         this.userRepository = userRepository;
         this.tripRepository = tripRepository;
         this.bikeService = bikeService;
+        this.eventPublisher = eventPublisher;
     }
 
     /** Tipos de incidencia que se pueden reportar. */
@@ -100,7 +109,7 @@ public class IncidentService {
     }
 
     @Transactional
-    /** Registra un reporte y saca la bici de circulación. */
+    /** Registra un reporte, saca la bici de circulación y lo publica en el bus (ReporteBicicleta). */
     public IncidentResponse report(Long userId, IncidentCreateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + userId));
@@ -127,9 +136,37 @@ public class IncidentService {
                 .filter(trip -> trip.getBike() != null && bike.getId().equals(trip.getBike().getId()))
                 .ifPresent(incident::setTrip);
 
+        // La estación se toma antes de cambiar el estado de la bici: es donde estaba al reportarla.
+        Station station = bike.getStation();
         bikeService.reportIncidentOnBike(bike, user, BikeService.INCIDENT_REASON_PREFIX + ": " + type.getName());
 
-        return toResponse(incidentRepository.save(incident));
+        BikeIncident saved = incidentRepository.save(incident);
+        eventPublisher.publish(REPORT_EVENT, AggregateType.INCIDENT, saved.getId(), toEvent(saved, station, request));
+        return toResponse(saved);
+    }
+
+    private static ReporteBicicletaEvent toEvent(BikeIncident incident, Station station,
+                                                 IncidentCreateRequest request) {
+        Bike bike = incident.getBike();
+        IncidentType type = incident.getIncidentType();
+        User user = incident.getReportedByUser();
+        Trip trip = incident.getTrip();
+        return new ReporteBicicletaEvent(
+                incident.getId(),
+                user.getExternalUserId(),
+                incident.getReportedAt().toEpochMilli(),
+                new ReporteBicicletaEvent.TipoIncidencia(type.getCode(), type.getName()),
+                incident.getDescription(),
+                new ReporteBicicletaEvent.Bicicleta(bike.getId(), bike.getCode(),
+                        station == null ? null : station.getId(), station == null ? null : station.getName()),
+                trip == null ? null : new ReporteBicicletaEvent.Viaje(trip.getId(), trip.getStartedAt().toEpochMilli(),
+                        trip.getOriginStation().getId(), trip.getOriginStation().getName()),
+                request.hasLocation()
+                        ? new ReporteBicicletaEvent.Ubicacion(request.latitude(), request.longitude(),
+                        request.accuracyMeters())
+                        : null,
+                new ReporteBicicletaEvent.Usuario(user.getId(), user.getFirstName(), user.getLastName(),
+                        user.getEmail()));
     }
 
     private IncidentResponse toResponse(BikeIncident incident) {
