@@ -7,7 +7,10 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 
-/** Transiciones de estado que puede hacer un administrador (AVAILABLE <-> IN_USE queda para los viajes). */
+/**
+ * Transiciones de estado que puede hacer un administrador (AVAILABLE <-> IN_USE queda para los viajes y
+ * IN_USE <-> BLOCKED para las emergencias).
+ */
 public final class BikeStatusTransitionPolicy {
 
     private static final Map<BikeStatus, Set<BikeStatus>> ADMIN_TRANSITIONS = new EnumMap<>(BikeStatus.class);
@@ -22,6 +25,8 @@ public final class BikeStatusTransitionPolicy {
         ADMIN_TRANSITIONS.put(BikeStatus.STOLEN,
                 EnumSet.of(BikeStatus.MAINTENANCE, BikeStatus.OUT_OF_SERVICE));
         ADMIN_TRANSITIONS.put(BikeStatus.IN_USE, EnumSet.noneOf(BikeStatus.class));
+        // La bloquea y desbloquea el flujo de emergencias, no un administrador.
+        ADMIN_TRANSITIONS.put(BikeStatus.BLOCKED, EnumSet.noneOf(BikeStatus.class));
     }
 
     private BikeStatusTransitionPolicy() {

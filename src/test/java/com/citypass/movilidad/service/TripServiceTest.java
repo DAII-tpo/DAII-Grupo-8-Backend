@@ -194,6 +194,50 @@ class TripServiceTest {
         verifyNoInteractions(tripRepository);
     }
 
+    // Viaje pausado por una emergencia (SOS)
+
+    @Test
+    void returnsTripPausedByEmergencyAsCurrentTrip() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Trip trip = activeTrip(7L, user, bike(5L, BikeStatus.BLOCKED, null));
+        trip.setStatus(TripStatus.EMERGENCY);
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(tripRepository.findByUserIdAndStatus(1L, TripStatus.ACTIVE)).thenReturn(Optional.empty());
+        when(tripRepository.findByUserIdAndStatus(1L, TripStatus.EMERGENCY)).thenReturn(Optional.of(trip));
+
+        assertThat(service.findActiveTrip(1L))
+                .hasValueSatisfying(response -> assertThat(response.status()).isEqualTo(TripStatus.EMERGENCY));
+    }
+
+    @Test
+    void rejectsStartingTripWhileAnotherIsPausedByEmergency() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Trip paused = activeTrip(7L, user, bike(5L, BikeStatus.BLOCKED, null));
+        paused.setStatus(TripStatus.EMERGENCY);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(tripRepository.findByUserIdAndStatus(1L, TripStatus.ACTIVE)).thenReturn(Optional.empty());
+        when(tripRepository.findByUserIdAndStatus(1L, TripStatus.EMERGENCY)).thenReturn(Optional.of(paused));
+
+        assertThatThrownBy(() -> service.startTrip(1L, new TripStartRequest(6L)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("emergencia");
+        verify(bikeService, never()).lockActiveBike(any());
+    }
+
+    @Test
+    void rejectsEndingTripPausedByEmergency() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Trip paused = activeTrip(7L, user, bike(5L, BikeStatus.BLOCKED, null));
+        paused.setStatus(TripStatus.EMERGENCY);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(paused));
+
+        assertThatThrownBy(() -> service.endTrip(1L, 7L, new TripEndRequest(20L)))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("emergencia");
+        verify(bikeService, never()).checkInFromTrip(any(), any(), any());
+    }
+
     // MOV-030 — historial de viajes
 
     @Test
