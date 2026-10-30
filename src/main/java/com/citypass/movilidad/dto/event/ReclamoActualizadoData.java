@@ -19,3 +19,4 @@ public record ReclamoActualizadoData(
         Long updatedAt
 ) {
 }
+

@@ -5,3 +5,4 @@ public enum ObstructionImpactLevel {
     MEDIO,
     ALTO
 }
+

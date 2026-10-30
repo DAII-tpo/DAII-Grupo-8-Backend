@@ -4,5 +4,7 @@ public enum TripStatus {
     ACTIVE,
     COMPLETED,
     CANCELLED,
-    INCIDENT
+    INCIDENT,
+    // Pausado por un pedido de ayuda (SOS): no se puede finalizar ni iniciar otro hasta que se resuelva.
+    EMERGENCY
 }

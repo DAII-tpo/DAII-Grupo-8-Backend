@@ -315,6 +315,30 @@ public class BikeService {
         return destination;
     }
 
+    /** Bloquea la bici de un viaje pausado por una emergencia: nadie la puede retirar hasta recuperarla. */
+    @Transactional
+    public void blockForEmergency(Bike bike, User user, String reason) {
+        if (bike.getStatus() != BikeStatus.IN_USE) {
+            throw new BusinessRuleException(
+                    "La bicicleta no está en uso: " + bike.getId() + " (" + bike.getStatus() + ")");
+        }
+        bike.setStatus(BikeStatus.BLOCKED);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.IN_USE, BikeStatus.BLOCKED, reason, user);
+    }
+
+    /** Devuelve al viaje la bici de una emergencia cancelada. */
+    @Transactional
+    public void unblockAfterCancelledEmergency(Bike bike, User user, String reason) {
+        if (bike.getStatus() != BikeStatus.BLOCKED) {
+            throw new BusinessRuleException(
+                    "La bicicleta no está bloqueada: " + bike.getId() + " (" + bike.getStatus() + ")");
+        }
+        bike.setStatus(BikeStatus.IN_USE);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.BLOCKED, BikeStatus.IN_USE, reason, user);
+    }
+
     /** Historial de cambios de estado, del más reciente al más antiguo. */
     public List<BikeStatusHistoryResponse> history(Long id) {
         bikeRepository.findById(id)

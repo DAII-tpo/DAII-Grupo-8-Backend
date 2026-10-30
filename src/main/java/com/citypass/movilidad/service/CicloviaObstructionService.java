@@ -285,3 +285,4 @@ public class CicloviaObstructionService {
         return str == null ? "" : str;
     }
 }
+

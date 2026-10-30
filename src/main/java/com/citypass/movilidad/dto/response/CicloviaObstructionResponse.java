@@ -26,3 +26,4 @@ public record CicloviaObstructionResponse(
         Instant resolvedAt
 ) {
 }
+

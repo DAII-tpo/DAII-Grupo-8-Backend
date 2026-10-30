@@ -227,3 +227,4 @@ class CicloviaObstructionServiceTest {
         assertThat(service.isStationAffected(99L)).isFalse();
     }
 }
+

@@ -1,0 +1,79 @@
+{
+  "name": "ReporteBicicleta",
+  "fields": [
+    { "name": "reporteId", "type": "long" },
+    { "name": "actorSub", "type": ["null", "string"], "default": null },
+    { "name": "reportadoEn", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+    {
+      "name": "tipo",
+      "type": {
+        "type": "record",
+        "name": "TipoIncidencia",
+        "fields": [
+          { "name": "codigo", "type": "string" },
+          { "name": "nombre", "type": "string" }
+        ]
+      }
+    },
+    { "name": "descripcion", "type": "string" },
+    {
+      "name": "bicicleta",
+      "type": {
+        "type": "record",
+        "name": "Bicicleta",
+        "fields": [
+          { "name": "bicicletaId", "type": "long" },
+          { "name": "bicicletaCodigo", "type": "string" },
+          { "name": "estacionId", "type": ["null", "long"], "default": null },
+          { "name": "estacionNombre", "type": ["null", "string"], "default": null }
+        ]
+      }
+    },
+    {
+      "name": "viaje",
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "name": "Viaje",
+          "fields": [
+            { "name": "viajeId", "type": "long" },
+            { "name": "iniciadoEn", "type": { "type": "long", "logicalType": "timestamp-millis" } },
+            { "name": "estacionOrigenId", "type": "long" },
+            { "name": "estacionOrigenNombre", "type": "string" }
+          ]
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "ubicacion",
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "name": "Ubicacion",
+          "fields": [
+            { "name": "latitud", "type": "double" },
+            { "name": "longitud", "type": "double" },
+            { "name": "precisionMetros", "type": ["null", "double"], "default": null }
+          ]
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "usuario",
+      "type": {
+        "type": "record",
+        "name": "Usuario",
+        "fields": [
+          { "name": "usuarioId", "type": "long" },
+          { "name": "nombre", "type": "string" },
+          { "name": "apellido", "type": "string" },
+          { "name": "email", "type": "string" }
+        ]
+      }
+    }
+  ]
+}

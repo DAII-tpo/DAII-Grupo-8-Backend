@@ -91,3 +91,4 @@ class ReclamoHandlersTest {
         verify(obstructionService).procesarReclamoActualizado(any(ReclamoActualizadoData.class));
     }
 }
+

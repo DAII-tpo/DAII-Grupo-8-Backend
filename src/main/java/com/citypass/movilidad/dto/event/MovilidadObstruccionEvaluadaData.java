@@ -21,3 +21,4 @@ public record MovilidadObstruccionEvaluadaData(
         long evaluadoAt
 ) {
 }
+

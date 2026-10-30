@@ -84,3 +84,4 @@ public class CicloviaObstruction {
     @Column(name = "resolved_at")
     private Instant resolvedAt;
 }
+

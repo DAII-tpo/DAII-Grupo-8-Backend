@@ -25,3 +25,4 @@ CREATE TABLE ciclovia_obstructions (
 
 CREATE INDEX idx_ciclovia_obstructions_status ON ciclovia_obstructions (status);
 CREATE INDEX idx_ciclovia_obstructions_coords ON ciclovia_obstructions (latitude, longitude);
+

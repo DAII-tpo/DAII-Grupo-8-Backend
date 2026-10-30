@@ -9,7 +9,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.support.ResourcePatternResolver;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClient;
 
@@ -22,7 +21,6 @@ import java.time.Duration;
  * se siguen guardando en el outbox y se publican cuando se active.
  */
 @Configuration
-@EnableScheduling
 @ConditionalOnProperty(prefix = "citypass.eventbus.publisher", name = "enabled", havingValue = "true")
 public class EventBusPublisherConfig {
 

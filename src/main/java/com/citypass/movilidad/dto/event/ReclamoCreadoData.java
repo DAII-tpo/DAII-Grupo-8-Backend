@@ -26,3 +26,4 @@ public record ReclamoCreadoData(
         Long createdAt
 ) {
 }
+

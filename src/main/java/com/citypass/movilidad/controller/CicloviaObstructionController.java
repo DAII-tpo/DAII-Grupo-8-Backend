@@ -28,3 +28,4 @@ public class CicloviaObstructionController {
         return ResponseEntity.ok(obstructionService.obtenerObstruccionesActivas());
     }
 }
+

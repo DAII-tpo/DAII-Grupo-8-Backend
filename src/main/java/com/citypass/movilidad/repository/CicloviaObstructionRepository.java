@@ -15,3 +15,4 @@ public interface CicloviaObstructionRepository extends JpaRepository<CicloviaObs
 
     List<CicloviaObstruction> findByStatus(ObstructionStatus status);
 }
+
