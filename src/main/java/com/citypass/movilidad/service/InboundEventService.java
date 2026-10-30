@@ -29,6 +29,11 @@ public class InboundEventService {
     static final String RECLAMOS = "com.citypass.reclamos.";
     static final String EMERGENCIAS = "com.citypass.emergencias.";
 
+    private static final String CANCELLED_STATE = "CANCELLED";
+    private static final String CULTURAL_EVENT_STATE_TYPE = "CULTURAL_EVENT";
+    private static final String LATITUDE_FIELD = "latitud";
+    private static final String NEW_STATUS_FIELD = "estadoNuevo";
+
     /** Estados finales: el incidente deja de afectar la circulación. */
     private static final Set<String> CLAIM_CLOSED = Set.of("RESUELTO", "RECHAZADO", "CERRADO");
     private static final Set<String> EMERGENCY_CLOSED = Set.of("RESUELTA", "CERRADA", "DESCARTADA", "CANCELADA");
@@ -60,11 +65,11 @@ public class InboundEventService {
             case RECLAMOS + "ReclamoCreado" ->
                     openIncident(IncidentSource.RECLAMOS, text(data, "reclamoId"), data, epochMillis(data, "createdAt"));
             case RECLAMOS + "ReclamoActualizado" ->
-                    closeIfFinal(IncidentSource.RECLAMOS, text(data, "reclamoId"), text(data, "estadoNuevo"), CLAIM_CLOSED);
+                    closeIfFinal(IncidentSource.RECLAMOS, text(data, "reclamoId"), text(data, NEW_STATUS_FIELD), CLAIM_CLOSED);
             case EMERGENCIAS + "EmergenciaCreada" ->
                     openIncident(IncidentSource.EMERGENCIAS, text(data, "emergenciaId"), data, iso(data, "createdAt"));
             case EMERGENCIAS + "EmergenciaActualizada" ->
-                    closeIfFinal(IncidentSource.EMERGENCIAS, text(data, "emergenciaId"), text(data, "estadoNuevo"), EMERGENCY_CLOSED);
+                    closeIfFinal(IncidentSource.EMERGENCIAS, text(data, "emergenciaId"), text(data, NEW_STATUS_FIELD), EMERGENCY_CLOSED);
             default -> log.info("Tipo de evento sin manejo en Movilidad: {}", eventType);
         }
     }
@@ -80,7 +85,7 @@ public class InboundEventService {
         destination.setTitle(text(data, "titulo"));
         destination.setZone(optionalText(data, "zona"));
         destination.setAddress(optionalText(data, "direccion"));
-        destination.setLatitude(decimal(data, "latitud"));
+        destination.setLatitude(decimal(data, LATITUDE_FIELD));
         destination.setLongitude(decimal(data, "longitud"));
         destination.setStartsAt(iso(data, "inicio"));
         destination.setEndsAt(iso(data, "fin"));
@@ -100,12 +105,12 @@ public class InboundEventService {
         destination.setMaxCapacity(capacity.intValue());
         // El registro incremental por ReservaConfirmada se implementa cuando Espacios envíe su contrato.
         destination.setRegistrations(Math.max(destination.getRegistrations(), data.path("inscriptos").asInt(0)));
-        if ("CANCELLED".equals(optionalText(data, "estado"))) {
-            entityStates.remember("CULTURAL_EVENT", eventId, "CANCELLED");
+        if (CANCELLED_STATE.equals(optionalText(data, "estado"))) {
+            entityStates.remember(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE);
         }
         destination.setCancelled(destination.isCancelled()
-                || "CANCELLED".equals(optionalText(data, "estado"))
-                || entityStates.hasState("CULTURAL_EVENT", eventId, "CANCELLED"));
+                || CANCELLED_STATE.equals(optionalText(data, "estado"))
+                || entityStates.hasState(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE));
         destination.setSpaceEnabled(!entityStates.hasState("SPACE", destination.getSpaceId(), "DISABLED"));
         destination.setUpdatedAt(Instant.now());
         destinationRepository.save(destination);
@@ -115,7 +120,7 @@ public class InboundEventService {
 
     private void cancelDestination(JsonNode data) {
         String eventId = text(data, "eventoId");
-        entityStates.remember("CULTURAL_EVENT", eventId, "CANCELLED");
+        entityStates.remember(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE);
         destinationRepository.findById(eventId).ifPresent(destination -> {
             if (destination.isCancelled()) return;
             destination.setCancelled(true);
@@ -127,7 +132,7 @@ public class InboundEventService {
     }
 
     private void updateSpaceStatus(JsonNode data) {
-        String status = text(data, "estadoNuevo");
+        String status = text(data, NEW_STATUS_FIELD);
         if (!"ENABLED".equals(status) && !"DISABLED".equals(status)) {
             throw new IllegalArgumentException("Estado de espacio desconocido: " + status);
         }
@@ -147,7 +152,7 @@ public class InboundEventService {
 
     private void openIncident(IncidentSource source, String externalId, JsonNode data, Instant reportedAt) {
         if (entityStates.hasState(source.name(), externalId, "CLOSED")) return;
-        BigDecimal latitude = decimal(data, "latitud");
+        BigDecimal latitude = decimal(data, LATITUDE_FIELD);
         BigDecimal longitude = decimal(data, "longitud");
 
         // Solo cuentan los que cortan la circulación y dicen dónde ocurren.
@@ -204,7 +209,7 @@ public class InboundEventService {
         if (node.isMissingNode() || node.isNull()) return null;
         if (!node.isNumber()) throw new IllegalArgumentException("El campo '" + field + "' debe ser numérico");
         BigDecimal value = node.decimalValue();
-        int limit = "latitud".equals(field) ? 90 : 180;
+        int limit = LATITUDE_FIELD.equals(field) ? 90 : 180;
         if (value.abs().compareTo(BigDecimal.valueOf(limit)) > 0) {
             throw new IllegalArgumentException("Coordenada fuera de rango: " + field);
         }

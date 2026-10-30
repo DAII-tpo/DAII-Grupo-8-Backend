@@ -59,9 +59,9 @@ class DestinationRecommendationPublisherTest {
         publisher.publish("ev-42");
 
         Map<String,Object> data = capturePayload();
-        assertThat(data.get("estado")).isEqualTo("NO_RECOMMENDATION");
-        assertThat(data.get("mensaje")).isEqualTo("El evento fue cancelado");
-        assertThat(data.get("estacionId")).isNull();
+        assertThat(data).containsEntry("estado", "NO_RECOMMENDATION");
+        assertThat(data).containsEntry("mensaje", "El evento fue cancelado");
+        assertThat(data).containsEntry("estacionId", null);
         verifyNoInteractions(nearby, recommendations);
     }
 
@@ -73,7 +73,7 @@ class DestinationRecommendationPublisherTest {
 
         publisher.publish("ev-42");
 
-        assertThat(capturePayload().get("mensaje")).isEqualTo("El espacio no está disponible");
+        assertThat(capturePayload()).containsEntry("mensaje", "El espacio no está disponible");
         verifyNoInteractions(nearby, recommendations);
     }
 
@@ -87,9 +87,9 @@ class DestinationRecommendationPublisherTest {
         publisher.publish("ev-42");
 
         Map<String,Object> data = capturePayload();
-        assertThat(data.get("estado")).isEqualTo("NO_RECOMMENDATION");
-        assertThat(data.get("descartadasPorIncidentes")).isEqualTo(1);
-        assertThat(data.get("estacionId")).isNull();
+        assertThat(data).containsEntry("estado", "NO_RECOMMENDATION");
+        assertThat(data).containsEntry("descartadasPorIncidentes", 1);
+        assertThat(data).containsEntry("estacionId", null);
         verifyNoInteractions(recommendations);
     }
 
@@ -124,7 +124,7 @@ class DestinationRecommendationPublisherTest {
         event.setLatitude(null);
         when(destinations.findById("ev-42")).thenReturn(Optional.of(event));
         publisher.publish("ev-42");
-        assertThat(capturePayload().get("mensaje")).isEqualTo("El evento no tiene una ubicación disponible");
+        assertThat(capturePayload()).containsEntry("mensaje", "El evento no tiene una ubicación disponible");
         verifyNoInteractions(nearby, recommendations);
     }
 

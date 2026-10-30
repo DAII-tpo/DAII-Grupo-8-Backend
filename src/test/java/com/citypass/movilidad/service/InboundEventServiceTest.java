@@ -14,7 +14,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class InboundEventServiceTest {
@@ -49,7 +48,7 @@ class InboundEventServiceTest {
         ArgumentCaptor<CulturalDestination> saved = ArgumentCaptor.forClass(CulturalDestination.class);
         verify(destinations).save(saved.capture());
         assertThat(saved.getValue().getMaxCapacity()).isEqualTo(300);
-        verify(changes).publishEvent(eq(new CulturalDestinationChanged("ev-42")));
+        verify(changes).publishEvent(new CulturalDestinationChanged("ev-42"));
     }
 
     @Test
@@ -68,12 +67,13 @@ class InboundEventServiceTest {
 
     @Test
     void rechazaLaAusenciaDeAmbosCamposEnLugarDeGuardarCero() throws Exception {
-        assertThatThrownBy(() -> service.handle("com.citypass.espacios.EventoComunitarioPublicado", mapper.readTree("""
+        var payload = mapper.readTree("""
                 {
                   "eventoId":"ev-42", "espacioId":"esp-7", "titulo":"Encuentro cultural",
                   "inicio":"2026-11-01T15:00:00Z", "fin":"2026-11-01T18:00:00Z"
                 }
-                """)))
+                """);
+        assertThatThrownBy(() -> service.handle("com.citypass.espacios.EventoComunitarioPublicado", payload))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cupoMaximo/capacidad");
         verify(destinations, never()).save(any());
@@ -86,13 +86,13 @@ class InboundEventServiceTest {
         service.handle("com.citypass.espacios.EventoCancelado",
                 mapper.readTree("{\"eventoId\":\"ev-42\",\"estado\":\"CANCELLED\"}"));
         assertThat(event.isCancelled()).isTrue();
-        verify(changes).publishEvent(eq(new CulturalDestinationChanged("ev-42")));
+        verify(changes).publishEvent(new CulturalDestinationChanged("ev-42"));
     }
 
     @Test
     void estadoDesconocidoDeEspacioNoDeshabilitaPorError() throws Exception {
-        assertThatThrownBy(() -> service.handle("com.citypass.espacios.EspacioEstadoCambiado",
-                mapper.readTree("{\"espacioId\":\"esp-7\",\"estadoNuevo\":\"UNKNOWN\"}")))
+        var payload = mapper.readTree("{\"espacioId\":\"esp-7\",\"estadoNuevo\":\"UNKNOWN\"}");
+        assertThatThrownBy(() -> service.handle("com.citypass.espacios.EspacioEstadoCambiado", payload))
                 .isInstanceOf(IllegalArgumentException.class);
         verify(destinations, never()).findBySpaceId(any());
     }
@@ -174,7 +174,8 @@ class InboundEventServiceTest {
     void ignoraTiposSinContratoYRechazaIdFaltante() throws Exception {
         service.handle("com.citypass.espacios.ReservaConfirmada", mapper.readTree("{}"));
         verifyNoInteractions(destinations, incidentRepo, changes);
-        assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", mapper.readTree("{}")))
+        var empty = mapper.readTree("{}");
+        assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", empty))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("reclamoId");
     }
 
@@ -196,7 +197,8 @@ class InboundEventServiceTest {
                 "{\"reclamoId\":\"r-1\",\"latitud\":91}",
                 "{\"reclamoId\":\"r-1\",\"latitud\":0,\"longitud\":181}",
                 "{\"reclamoId\":\"r-1\",\"latitud\":\"invalid\"}")) {
-            assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", mapper.readTree(payload)))
+            var data = mapper.readTree(payload);
+            assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", data))
                     .isInstanceOf(IllegalArgumentException.class);
         }
         verifyNoInteractions(incidentRepo, changes);

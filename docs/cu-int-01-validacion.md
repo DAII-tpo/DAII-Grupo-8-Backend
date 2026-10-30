@@ -112,3 +112,22 @@ fila previa del outbox preservada, tablas de emergencias y destinos presentes,
 CULTURAL_EVENT aceptado, validación correcta y segunda migración sin cambios.
 La validación se ejecuta con clean para eliminar recursos viejos del build.
 El CI oficial debe volver a ejecutarse en el PR sobre estos commits.
+
+### Resultado de la corrección de migraciones y seguimiento Sonar
+
+En 6974fd8, la compilación limpia y los 433 tests Java disponibles en el arnés
+local pasaron (0 fallos/errores/omitidos), incluidos los dos tests nuevos de
+Flyway; Python pasó sus 48 tests. El merge virtual de GitHub coincide con la
+feature y tiene versiones únicas V1–V10. V1–V6 coinciden exactamente con main.
+El run oficial 40981595539 pasó compilación, tests Java, JaCoCo y Python.
+La cobertura cumplió el Quality Gate; quedaba únicamente fiabilidad B.
+
+El detalle pudo leerse en las anotaciones públicas del check nativo de Sonar en
+GitHub. La anotación de fiabilidad señaló la multiplicación int en
+DestinationRecommendationPublisher.upcoming al calcular plusSeconds(24 * 3600).
+Se cambia a 24L * 3600 para efectuar la aritmética en long. También se atienden
+las anotaciones de literales repetidos y assertions: constantes, containsEntry,
+sin eq redundante y parseo JSON fuera de las lambdas de assertThatThrownBy para
+que cada assertion compruebe exclusivamente la excepción del servicio.
+Se repiten los tests pertinentes y se lanza nuevamente el pipeline oficial.
+No se añaden exclusiones de cobertura ni se desactiva el Quality Gate.
