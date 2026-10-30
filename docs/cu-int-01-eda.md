@@ -1,6 +1,6 @@
 # CU-INT-01 en el bus EDA del equipo
 
-La rama incorpora los modelos `cultural_destinations` y `city_incidents` (migración V6),
+La rama incorpora los modelos `cultural_destinations` y `city_incidents` (migración V7; V6 pertenece a emergencias de bicicleta),
 handlers para siete tópicos del CU, destinos culturales y filtrado de estaciones afectadas.
 
 **Se usa el mecanismo EDA integrado en main**: `EventBusListener`, `EventDispatcher`,

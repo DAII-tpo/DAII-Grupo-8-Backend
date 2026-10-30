@@ -8,12 +8,12 @@ Rama: `feat/cu-int-01-ruta-urbana`. Base del PR #36:
 - Consulta directa y publicación rechazan eventos terminados.
 - Recálculo por incidentes respeta el radio configurable del filtro.
 - Payload con 12 campos, sin acceder a una estación nula.
-- V7 conserva cancelaciones, cierres de incidentes y estados de espacios incluso
+- V8 conserva cancelaciones, cierres de incidentes y estados de espacios incluso
   si llegan antes de la creación. Incluye los estados ya existentes al migrar.
-- V8 corrige un defecto confirmado con MySQL: el CHECK del outbox rechazaba
+- V9 corrige un defecto confirmado con MySQL: el CHECK del outbox rechazaba
   CULTURAL_EVENT, impidiendo guardar los eventos salientes. Se conservan los
   tipos BIKE/TRIP/STATION/INCIDENT y se agrega CULTURAL_EVENT.
-- V9 guarda solicitudes de recálculo dentro de la transacción de negocio. La
+- V10 guarda solicitudes de recálculo dentro de la transacción de negocio. La
   inserción en outbox y su confirmación ocurren juntas en REQUIRES_NEW. Si fallan,
   el scheduler reintenta incluso eventos cancelados/finalizados; una confirmación
   vieja no borra una solicitud más nueva (token único). Después de confirmar una
@@ -79,3 +79,36 @@ ReservaConfirmada. Reclamos/Emergencias: schemas y prueba de creación/resoluci�
 BI: aprobación del contrato de estaciones afectadas, consumidor, URLs de dashboards
 y política de embedding. No se enviaron mensajes ni se registraron tipos en el
 entorno compartido. No se declara E2E real ni el CU completamente terminado.
+
+
+## Corrección de la resolución Flyway del PR
+
+El run 40980454297 ejecutó el merge virtual con main 149124b (PR #37).
+Ese main contiene V6__bike_emergencies.sql; la rama tenía otra V6,
+V6__cu_int_01_destinos_incidentes.sql. El merge incluía ambas: Flyway rechaza
+más de una migración con versión 6 antes de arrancar los contextos de Spring.
+La suite anterior de la rama aislada no reproducía ese merge virtual.
+
+Se incorporó origin/main **dentro de feat/cu-int-01-ruta-urbana**, sin modificar
+main ni hacer merge del PR. Se conservó V6__bike_emergencies.sql exactamente como
+está en main. Las migraciones CU-INT-01, no desplegadas en producción, se renombran:
+
+| Anterior en la feature | Versión nueva |
+| --- | --- |
+| V6 destinos/incidentes | V7 |
+| V7 estados entrantes | V8 |
+| V8 aggregate cultural del outbox | V9 |
+| V9 trabajos de recomendación | V10 |
+
+El contenido SQL de esas cuatro migraciones no cambia. No se usa repair,
+outOfOrder ni se borran tablas para esconder el conflicto. Una base existente
+con la V6 oficial de main se actualiza a V10; una base temporal que aplicó la
+antigua numeración experimental de la feature debe recrearse explícitamente,
+sin aplicar este procedimiento a bases compartidas o de producción.
+
+MigrationUpgradeIntegrationTest reproduce el error de dos V6 mediante Flyway
+real y comprueba la actualización V6 oficial → V10: checksum V6 conservado,
+fila previa del outbox preservada, tablas de emergencias y destinos presentes,
+CULTURAL_EVENT aceptado, validación correcta y segunda migración sin cambios.
+La validación se ejecuta con clean para eliminar recursos viejos del build.
+El CI oficial debe volver a ejecutarse en el PR sobre estos commits.
