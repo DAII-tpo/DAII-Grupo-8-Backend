@@ -36,6 +36,7 @@ public class CulturalDestinationService {
     public StationRecommendationResponse recommendDropoff(String eventId) {
         CulturalDestination destination = destinationRepository.findById(eventId)
                 .filter(CulturalDestination::isRoutable)
+                .filter(event -> event.getEndsAt() != null && event.getEndsAt().isAfter(Instant.now()))
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "El evento no existe, fue cancelado o su espacio no está disponible"));
 

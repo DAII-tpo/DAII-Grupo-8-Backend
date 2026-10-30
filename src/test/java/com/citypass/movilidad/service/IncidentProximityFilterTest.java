@@ -55,4 +55,20 @@ class IncidentProximityFilterTest {
         when(incidents.findByActiveTrue()).thenReturn(List.of());
         assertThat(filter.filter(List.of(a)).safe()).containsExactly(a);
     }
+    @Test
+    void sinCandidatasNoConsultaIncidentes() {
+        assertThat(filter.apply(List.of())).isEmpty();
+        verifyNoInteractions(incidents);
+    }
+
+    @Test
+    void respetaRadioConfiguradoYCuentaUnaEstacionUnaSolaVez() {
+        var configured = new IncidentProximityFilter(incidents, 600);
+        assertThat(configured.radiusMeters()).isEqualTo(600);
+        when(incidents.findByActiveTrue()).thenReturn(List.of(incident(-34.6, -58.4), incident(-34.6, -58.4)));
+        var candidate = station(1, -34.604, -58.4);
+        assertThat(filter.filter(List.of(candidate)).discarded()).isZero();
+        assertThat(configured.filter(List.of(candidate)).discarded()).isEqualTo(1);
+    }
+
 }

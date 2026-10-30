@@ -112,4 +112,90 @@ class DestinationRecommendationPublisherTest {
         verify(writer).publish(eq("ev-42"), anyMap());
         verify(writer, never()).publish(eq("future"), anyMap());
     }
+    @Test
+    void eventoAusenteNoPublica() {
+        publisher.publish("missing");
+        verifyNoInteractions(writer, nearby, recommendations);
+    }
+
+    @Test
+    void sinUbicacionInvalidaEnLugarDeConsultarEstaciones() {
+        var event = destination();
+        event.setLatitude(null);
+        when(destinations.findById("ev-42")).thenReturn(Optional.of(event));
+        publisher.publish("ev-42");
+        assertThat(capturePayload().get("mensaje")).isEqualTo("El evento no tiene una ubicación disponible");
+        verifyNoInteractions(nearby, recommendations);
+    }
+
+    @Test
+    void sinCandidatasPublicaExplicacionYContratoCompleto() {
+        when(nearby.findNearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of());
+        when(filter.filter(anyList())).thenReturn(new IncidentProximityFilter.FilterResult(List.of(), 0));
+        publisher.afterDestinationChanged(new CulturalDestinationChanged("ev-42"));
+        var payload = capturePayload();
+        assertThat(payload).hasSize(12).containsEntry("eventoId", "ev-42")
+                .containsEntry("estado", "NO_RECOMMENDATION").containsEntry("descartadasPorIncidentes", 0)
+                .containsEntry("correlationId", "evento-ev-42");
+        assertThat(Instant.parse((String) payload.get("calculadaEn"))).isBeforeOrEqualTo(Instant.now());
+        verifyNoInteractions(recommendations);
+    }
+
+    @Test
+    void recomendacionConEstacionPublicaCoordenadasYCantidadDeDescartes() {
+        var station = new NearbyStationResponse(1L, "Parque", "Direccion",
+                BigDecimal.valueOf(-34.6), BigDecimal.valueOf(-58.4), 100, 20, 5, 15);
+        when(nearby.findNearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of(station));
+        when(filter.filter(anyList())).thenReturn(new IncidentProximityFilter.FilterResult(List.of(station), 2));
+        var recommended = new com.citypass.movilidad.dto.StationRecommendationResponse.RecommendedStation(
+                1L, "Parque", "Direccion", station.latitude(), station.longitude(), 100, 20, 5, 15, null);
+        var response = new com.citypass.movilidad.dto.StationRecommendationResponse(
+                com.citypass.movilidad.model.enums.RecommendationStatus.RECOMMENDED,
+                com.citypass.movilidad.model.enums.RecommendationSource.FALLBACK,
+                com.citypass.movilidad.model.enums.RecommendationPurpose.DROPOFF,
+                null, "Estacion segura", recommended, List.of(), null, null, Instant.now());
+        when(recommendations.recommend(-34.6, -58.4, com.citypass.movilidad.model.enums.RecommendationPurpose.DROPOFF))
+                .thenReturn(response);
+        publisher.publish("ev-42");
+        assertThat(capturePayload()).containsEntry("estado", "RECOMMENDED").containsEntry("estacionId", 1L)
+                .containsEntry("latitud", -34.6).containsEntry("longitud", -58.4)
+                .containsEntry("lugaresLibres", 15).containsEntry("distanciaMetros", 100)
+                .containsEntry("descartadasPorIncidentes", 2);
+    }
+
+    @Test
+    void unFalloNoImpidePublicarLaSiguienteRecomendacion() {
+        var first = destination();
+        first.setEventId("failed");
+        when(destinations.findByEndsAtAfterOrderByStartsAtAsc(any())).thenReturn(List.of(first, destination()));
+        when(destinations.findById("failed")).thenThrow(new IllegalStateException("database"));
+        when(nearby.findNearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of());
+        when(filter.filter(anyList())).thenReturn(new IncidentProximityFilter.FilterResult(List.of(), 0));
+        publisher.recalculateUpcoming();
+        verify(writer).publish(eq("ev-42"), anyMap());
+    }
+
+    @Test
+    void incidenteUsaRadioConfiguradoParaRecalcularSinOmitirCandidatas() {
+        // ~1445 m del destino: fuera de 1000+300, dentro de 1000+600.
+        when(filter.radiusMeters()).thenReturn(600);
+        when(destinations.findByEndsAtAfterOrderByStartsAtAsc(any())).thenReturn(List.of(destination()));
+        when(nearby.findNearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of());
+        when(filter.filter(anyList())).thenReturn(new IncidentProximityFilter.FilterResult(List.of(), 0));
+        publisher.afterIncidentChanged(new TrafficIncidentChanged(-34.613, -58.4));
+        verify(writer).publish(eq("ev-42"), anyMap());
+        clearInvocations(writer);
+        publisher.afterIncidentChanged(new TrafficIncidentChanged(-35, -59));
+        verifyNoInteractions(writer);
+    }
+
+    @Test
+    void schedulerNoRepiteInvalidacionDeEventoCancelado() {
+        var canceled = destination();
+        canceled.setCancelled(true);
+        when(destinations.findByEndsAtAfterOrderByStartsAtAsc(any())).thenReturn(List.of(canceled));
+        publisher.recalculateUpcoming();
+        verifyNoInteractions(writer, recommendations, nearby);
+    }
+
 }

@@ -59,7 +59,7 @@ public class DestinationRecommendationPublisher {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void afterIncidentChanged(TrafficIncidentChanged change) {
         Instant now = Instant.now();
-        int radius = recommendationProperties.candidateRadiusMeters() + 300;
+        int radius = recommendationProperties.candidateRadiusMeters() + incidentFilter.radiusMeters();
         for (CulturalDestination destination : upcoming(now)) {
             if (destination.getLatitude() == null || destination.getLongitude() == null) continue;
             if (GeoDistance.meters(change.latitude(), change.longitude(),
@@ -146,12 +146,20 @@ public class DestinationRecommendationPublisher {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("eventoId", eventId);
         data.put("estado", recommended ? "RECOMMENDED" : "NO_RECOMMENDATION");
-        data.put("estacionId", recommended ? station.stationId() : null);
-        data.put("estacion", recommended ? station.stationName() : null);
-        data.put("latitud", recommended ? station.latitude().doubleValue() : null);
-        data.put("longitud", recommended ? station.longitude().doubleValue() : null);
-        data.put("lugaresLibres", recommended ? station.availableSlots() : null);
-        data.put("distanciaMetros", recommended ? station.distanceMeters() : null);
+        data.put("estacionId", null);
+        data.put("estacion", null);
+        data.put("latitud", null);
+        data.put("longitud", null);
+        data.put("lugaresLibres", null);
+        data.put("distanciaMetros", null);
+        if (station != null) {
+            data.put("estacionId", station.stationId());
+            data.put("estacion", station.stationName());
+            data.put("latitud", station.latitude().doubleValue());
+            data.put("longitud", station.longitude().doubleValue());
+            data.put("lugaresLibres", station.availableSlots());
+            data.put("distanciaMetros", station.distanceMeters());
+        }
         data.put("mensaje", message == null ? "No hay estaciones disponibles para recomendar" : message);
         data.put("descartadasPorIncidentes", discarded);
         data.put("calculadaEn", Instant.now().toString());

@@ -31,6 +31,11 @@ public class IncidentProximityFilter {
         this.incidentRadiusMeters = incidentRadiusMeters;
     }
 
+    /** Same radius used when deciding which destinations need recalculation. */
+    public int radiusMeters() {
+        return incidentRadiusMeters;
+    }
+
     public List<NearbyStationResponse> apply(List<NearbyStationResponse> candidates) {
         return filter(candidates).safe();
     }

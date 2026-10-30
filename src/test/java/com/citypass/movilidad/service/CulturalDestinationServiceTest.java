@@ -34,4 +34,28 @@ class CulturalDestinationServiceTest {
                         event("b", true, true), event("c", false, false)));
         assertThat(service.upcoming()).extracting("eventId").containsExactly("a");
     }
+    @Test
+    void recomiendaDevolucionEnLaUbicacionDelEvento() {
+        var destination = event("a", false, true);
+        when(repo.findById("a")).thenReturn(java.util.Optional.of(destination));
+        service.recommendDropoff("a");
+        verify(recommendation).recommend(-34.6, -58.4, RecommendationPurpose.DROPOFF);
+    }
+
+    @Test
+    void noRecomiendaEventosCanceladosDeshabilitadosTerminadosNiAusentes() {
+        var ended = event("ended", false, true);
+        ended.setEndsAt(Instant.now().minusSeconds(1));
+        var noDate = event("no-date", false, true);
+        noDate.setEndsAt(null);
+        for (var destination : List.of(event("cancelled", true, true), event("disabled", false, false), ended, noDate)) {
+            when(repo.findById(destination.getEventId())).thenReturn(java.util.Optional.of(destination));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.recommendDropoff(destination.getEventId()))
+                    .isInstanceOf(com.citypass.movilidad.exception.ResourceNotFoundException.class);
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.recommendDropoff("missing"))
+                .isInstanceOf(com.citypass.movilidad.exception.ResourceNotFoundException.class);
+        verifyNoInteractions(recommendation);
+    }
+
 }
