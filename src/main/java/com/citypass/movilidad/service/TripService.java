@@ -59,6 +59,9 @@ public class TripService {
         if (activeTripOf(userId).isPresent()) {
             throw new BusinessRuleException("El usuario ya tiene un viaje activo");
         }
+        if (emergencyTripOf(userId).isPresent()) {
+            throw new BusinessRuleException("El usuario tiene un viaje pausado por una emergencia");
+        }
         Bike bike = bikeService.lockActiveBike(request.bikeId());
         Station origin = bikeService.checkOutForTrip(bike, user);
 
@@ -73,10 +76,10 @@ public class TripService {
         return toResponse(saved);
     }
 
-    /** Viaje activo del usuario, si tiene. */
+    /** Viaje en curso del usuario, si tiene: activo o pausado por una emergencia (status EMERGENCY). */
     public Optional<TripResponse> findActiveTrip(Long userId) {
         existingUser(userId);
-        return activeTripOf(userId).map(this::toResponse);
+        return activeTripOf(userId).or(() -> emergencyTripOf(userId)).map(this::toResponse);
     }
 
     /** Historial paginado de viajes finalizados del usuario, del más reciente al más antiguo. */
@@ -97,6 +100,9 @@ public class TripService {
         Trip trip = tripRepository.findByIdForUpdate(tripId)
                 .filter(found -> found.getUser().getId().equals(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Viaje no encontrado: " + tripId));
+        if (trip.getStatus() == TripStatus.EMERGENCY) {
+            throw new BusinessRuleException("El viaje está pausado por una emergencia: " + tripId);
+        }
         if (trip.getStatus() != TripStatus.ACTIVE) {
             throw new BusinessRuleException("El viaje no está activo: " + tripId);
         }
@@ -126,6 +132,10 @@ public class TripService {
 
     private Optional<Trip> activeTripOf(Long userId) {
         return tripRepository.findByUserIdAndStatus(userId, TripStatus.ACTIVE);
+    }
+
+    private Optional<Trip> emergencyTripOf(Long userId) {
+        return tripRepository.findByUserIdAndStatus(userId, TripStatus.EMERGENCY);
     }
 
     private User lockUser(Long userId) {
