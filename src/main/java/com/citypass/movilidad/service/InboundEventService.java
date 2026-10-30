@@ -4,6 +4,8 @@ import com.citypass.movilidad.model.CityIncident;
 import com.citypass.movilidad.model.CulturalDestination;
 import com.citypass.movilidad.model.enums.IncidentSource;
 import com.citypass.movilidad.repository.CityIncidentRepository;
+import com.citypass.movilidad.repository.InboundEntityStateRepository;
+import com.citypass.movilidad.repository.DestinationRecommendationJobRepository;
 import com.citypass.movilidad.repository.CulturalDestinationRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -34,13 +36,19 @@ public class InboundEventService {
     private final CulturalDestinationRepository destinationRepository;
     private final CityIncidentRepository incidentRepository;
     private final ApplicationEventPublisher domainEvents;
+    private final InboundEntityStateRepository entityStates;
+    private final DestinationRecommendationJobRepository jobs;
 
     public InboundEventService(CulturalDestinationRepository destinationRepository,
                                CityIncidentRepository incidentRepository,
-                               ApplicationEventPublisher domainEvents) {
+                               ApplicationEventPublisher domainEvents,
+                               InboundEntityStateRepository entityStates,
+                               DestinationRecommendationJobRepository jobs) {
         this.destinationRepository = destinationRepository;
         this.incidentRepository = incidentRepository;
         this.domainEvents = domainEvents;
+        this.entityStates = entityStates;
+        this.jobs = jobs;
     }
 
     /** Invocado por el dispatcher transaccional Kafka: la idempotencia la maneja event_inbox. */
@@ -82,20 +90,38 @@ public class InboundEventService {
         if (!capacity.isIntegralNumber()) {
             throw new IllegalArgumentException("Falta cupoMaximo/capacidad en EventoComunitarioPublicado");
         }
+        if (!capacity.canConvertToInt() || capacity.intValue() < 0) {
+            throw new IllegalArgumentException("cupoMaximo/capacidad debe ser un entero no negativo");
+        }
+        if (destination.getStartsAt() == null || destination.getEndsAt() == null
+                || !destination.getEndsAt().isAfter(destination.getStartsAt())) {
+            throw new IllegalArgumentException("inicio y fin deben definir un intervalo válido");
+        }
         destination.setMaxCapacity(capacity.intValue());
         // El registro incremental por ReservaConfirmada se implementa cuando Espacios envíe su contrato.
         destination.setRegistrations(Math.max(destination.getRegistrations(), data.path("inscriptos").asInt(0)));
-        destination.setCancelled("CANCELLED".equals(optionalText(data, "estado")));
+        if ("CANCELLED".equals(optionalText(data, "estado"))) {
+            entityStates.remember("CULTURAL_EVENT", eventId, "CANCELLED");
+        }
+        destination.setCancelled(destination.isCancelled()
+                || "CANCELLED".equals(optionalText(data, "estado"))
+                || entityStates.hasState("CULTURAL_EVENT", eventId, "CANCELLED"));
+        destination.setSpaceEnabled(!entityStates.hasState("SPACE", destination.getSpaceId(), "DISABLED"));
         destination.setUpdatedAt(Instant.now());
         destinationRepository.save(destination);
+        jobs.request(eventId);
         domainEvents.publishEvent(new CulturalDestinationChanged(eventId));
     }
 
     private void cancelDestination(JsonNode data) {
-        destinationRepository.findById(text(data, "eventoId")).ifPresent(destination -> {
+        String eventId = text(data, "eventoId");
+        entityStates.remember("CULTURAL_EVENT", eventId, "CANCELLED");
+        destinationRepository.findById(eventId).ifPresent(destination -> {
+            if (destination.isCancelled()) return;
             destination.setCancelled(true);
             destination.setUpdatedAt(Instant.now());
             destinationRepository.save(destination);
+            jobs.request(destination.getEventId());
             domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
         });
     }
@@ -106,10 +132,13 @@ public class InboundEventService {
             throw new IllegalArgumentException("Estado de espacio desconocido: " + status);
         }
         boolean enabled = "ENABLED".equals(status);
-        for (CulturalDestination destination : destinationRepository.findBySpaceId(text(data, "espacioId"))) {
+        String spaceId = text(data, "espacioId");
+        entityStates.remember("SPACE", spaceId, status);
+        for (CulturalDestination destination : destinationRepository.findBySpaceId(spaceId)) {
             destination.setSpaceEnabled(enabled);
             destination.setUpdatedAt(Instant.now());
             destinationRepository.save(destination);
+            jobs.request(destination.getEventId());
             domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
         }
     }
@@ -117,6 +146,7 @@ public class InboundEventService {
     // --- Incidentes (Reclamos y Emergencias) --------------------------------
 
     private void openIncident(IncidentSource source, String externalId, JsonNode data, Instant reportedAt) {
+        if (entityStates.hasState(source.name(), externalId, "CLOSED")) return;
         BigDecimal latitude = decimal(data, "latitud");
         BigDecimal longitude = decimal(data, "longitud");
 
@@ -141,6 +171,7 @@ public class InboundEventService {
         if (newStatus == null || !finalStates.contains(newStatus)) {
             return;
         }
+        entityStates.remember(source.name(), externalId, "CLOSED");
         incidentRepository.findBySourceAndExternalId(source, externalId).ifPresent(incident -> {
             if (!incident.isActive()) return;
             incident.setActive(false);
@@ -155,7 +186,7 @@ public class InboundEventService {
 
     private static String text(JsonNode data, String field) {
         String value = optionalText(data, field);
-        if (value == null) {
+        if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Falta el campo obligatorio '" + field + "'");
         }
         return value;
@@ -163,12 +194,21 @@ public class InboundEventService {
 
     private static String optionalText(JsonNode data, String field) {
         JsonNode node = data.path(field);
-        return node.isMissingNode() || node.isNull() ? null : node.asText();
+        if (node.isMissingNode() || node.isNull()) return null;
+        if (!node.isTextual()) throw new IllegalArgumentException("El campo '" + field + "' debe ser texto");
+        return node.textValue();
     }
 
     private static BigDecimal decimal(JsonNode data, String field) {
         JsonNode node = data.path(field);
-        return node.isNumber() ? node.decimalValue() : null;
+        if (node.isMissingNode() || node.isNull()) return null;
+        if (!node.isNumber()) throw new IllegalArgumentException("El campo '" + field + "' debe ser numérico");
+        BigDecimal value = node.decimalValue();
+        int limit = "latitud".equals(field) ? 90 : 180;
+        if (value.abs().compareTo(BigDecimal.valueOf(limit)) > 0) {
+            throw new IllegalArgumentException("Coordenada fuera de rango: " + field);
+        }
+        return value;
     }
 
     private static Instant iso(JsonNode data, String field) {

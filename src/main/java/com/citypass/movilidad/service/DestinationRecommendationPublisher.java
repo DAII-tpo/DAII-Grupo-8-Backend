@@ -7,6 +7,7 @@ import com.citypass.movilidad.model.CulturalDestination;
 import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import com.citypass.movilidad.model.enums.RecommendationStatus;
 import com.citypass.movilidad.repository.CulturalDestinationRepository;
+import com.citypass.movilidad.repository.DestinationRecommendationJobRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -36,18 +37,22 @@ public class DestinationRecommendationPublisher {
     private final IncidentProximityFilter incidentFilter;
     private final DestinationRecommendationEventWriter outbox;
 
+    private final DestinationRecommendationJobRepository jobs;
+
     public DestinationRecommendationPublisher(CulturalDestinationRepository destinations,
                                               StationRecommendationService recommendations,
                                               NearbyStationService nearbyStations,
                                               RecommendationProperties recommendationProperties,
                                               IncidentProximityFilter incidentFilter,
-                                              DestinationRecommendationEventWriter outbox) {
+                                              DestinationRecommendationEventWriter outbox,
+                                              DestinationRecommendationJobRepository jobs) {
         this.destinations = destinations;
         this.recommendations = recommendations;
         this.nearbyStations = nearbyStations;
         this.recommendationProperties = recommendationProperties;
         this.incidentFilter = incidentFilter;
         this.outbox = outbox;
+        this.jobs = jobs;
     }
 
     /** No recalcular antes de confirmar la transacción del inbox y de negocio. */
@@ -72,9 +77,9 @@ public class DestinationRecommendationPublisher {
     /** Recálculo regular, aun si no hubo eventos nuevos; también sirve de recuperación ante fallos. */
     @Scheduled(cron = "0 */15 * * * *")
     public void recalculateUpcoming() {
-        for (CulturalDestination destination : upcoming(Instant.now())) {
-            safelyPublish(destination.getEventId());
-        }
+        java.util.stream.Stream.concat(jobs.pendingIds().stream(),
+                upcoming(Instant.now()).stream().map(CulturalDestination::getEventId))
+                .distinct().forEach(this::safelyPublish);
     }
 
     private List<CulturalDestination> upcoming(Instant now) {
@@ -100,16 +105,14 @@ public class DestinationRecommendationPublisher {
 
     /** Permite ejecutar el recálculo en pruebas sin esperar al scheduler. */
     public void publish(String eventId) {
+        String requestToken = jobs.token(eventId);
         CulturalDestination destination = destinations.findById(eventId).orElse(null);
         if (destination == null) return;
 
-        String reason = destination.isCancelled() ? "El evento fue cancelado"
-                : !destination.isSpaceEnabled() ? "El espacio no está disponible"
-                : destination.getLatitude() == null || destination.getLongitude() == null
-                    ? "El evento no tiene una ubicación disponible" : null;
+        String reason = invalidationReason(destination);
 
         if (reason != null) {
-            outbox.publish(eventId, payload(eventId, null, 0, reason));
+            outbox.publish(eventId, payload(eventId, null, 0, reason), requestToken);
             return;
         }
 
@@ -122,19 +125,31 @@ public class DestinationRecommendationPublisher {
 
         if (filtered.safe().isEmpty() && filtered.discarded() == 0) {
             outbox.publish(eventId, payload(eventId, null, 0,
-                    "No hay estaciones cercanas disponibles para recomendar"));
+                    "No hay estaciones cercanas disponibles para recomendar"), requestToken);
             return;
         }
 
         if (filtered.safe().isEmpty() && filtered.discarded() > 0) {
             outbox.publish(eventId, payload(eventId, null, filtered.discarded(),
-                    "No hay estaciones seguras cerca del evento: todas están afectadas por incidentes"));
+                    "No hay estaciones seguras cerca del evento: todas están afectadas por incidentes"), requestToken);
             return;
         }
 
         StationRecommendationResponse response = recommendations.recommend(lat, lng, RecommendationPurpose.DROPOFF);
         String message = response.message();
-        outbox.publish(eventId, payload(eventId, response, filtered.discarded(), message));
+        outbox.publish(eventId, payload(eventId, response, filtered.discarded(), message), requestToken);
+    }
+
+    private String invalidationReason(CulturalDestination destination) {
+        if (destination.isCancelled()) return "El evento fue cancelado";
+        if (!destination.isSpaceEnabled()) return "El espacio no está disponible";
+        if (destination.getLatitude() == null || destination.getLongitude() == null) {
+            return "El evento no tiene una ubicación disponible";
+        }
+        if (destination.getEndsAt() == null || !destination.getEndsAt().isAfter(Instant.now())) {
+            return "El evento ya no está vigente";
+        }
+        return null;
     }
 
     private Map<String, Object> payload(String eventId, StationRecommendationResponse result,

@@ -1,64 +1,81 @@
 # Validación y pendientes del CU-INT-01
 
-Base revisada: PR #36, commit `fd3f23f071207163ad1270b96a3b85fb7ecff39d`.
-Rama: `feat/cu-int-01-ruta-urbana`. Sin cambios a main, merges ni despliegues.
+Rama: `feat/cu-int-01-ruta-urbana`. Base del PR #36:
+`fd3f23f071207163ad1270b96a3b85fb7ecff39d`. Sin cambios a main ni despliegues.
 
-## Correcciones locales
+## Correcciones
 
-- La consulta directa rechaza eventos terminados o sin fecha de finalización,
-  además de los cancelados, espacios deshabilitados y eventos ausentes.
-- El recálculo ante incidentes usa el radio del filtro configurado, en lugar de
-  sumar siempre 300 m al radio de candidatas. La suma cubre por desigualdad
-  triangular las estaciones candidatas potencialmente afectadas.
-- El payload saliente accede a la estación dentro de una comprobación explícita
-  de no nulidad, conservando los 12 campos del contrato y sus valores nulos.
+- Consulta directa y publicación rechazan eventos terminados.
+- Recálculo por incidentes respeta el radio configurable del filtro.
+- Payload con 12 campos, sin acceder a una estación nula.
+- V7 conserva cancelaciones, cierres de incidentes y estados de espacios incluso
+  si llegan antes de la creación. Incluye los estados ya existentes al migrar.
+- V8 corrige un defecto confirmado con MySQL: el CHECK del outbox rechazaba
+  CULTURAL_EVENT, impidiendo guardar los eventos salientes. Se conservan los
+  tipos BIKE/TRIP/STATION/INCIDENT y se agrega CULTURAL_EVENT.
+- V9 guarda solicitudes de recálculo dentro de la transacción de negocio. La
+  inserción en outbox y su confirmación ocurren juntas en REQUIRES_NEW. Si fallan,
+  el scheduler reintenta incluso eventos cancelados/finalizados; una confirmación
+  vieja no borra una solicitud más nueva (token único). Después de confirmar una
+  invalidación no se repite por el scheduler mientras el destino siga inválido.
+- Validación de IDs vacíos/tipos, coordenadas numéricas y rangos, fechas y cupos.
 
-## Tests agregados
+No se modificaron V1–V6 ni contratos de terceros. No se incorporó ReservaConfirmada
+sin schema ni se mezclaron las ramas BI independientes.
 
-Pruebas unitarias de handlers para los siete contratos conocidos, delegación al
-outbox oficial, incidentes y fechas ISO/epoch, cierre idempotente, estados de
-espacios, entradas desconocidas/IDs ausentes, recomendaciones/invalidez, scheduler,
-aislamiento de fallos, radio configurable y conteo de descartes sin duplicados.
-**Estos tests Java todavía no se compilaron ni ejecutaron en este entorno.**
-El test del writer verifica delegación; no demuestra por sí solo persistencia
-transaccional AFTER_COMMIT/REQUIRES_NEW.
+## Evidencia local
 
-## Ejecución
+Node/Java/Python y MySQL locales; no productores externos ni gateway compartido.
 
-JDK 21 completo instalado y javac verificado. Desde la raíz:
+- **397 tests Java correctos, 0 fallos, 0 errores, 0 omitidos** en el arnés local.
+- JaCoCo Java global: 1725/1824 líneas (94,57 %), 541/649 ramas (83,36 %).
+- Estimación de código nuevo vs origin/main, aplicando las exclusiones de Sonar
+  ya existentes: 297/300 líneas, 125/152 ramas; combinación 93,36 %.
+  No equivale al Quality Gate remoto.
+- Python: 48 tests correctos con cobertura XML generada según CI.
+- Integración CU con MySQL/Flyway real: commit persiste outbox después de negocio;
+  rollback elimina destino/estado/outbox; cancelación antes de publicación;
+  espacio deshabilitado antes del destino; resolución antes de creación;
+  recuperación de invalidación fallida y protección de solicitudes nuevas.
+
+La política actual bloquea packages.confluent.io. Por eso se ejecutó la suite
+mediante un init script **fuera del repositorio**, en
+`/workspace/.setup/cu-unit-tests.init.gradle`, que excluye la dependencia
+io.confluent, añade Apache Avro 1.12.1 de Maven Central para compilar los mappers
+y excluye únicamente EventBusIntegrationTest.java, que importa KafkaAvroSerializer.
+No se cambió el build oficial, no se desactivaron assertions y no se afirma que
+Kafka/Schema Registry/Confluent hayan sido validados por este arnés.
 
 ```sh
 export JAVA_HOME=/workspace/.setup/jdk/usr/lib/jvm/java-21-openjdk-amd64
 export GRADLE_USER_HOME=/workspace/.setup/gradle
-bash gradlew --no-daemon --max-workers=2 compileJava test jacocoTestReport
-OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 recommendation-service/.venv/bin/python -m pytest recommendation-service --cov=recommendation-service/app --cov=recommendation-service/training --cov-config=recommendation-service/.coveragerc --cov-report=xml:recommendation-service/coverage.xml
+# Diagnóstico local limitado:
+bash gradlew --no-daemon -I /workspace/.setup/cu-unit-tests.init.gradle test jacocoTestReport
+# Validación oficial pendiente, cuando Confluent sea accesible:
+bash gradlew --no-daemon --max-workers=2 clean compileJava test jacocoTestReport
 ```
 
-Java queda bloqueado al resolver kafka-avro-serializer 7.9.2 desde
-packages.confluent.io (HTTP 403). No hay una cifra nueva de cobertura Java.
-Python: 48 tests correctos, cobertura XML generada; advertencia de deprecación de
-AnyIO/Starlette. MySQL local estaba disponible durante la preparación del entorno.
+## CI, seguridad e integración pendiente
 
-La API GitHub y SonarCloud también responden HTTP 403 por la política actual.
-Se guardaron los dominios packages.confluent.io, api.github.com y sonarcloud.io
-en el borrador del entorno. Aplicar esa configuración permite retomar diagnóstico,
-compilación, tests y revisión del issue exacto de fiabilidad. No se confirma un
-Quality Gate verde ni la calificación A de fiabilidad. No se desactivó ninguna
-regla ni se agregaron exclusiones de cobertura.
+Los commits se publican solo en feat/cu-int-01-ruta-urbana. El run 40979289450 del
+commit 5f750f7 falló en tests antes de Sonar; el detalle del log requiere acceso
+que no está disponible. Se solicita nueva ejecución con las correcciones.
+La API GitHub y SonarCloud están bloqueadas: no se confirmó issue exacto de
+fiabilidad ni Quality Gate remoto. Los dominios requeridos están guardados en el
+borrador de configuración. La lectura de páginas públicas de GitHub sí funciona.
 
-## Integraciones y trabajo pendiente
+El usuario pidió cerrar PR #36 y #25 sin mergear ni borrar ramas. La operación
+`gh pr close` fue intentada y devolvió Forbidden en api.github.com: no afirmar
+que los PR quedaron cerrados hasta verificarlo.
 
-Se conserva inbox/outbox y los contratos existentes. No se mezclaron las ramas
-independientes de BI de viajes ni estaciones afectadas.
+Los estados terminales dominan creaciones tardías para el mismo ID. No se infiere
+reapertura ni orden total entre cambios de espacio: falta acordar versiones o
+marcas temporales fiables con los productores. La concurrencia entre tópicos y
+las actualizaciones parciales/movimientos de incidentes necesitan probarse con
+los contratos y garantías reales. El scheduler requiere un backend activo.
 
-Falta verificar persistencia real AFTER_COMMIT/REQUIRES_NEW, cobertura Java >=80 %,
-issue concreto de fiabilidad y Quality Gate remoto. La llegada de cancelación
-antes de la publicación, resolución antes de creación y estado de espacio antes
-del destino requieren una estrategia persistente de orden/tombstones; hoy no se
-garantizan. Tampoco se verificó una actualización que mueva un incidente ni la
-recuperación de invalidaciones cuyo outbox falle. No declarar el CU completo.
-
-Espacios: publicación real y schema exacto de ReservaConfirmada. Reclamos y
-Emergencias: disponibilidad para probar creación/resolución real. BI: aprobación
-del contrato de estaciones afectadas, URLs de dashboards, permisos de iframe y
-consumidor. No se enviaron mensajes al gateway compartido ni se registraron tipos.
+Espacios: publicación real, consumidor de recomendaciones y schema definitivo de
+ReservaConfirmada. Reclamos/Emergencias: schemas y prueba de creación/resolución.
+BI: aprobación del contrato de estaciones afectadas, consumidor, URLs de dashboards
+y política de embedding. No se enviaron mensajes ni se registraron tipos en el
+entorno compartido. No se declara E2E real ni el CU completamente terminado.

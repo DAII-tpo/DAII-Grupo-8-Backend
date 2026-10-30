@@ -23,6 +23,7 @@ class InboundEventServiceTest {
     private ApplicationEventPublisher changes;
     private CityIncidentRepository incidentRepo;
     private InboundEventService service;
+    private com.citypass.movilidad.repository.InboundEntityStateRepository entityStates;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
@@ -30,7 +31,9 @@ class InboundEventServiceTest {
         destinations = mock(CulturalDestinationRepository.class);
         changes = mock(ApplicationEventPublisher.class);
         incidentRepo = mock(CityIncidentRepository.class);
-        service = new InboundEventService(destinations, incidentRepo, changes);
+        entityStates = mock(com.citypass.movilidad.repository.InboundEntityStateRepository.class);
+        service = new InboundEventService(destinations, incidentRepo, changes, entityStates,
+                mock(com.citypass.movilidad.repository.DestinationRecommendationJobRepository.class));
         when(destinations.findById("ev-42")).thenReturn(Optional.empty());
     }
 
@@ -173,6 +176,30 @@ class InboundEventServiceTest {
         verifyNoInteractions(destinations, incidentRepo, changes);
         assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", mapper.readTree("{}")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("reclamoId");
+    }
+
+    @Test
+    void noReactivaUnIncidenteCerradoAunqueLlegueTardeSuCreacion() throws Exception {
+        when(entityStates.hasState("RECLAMOS", "r-1", "CLOSED")).thenReturn(true);
+        service.handle("com.citypass.reclamos.ReclamoCreado", mapper.readTree("""
+                {"reclamoId":"r-1","afectaCirculacion":true,"categoria":"CALLE",
+                 "latitud":-34.6,"longitud":-58.4}
+                """));
+        verifyNoInteractions(incidentRepo, changes);
+    }
+
+    @Test
+    void rechazaIdsVaciosYCoordenadasInvalidasSinPersistir() throws Exception {
+        for (String payload : java.util.List.of(
+                "{\"reclamoId\":\" \"}",
+                "{\"reclamoId\":{},\"latitud\":0}",
+                "{\"reclamoId\":\"r-1\",\"latitud\":91}",
+                "{\"reclamoId\":\"r-1\",\"latitud\":0,\"longitud\":181}",
+                "{\"reclamoId\":\"r-1\",\"latitud\":\"invalid\"}")) {
+            assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", mapper.readTree(payload)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        verifyNoInteractions(incidentRepo, changes);
     }
 
 }

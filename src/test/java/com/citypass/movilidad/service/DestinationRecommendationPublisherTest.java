@@ -28,7 +28,7 @@ class DestinationRecommendationPublisherTest {
     private final DestinationRecommendationPublisher publisher = new DestinationRecommendationPublisher(
             destinations, recommendations, nearby,
             new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true),
-            filter, writer);
+            filter, writer, mock(com.citypass.movilidad.repository.DestinationRecommendationJobRepository.class));
 
     private CulturalDestination destination() {
         return CulturalDestination.builder().eventId("ev-42").spaceId("esp-1").title("Evento")
@@ -46,7 +46,7 @@ class DestinationRecommendationPublisherTest {
     @SuppressWarnings("unchecked")
     private Map<String, Object> capturePayload() {
         ArgumentCaptor<Map<String,Object>> payload = ArgumentCaptor.forClass(Map.class);
-        verify(writer).publish(eq("ev-42"), payload.capture());
+        verify(writer).publish(eq("ev-42"), payload.capture(), nullable(String.class));
         return payload.getValue();
     }
 
@@ -109,8 +109,8 @@ class DestinationRecommendationPublisherTest {
 
         publisher.recalculateUpcoming();
 
-        verify(writer).publish(eq("ev-42"), anyMap());
-        verify(writer, never()).publish(eq("future"), anyMap());
+        verify(writer).publish(eq("ev-42"), anyMap(), nullable(String.class));
+        verify(writer, never()).publish(eq("future"), anyMap(), nullable(String.class));
     }
     @Test
     void eventoAusenteNoPublica() {
@@ -172,7 +172,7 @@ class DestinationRecommendationPublisherTest {
         when(nearby.findNearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of());
         when(filter.filter(anyList())).thenReturn(new IncidentProximityFilter.FilterResult(List.of(), 0));
         publisher.recalculateUpcoming();
-        verify(writer).publish(eq("ev-42"), anyMap());
+        verify(writer).publish(eq("ev-42"), anyMap(), nullable(String.class));
     }
 
     @Test
@@ -183,7 +183,7 @@ class DestinationRecommendationPublisherTest {
         when(nearby.findNearby(anyDouble(), anyDouble(), anyInt(), anyInt())).thenReturn(List.of());
         when(filter.filter(anyList())).thenReturn(new IncidentProximityFilter.FilterResult(List.of(), 0));
         publisher.afterIncidentChanged(new TrafficIncidentChanged(-34.613, -58.4));
-        verify(writer).publish(eq("ev-42"), anyMap());
+        verify(writer).publish(eq("ev-42"), anyMap(), nullable(String.class));
         clearInvocations(writer);
         publisher.afterIncidentChanged(new TrafficIncidentChanged(-35, -59));
         verifyNoInteractions(writer);
@@ -196,6 +196,17 @@ class DestinationRecommendationPublisherTest {
         when(destinations.findByEndsAtAfterOrderByStartsAtAsc(any())).thenReturn(List.of(canceled));
         publisher.recalculateUpcoming();
         verifyNoInteractions(writer, recommendations, nearby);
+    }
+
+    @Test
+    void eventoFinalizadoInvalidaSinRecomendarUnaEstacion() {
+        var event = destination();
+        event.setEndsAt(Instant.now().minusSeconds(1));
+        when(destinations.findById("ev-42")).thenReturn(Optional.of(event));
+        publisher.publish("ev-42");
+        assertThat(capturePayload()).containsEntry("estado", "NO_RECOMMENDATION")
+                .containsEntry("mensaje", "El evento ya no está vigente");
+        verifyNoInteractions(nearby, recommendations);
     }
 
 }
