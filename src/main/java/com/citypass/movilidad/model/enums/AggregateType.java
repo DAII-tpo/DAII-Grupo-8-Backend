@@ -4,5 +4,6 @@ public enum AggregateType {
     BIKE,
     TRIP,
     STATION,
-    INCIDENT
+    INCIDENT,
+    CULTURAL_EVENT
 }

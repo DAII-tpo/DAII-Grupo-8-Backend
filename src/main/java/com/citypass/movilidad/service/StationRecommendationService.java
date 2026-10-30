@@ -42,15 +42,17 @@ public class StationRecommendationService {
     private final RecommendationClient recommendationClient;
     private final RecommendationMessageComposer messageComposer;
     private final RecommendationProperties properties;
+    private final IncidentProximityFilter incidentFilter;
 
     public StationRecommendationService(NearbyStationService nearbyStationService,
                                         RecommendationClient recommendationClient,
                                         RecommendationMessageComposer messageComposer,
-                                        RecommendationProperties properties) {
+                                        RecommendationProperties properties, IncidentProximityFilter incidentFilter) {
         this.nearbyStationService = nearbyStationService;
         this.recommendationClient = recommendationClient;
         this.messageComposer = messageComposer;
         this.properties = properties;
+        this.incidentFilter = incidentFilter;
     }
 
     /** Estación recomendada para retirar (PICKUP) o devolver (DROPOFF) cerca de la ubicación. */
@@ -58,9 +60,47 @@ public class StationRecommendationService {
                                                    RecommendationPurpose purpose) {
         RecommendationPurpose target = purpose == null ? RecommendationPurpose.PICKUP : purpose;
 
-        List<NearbyStationResponse> candidates = nearbyStationService.findNearby(
-                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates());
+        List<NearbyStationResponse> candidates = incidentFilter.apply(nearbyStationService.findNearby(
+                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
 
+        return resolve(latitude, longitude, target, candidates);
+    }
+
+    /** CU-INT-01: usa demanda sin alterar la recomendación general de otras pantallas. */
+    public StationRecommendationResponse recommendDestination(double latitude, double longitude, int demand) {
+        List<NearbyStationResponse> safe = incidentFilter.apply(nearbyStationService.findNearby(
+                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
+        return recommendDestinationFromCandidates(latitude, longitude, demand, safe);
+    }
+
+    /** Recibe el snapshot ya filtrado del publicador, para no consultar dos veces disponibilidad/incidentes. */
+    public StationRecommendationResponse recommendDestinationFromCandidates(double latitude, double longitude,
+                                                                            int demand, List<NearbyStationResponse> safe) {
+        List<NearbyStationResponse> viable = safe.stream().filter(station -> station.availableSlots() > 0).toList();
+        StationRecommendationResponse result;
+        if (viable.isEmpty()) {
+            result = noRecommendation(RecommendationPurpose.DROPOFF,
+                    safe.isEmpty() ? NoRecommendationReason.NO_CANDIDATES : NoRecommendationReason.NO_VIABLE_STATION,
+                    RecommendationSource.FALLBACK);
+        } else {
+            result = resolve(latitude, longitude, RecommendationPurpose.DROPOFF, forDemand(viable, demand));
+        }
+        if (demand <= 0) return result;
+        String message = result.message() + " Demanda de referencia del evento: " + demand
+                + " asistentes. La disponibilidad es actual y no reserva anclajes.";
+        return new StationRecommendationResponse(result.status(), result.source(), result.purpose(), result.reason(),
+                message, result.station(), result.alternatives(), result.explanation(), result.modelVersion(), result.generatedAt());
+    }
+
+    private List<NearbyStationResponse> forDemand(List<NearbyStationResponse> safe, int demand) {
+        if (demand <= 0) return safe;
+        int maxSlots = safe.stream().mapToInt(NearbyStationResponse::availableSlots).max().orElse(0);
+        int threshold = Math.min(demand, maxSlots);
+        return safe.stream().filter(station -> station.availableSlots() >= threshold).toList();
+    }
+
+    private StationRecommendationResponse resolve(double latitude, double longitude,
+                                                   RecommendationPurpose target, List<NearbyStationResponse> candidates) {
         // Sin candidatas no hace falta consultar al modelo.
         if (candidates.isEmpty()) {
             return noRecommendation(target, NoRecommendationReason.NO_CANDIDATES, RecommendationSource.FALLBACK);
