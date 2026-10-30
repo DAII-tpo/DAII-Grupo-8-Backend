@@ -4,7 +4,6 @@ import com.citypass.movilidad.dto.CulturalDestinationResponse;
 import com.citypass.movilidad.dto.StationRecommendationResponse;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.CulturalDestination;
-import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import com.citypass.movilidad.repository.CulturalDestinationRepository;
 import org.springframework.stereotype.Service;
 
@@ -40,7 +39,7 @@ public class CulturalDestinationService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "El evento no existe, fue cancelado o su espacio no está disponible"));
 
-        return recommendationService.recommend(destination.getLatitude().doubleValue(),
-                destination.getLongitude().doubleValue(), RecommendationPurpose.DROPOFF);
+        return recommendationService.recommendDestination(destination.getLatitude().doubleValue(),
+                destination.getLongitude().doubleValue(), destination.expectedDemand());
     }
 }

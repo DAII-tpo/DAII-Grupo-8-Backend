@@ -204,4 +204,23 @@ class InboundEventServiceTest {
         verifyNoInteractions(incidentRepo, changes);
     }
 
+    @Test
+    void cupoCompletoUsaDemandaMaximaYActualizacionPermiteBajarInscriptos() throws Exception {
+        var payload = mapper.readTree("""
+                {"eventoId":"ev-42","espacioId":"sp-1","titulo":"Festival","estado":"ACTIVE_FULL",
+                 "inicio":"2099-01-01T10:00:00Z","fin":"2099-01-01T12:00:00Z",
+                 "cupoMaximo":100,"inscriptos":80}
+                """);
+        service.handle("com.citypass.espacios.EventoComunitarioPublicado", payload);
+        var saved = ArgumentCaptor.forClass(CulturalDestination.class);
+        verify(destinations).save(saved.capture());
+        var event = saved.getValue();
+        assertThat(event.expectedDemand()).isEqualTo(100);
+        when(destinations.findById("ev-42")).thenReturn(Optional.of(event));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload).put("estado", "PUBLISHED").put("inscriptos", 5);
+        service.handle("com.citypass.espacios.EventoComunitarioPublicado", payload);
+        assertThat(event.expectedDemand()).isEqualTo(5);
+        assertThat(event.isFullCapacity()).isFalse();
+    }
+
 }

@@ -25,6 +25,9 @@ public interface StationRepository extends JpaRepository<Station, Long> {
 
     List<Station> findAllByDeletedAtIsNullOrderByName();
 
+    /** Catálogo global activo: la métrica BI no depende de un destino particular. */
+    List<Station> findByStatusAndDeletedAtIsNull(com.citypass.movilidad.model.enums.StationStatus status);
+
     /**
      * Estaciones activas dentro del radio, de la más cercana a la más lejana.
      * Distancia con Haversine (sin funciones espaciales: la base de producción no las soporta).

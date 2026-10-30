@@ -59,8 +59,8 @@ class MigrationUpgradeIntegrationTest {
 
         Flyway current = flyway("latest");
         var result = current.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(4);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("10");
+        assertThat(result.migrationsExecuted).isEqualTo(5);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("11");
         assertThat(jdbc.queryForObject("SELECT checksum FROM flyway_schema_history WHERE version = '6'",
                 Integer.class)).isEqualTo(checksum);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id = 'existing-trip'",

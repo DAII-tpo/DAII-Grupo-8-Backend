@@ -104,18 +104,31 @@ public class InboundEventService {
         }
         destination.setMaxCapacity(capacity.intValue());
         // El registro incremental por ReservaConfirmada se implementa cuando Espacios envíe su contrato.
-        destination.setRegistrations(Math.max(destination.getRegistrations(), data.path("inscriptos").asInt(0)));
-        if (CANCELLED_STATE.equals(optionalText(data, "estado"))) {
+        String state = optionalText(data, "estado");
+        updateDemand(data, destination, state);
+        if (CANCELLED_STATE.equals(state)) {
             entityStates.remember(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE);
         }
         destination.setCancelled(destination.isCancelled()
-                || CANCELLED_STATE.equals(optionalText(data, "estado"))
+                || CANCELLED_STATE.equals(state)
                 || entityStates.hasState(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE));
         destination.setSpaceEnabled(!entityStates.hasState("SPACE", destination.getSpaceId(), "DISABLED"));
         destination.setUpdatedAt(Instant.now());
         destinationRepository.save(destination);
         jobs.request(eventId);
         domainEvents.publishEvent(new CulturalDestinationChanged(eventId));
+    }
+
+    /** Una actualización explícita puede reducir inscriptos; un campo ausente conserva el valor. */
+    private static void updateDemand(JsonNode data, CulturalDestination destination, String state) {
+        JsonNode registrations = data.path("inscriptos");
+        if (!registrations.isMissingNode()) {
+            if (!registrations.isIntegralNumber() || !registrations.canConvertToInt() || registrations.intValue() < 0) {
+                throw new IllegalArgumentException("inscriptos debe ser un entero no negativo");
+            }
+            destination.setRegistrations(registrations.intValue());
+        }
+        if (state != null) destination.setFullCapacity("ACTIVE_FULL".equals(state));
     }
 
     private void cancelDestination(JsonNode data) {

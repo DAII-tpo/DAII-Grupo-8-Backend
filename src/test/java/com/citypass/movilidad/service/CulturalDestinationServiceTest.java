@@ -2,7 +2,6 @@ package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.model.CulturalDestination;
 import com.citypass.movilidad.repository.CulturalDestinationRepository;
-import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -39,7 +38,7 @@ class CulturalDestinationServiceTest {
         var destination = event("a", false, true);
         when(repo.findById("a")).thenReturn(java.util.Optional.of(destination));
         service.recommendDropoff("a");
-        verify(recommendation).recommend(-34.6, -58.4, RecommendationPurpose.DROPOFF);
+        verify(recommendation).recommendDestination(-34.6, -58.4, 0);
     }
 
     @Test

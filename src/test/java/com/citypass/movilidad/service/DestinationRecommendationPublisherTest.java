@@ -154,7 +154,7 @@ class DestinationRecommendationPublisherTest {
                 com.citypass.movilidad.model.enums.RecommendationSource.FALLBACK,
                 com.citypass.movilidad.model.enums.RecommendationPurpose.DROPOFF,
                 null, "Estacion segura", recommended, List.of(), null, null, Instant.now());
-        when(recommendations.recommend(-34.6, -58.4, com.citypass.movilidad.model.enums.RecommendationPurpose.DROPOFF))
+        when(recommendations.recommendDestinationFromCandidates(eq(-34.6), eq(-58.4), eq(0), anyList()))
                 .thenReturn(response);
         publisher.publish("ev-42");
         assertThat(capturePayload()).containsEntry("estado", "RECOMMENDED").containsEntry("estacionId", 1L)

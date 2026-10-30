@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real MySQL/Flyway and Spring transactions, with local input instead of Kafka producers. */
 @Testcontainers
+@org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 @SpringBootTest(properties = {
         "citypass.eventbus.consumer.enabled=false",
         "citypass.eventbus.publisher.enabled=false",
@@ -37,6 +38,7 @@ class CuInt01PersistenceIntegrationTest {
         registry.add("spring.datasource.password", mysql::getPassword);
     }
 
+    @Autowired org.springframework.test.web.servlet.MockMvc http;
     @Autowired InboundEventService inbound;
     @Autowired InboundEntityStateRepository states;
     @Autowired CulturalDestinationRepository destinations;
@@ -156,6 +158,26 @@ class CuInt01PersistenceIntegrationTest {
         assertThat(jobs.token(id)).isEqualTo(currentToken);
         jobs.complete(id, currentToken);
         assertThat(jobs.token(id)).isNull();
+    }
+
+    @Test void apiExponeDemandaMaximaYDejaDeRecomendarTrasCancelacion() throws Exception {
+        String id = UUID.randomUUID().toString();
+        String full = event(id).replace("PUBLISHED", "ACTIVE_FULL");
+        transactions.executeWithoutResult(status -> handle("com.citypass.espacios.EventoComunitarioPublicado", full));
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/destinations/events"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$[?(@.eventId == '" + id + "')].expectedDemand").value(org.hamcrest.Matchers.hasItem(100)));
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/api/v1/destinations/events/{id}/recommendation", id))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.purpose").value("DROPOFF"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("NO_RECOMMENDATION"));
+        transactions.executeWithoutResult(status -> handle("com.citypass.espacios.EventoCancelado",
+                "{\"eventoId\":\"" + id + "\"}"));
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/api/v1/destinations/events/{id}/recommendation", id))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
     }
 
 }

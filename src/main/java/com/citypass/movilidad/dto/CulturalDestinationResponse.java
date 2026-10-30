@@ -17,12 +17,13 @@ public record CulturalDestinationResponse(
         Instant startsAt,
         Instant endsAt,
         @Schema(description = "Cupo del evento") Integer maxCapacity,
-        @Schema(description = "Inscriptos conocidos: demanda esperada hacia el destino") Integer registrations) {
+        @Schema(description = "Inscriptos conocidos: demanda esperada hacia el destino") Integer registrations,
+        @Schema(description = "Demanda de referencia: inscriptos o cupo si ACTIVE_FULL") int expectedDemand) {
 
     public static CulturalDestinationResponse from(CulturalDestination destination) {
         return new CulturalDestinationResponse(destination.getEventId(), destination.getTitle(),
                 destination.getZone(), destination.getAddress(), destination.getLatitude(),
                 destination.getLongitude(), destination.getStartsAt(), destination.getEndsAt(),
-                destination.getMaxCapacity(), destination.getRegistrations());
+                destination.getMaxCapacity(), destination.getRegistrations(), destination.expectedDemand());
     }
 }

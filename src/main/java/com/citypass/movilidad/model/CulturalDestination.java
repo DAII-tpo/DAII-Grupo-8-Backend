@@ -63,6 +63,15 @@ public class CulturalDestination {
     @Builder.Default
     private Integer registrations = 0;
 
+    @Column(name = "full_capacity", nullable = false)
+    @Builder.Default
+    private boolean fullCapacity = false;
+
+    /** Referencia de demanda del CU; no supone una proporción de asistentes en bici. */
+    public int expectedDemand() {
+        return fullCapacity ? maxCapacity : registrations;
+    }
+
     @Column(nullable = false)
     @Builder.Default
     private boolean cancelled = false;

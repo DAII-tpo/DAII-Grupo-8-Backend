@@ -4,7 +4,6 @@ import com.citypass.movilidad.config.RecommendationProperties;
 import com.citypass.movilidad.dto.NearbyStationResponse;
 import com.citypass.movilidad.dto.StationRecommendationResponse;
 import com.citypass.movilidad.model.CulturalDestination;
-import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import com.citypass.movilidad.model.enums.RecommendationStatus;
 import com.citypass.movilidad.repository.CulturalDestinationRepository;
 import com.citypass.movilidad.repository.DestinationRecommendationJobRepository;
@@ -135,7 +134,7 @@ public class DestinationRecommendationPublisher {
             return;
         }
 
-        StationRecommendationResponse response = recommendations.recommend(lat, lng, RecommendationPurpose.DROPOFF);
+        StationRecommendationResponse response = recommendations.recommendDestinationFromCandidates(lat, lng, destination.expectedDemand(), filtered.safe());
         String message = response.message();
         outbox.publish(eventId, payload(eventId, response, filtered.discarded(), message), requestToken);
     }
