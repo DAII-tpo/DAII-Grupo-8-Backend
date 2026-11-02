@@ -179,6 +179,10 @@ public class InboundEventService {
         incident.setLatitude(latitude);
         incident.setLongitude(longitude);
         incident.setActive(true);
+        incident.setCorrelationId(optionalText(data, "correlationId"));
+        String roadIncidentId = "INCIDENTE_VIAL".equals(optionalText(data, "causaTipo"))
+                ? text(data, "causaId") : null;
+        incident.setRoadIncidentId(roadIncidentId);
         incident.setReportedAt(reportedAt == null ? Instant.now() : reportedAt);
         incident.setUpdatedAt(Instant.now());
         incidentRepository.save(incident);

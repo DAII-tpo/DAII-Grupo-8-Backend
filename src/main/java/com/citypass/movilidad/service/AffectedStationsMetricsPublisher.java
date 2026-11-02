@@ -7,51 +7,28 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
-/**
- * BI Caso 4. Cada incidente creado/resuelto genera un snapshot global;
- * adicionalmente cada 15 minutos para mantener el indicador actualizado
- * ante cambios en el catálogo de estaciones.
- */
+/** Reconciliación al confirmar incidentes y cada 15 minutos para recuperar fallos/cambios del catálogo. */
 @Component
 public class AffectedStationsMetricsPublisher {
     private static final Logger LOG = LoggerFactory.getLogger(AffectedStationsMetricsPublisher.class);
+    private final AffectedStationsService affectations;
 
-    private final AffectedStationsMetricsService metrics;
-    private final AffectedStationsEventWriter events;
-
-    public AffectedStationsMetricsPublisher(AffectedStationsMetricsService metrics,
-                                            AffectedStationsEventWriter events) {
-        this.metrics = metrics;
-        this.events = events;
+    public AffectedStationsMetricsPublisher(AffectedStationsService affectations) {
+        this.affectations = affectations;
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onIncidentChanged(TrafficIncidentChanged ignored) {
-        publishSafely();
-    }
+    public void onIncidentChanged(TrafficIncidentChanged ignored) { refresh(); }
 
     @Scheduled(cron = "${movilidad.analytics.affected-stations.cron:0 */15 * * * *}")
     public void refresh() {
-        publishSafely();
-    }
-
-    private void publishSafely() {
         try {
             publish();
         } catch (RuntimeException exception) {
-            LOG.error("No se pudo actualizar la métrica de estaciones afectadas en EDA", exception);
+            LOG.error("No se pudieron actualizar las afectaciones de estaciones en EDA; se reintentará", exception);
         }
     }
 
-    public void publish() {
-        AffectedStationsMetricsService.Snapshot snapshot = metrics.calculate();
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("cantidadEstacionesAfectadas", snapshot.affectedStations());
-        data.put("calculadaEn", Instant.now().toString());
-        events.publish(data);
-    }
+    public void publish() { affectations.synchronize(); }
 }

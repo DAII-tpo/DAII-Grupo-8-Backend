@@ -20,5 +20,5 @@ aceptó el contrato de salida, incluido `estacionId` como long.
 y `EspacioEstadoCambiado` y facilitará el contrato exacto de `ReservaConfirmada`;
 este reemplaza a `ReservaCreada` y no se suscribe hasta conocer sus campos.
 Pruebas punta a punta contra EDA una vez que estén los productores activos.
-No se publican indicadores BI desde esta rama.
+Se publican afectaciones/restauraciones por estación y causa para BI; ver `cu-int-01-bi-entrega.md`.
 Las métricas de viajes viven en la rama independiente `feat/integracion-bi`.

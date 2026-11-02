@@ -223,4 +223,14 @@ class InboundEventServiceTest {
         assertThat(event.isFullCapacity()).isFalse();
     }
 
+    @Test
+    void rechazaVinculoVialSinIdentificadorSinGuardarElIncidente() throws Exception {
+        var data = mapper.readTree("""
+                {"reclamoId":"r-1","categoria":"TRANSITO","afectaCirculacion":true,
+                 "latitud":-34.6,"longitud":-58.4,"createdAt":1000,"causaTipo":"INCIDENTE_VIAL"}
+                """);
+        assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", data))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("causaId");
+        verify(incidentRepo, never()).save(any());
+    }
 }

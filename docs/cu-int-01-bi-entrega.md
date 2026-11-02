@@ -1,68 +1,95 @@
 # Entrega CU-INT-01 y BI: estaciones afectadas por incidentes
 
-## Alcance confirmado
+## Alcance y estado del acuerdo
 
-Para el Caso 4, Movilidad entrega a BI solamente **cantidad de estaciones afectadas por incidentes**.
-No se incorporan las métricas anteriores de viajes ni cantidades de incidentes. La fecha del snapshot
-permite a BI ubicar el valor en el tiempo; no constituye un indicador adicional.
+Este cambio implementa la propuesta de `EstacionUrbanaAfectada` y `EstacionUrbanaRestaurada`
+para el CU-INT-01. Sustituye el snapshot propio `EstacionesAfectadasActualizadas`.
+Se reutilizan EventDispatcher/inbox y EventPublisher/outbox/OutboxRelay; no se modifica
+la lógica de recomendaciones ni se implementan los demás casos del contrato general de Movilidad.
 
-Se reutiliza la integración EDA ya existente: `EventDispatcher` + inbox para consumir,
-`EventPublisher` + outbox + `OutboxRelay` para publicar y `EventTypeRegistrar` para contratos.
-No se añade otro cliente HTTP, consumidor Kafka, autenticación, gateway ni mecanismo de reintentos.
-Login y la infraestructura general EDA siguen a cargo de los compañeros responsables.
+**Pendiente de aceptación por BI/EDA:** el campo `moduloOrigen`, el valor `EMERGENCIA` de
+`causaTipo` y el valor `RECOMENDACION_RESTRINGIDA` de `tipoAfectacion` son extensiones propuestas.
+No equivalen a un contrato ya registrado o validado con BI. Antes de desplegar con publicación y
+registro automático habilitados, coordinar las extensiones y schemas con BI/EDA. El registrar no
+actualiza tipos existentes; una versión ya registrada necesita una actualización coordinada.
+No se publicaron ni registraron contratos en el gateway real como parte de este cambio.
 
-```mermaid
-flowchart LR
-    Productores[Espacios / Reclamos / Emergencias] --> EDA[EDA existente]
-    EDA --> Inbox[Dispatcher e inbox existentes]
-    Inbox --> CU[Proyecciones del CU]
-    CU --> Recomendacion[Recomendación DROPOFF]
-    CU --> Metrica[Estaciones únicas afectadas]
-    Recomendacion --> Outbox[EventPublisher y outbox existentes]
-    Metrica --> Outbox
-    Outbox --> Relay[OutboxRelay existente]
-    Relay --> EDA
-    EDA --> BI[BI consume snapshots]
-    EDA --> Espacios[Espacios recibe recomendaciones]
-```
+## Eventos y semántica
 
-## Métrica BI implementada
+Schemas para el gateway en `src/main/resources/eventbus/event-types/`:
 
-Contrato propio en `src/main/resources/eventbus/event-types/EstacionesAfectadasActualizadas.json`.
-Tópico/FQN esperado: `com.citypass.movilidad.EstacionesAfectadasActualizadas`.
-El payload de negocio tiene exactamente dos campos:
+- `EstacionUrbanaAfectada.json`: afectacionId (UUID string), estacionId (string del ID interno
+  estable de estación), latitud/longitud (double), tipoAfectacion (enum), afectacionDesde (string UTC),
+  afectacionHastaEstimada (string UTC o null), causaId (string), causaTipo (enum), moduloOrigen (enum),
+  correlationId (string), occurredAt (string UTC).
+- `EstacionUrbanaRestaurada.json`: afectacionId, estacionId, correlationId y restauradaAt (strings).
+
+Ejemplo de afectación:
 
 ```json
 {
-  "cantidadEstacionesAfectadas": 5,
-  "calculadaEn": "2026-10-30T12:00:00Z"
+  "afectacionId": "e71b4c2a-9d3f-4a1e-8c5b-2f6d0a9e3b77",
+  "estacionId": "42",
+  "latitud": -34.6037,
+  "longitud": -58.3816,
+  "tipoAfectacion": "RECOMENDACION_RESTRINGIDA",
+  "afectacionDesde": "2026-11-02T18:00:00Z",
+  "afectacionHastaEstimada": null,
+  "causaId": "reclamo-1",
+  "causaTipo": "RECLAMO",
+  "moduloOrigen": "RECLAMOS",
+  "correlationId": "c-7781",
+  "occurredAt": "2026-11-02T18:00:00Z"
 }
 ```
 
-`cantidadEstacionesAfectadas` es `int`; `calculadaEn` es `string` ISO-8601 UTC.
-La metadata del bus la agrega la infraestructura existente, no se duplica dentro del payload.
-Este schema de transporte debe confirmarse con BI/EDA antes del registro compartido. No se registró
-ni actualizó ningún tipo en el gateway real durante esta entrega. Si ya existe otro schema registrado,
-coordinar su compatibilidad: el registrar existente no lo sobrescribe automáticamente.
+La restricción solo representa la exclusión de recomendaciones por proximidad a un incidente.
+No declara una estación físicamente BLOQUEADA, con CAPACIDAD_REDUCIDA ni FUERA_DE_SERVICIO.
+Esos tres valores del contrato original se conservan en el enum, pero este CU no los emite.
 
-Reglas:
+Origen y causa son distintos:
 
-- Se consulta todo el catálogo, sin depender de un evento cultural ni del límite de candidatas.
-- Solo estaciones ACTIVE y no eliminadas.
-- Solo incidentes activos proyectados por el CU que afectan circulación y tienen coordenadas válidas.
-- Una estación se cuenta una sola vez aunque haya varios incidentes próximos.
-- Distancia Haversine <= `movilidad.incidents.radius-meters`, 300 m por defecto, el mismo parámetro del filtro del CU.
-- Se publica después del commit de incidentes creados/resueltos y cada 15 minutos.
-- Al resolver el último incidente se publica cero. Sin incidentes, el snapshot periódico también es cero.
-- El recálculo periódico captura cambios de alta/baja/estado del catálogo de estaciones.
-- La métrica es un **snapshot**, no un incremento: BI debe tomar el último valor por fecha, no sumar snapshots.
-- Fallos previos a persistir el snapshot se recuperan en el próximo refresco; una vez en outbox,
-  el relay existente administra reintentos. No se condiciona el procesamiento de un incidente a que BI esté disponible.
+| Mensaje recibido | causaTipo | causaId | moduloOrigen |
+| --- | --- | --- | --- |
+| Reclamo sin vínculo vial explícito | RECLAMO | reclamoId | RECLAMOS |
+| Emergencia sin vínculo vial explícito | EMERGENCIA | emergenciaId | EMERGENCIAS |
+| Cualquiera de los anteriores con causaTipo=INCIDENTE_VIAL y causaId válido | INCIDENTE_VIAL | causaId recibido | módulo que informó |
 
-El cron se puede configurar con `movilidad.analytics.affected-stations.cron`;
-por defecto `0 */15 * * * *`. En tests que verifican otras cosas se usa `-` para aislar
-el timer; el evento AFTER_COMMIT y el refresco invocado explícitamente sí se prueban.
-El backend debe permanecer activo para ejecutar los cron.
+No se infiere un incidente vial por categoría ni se inventa su UUID. Un vínculo explícito sin
+causaId se rechaza como payload inválido. El enum moduloOrigen reserva MOVILIDAD para futuros
+productores propios; este cambio no añade IncidenteVialCreado ni su consumo directo.
+Se conserva correlationId del payload de origen. Si no se recibió, se genera una correlación estable
+`<moduloOrigen>-<idExterno>`; no se presenta como una correlación original del productor.
+Los incidentes proyectados antes de V12 no tienen vínculo vial conocido y usan su origen real.
+
+## Persistencia, transiciones y recuperación
+
+V12 añade trazabilidad a city_incidents y el registro station_affectations. V1–V11 no se modifican.
+
+- Una afectación abierta por pareja estación/causa, con UUID estable durante su vigencia.
+- Solo estaciones ACTIVE no eliminadas e incidentes activos que el CU proyectó con afectaCirculacion=true.
+- Radio Haversine configurable, 300 m por defecto, compartido con el filtro de recomendaciones.
+- No depende de eventos culturales ni del límite de estaciones candidatas.
+- Se reconcilia al confirmar incidentes y cada 15 minutos con el cron existente.
+- Un refresco sin transiciones no publica nada. El arranque/primer refresco reconstruye las afectaciones
+  de incidentes y estaciones ya existentes; afectacionDesde es la detección local, no una fecha histórica inventada.
+- Resolver una causa publica su restauración con el mismo UUID. Si quedan otras causas, sus afectaciones
+  siguen abiertas: EstacionUrbanaRestaurada cierra una afectación, no declara libre toda la estación.
+- Baja, inactivación, cambio de ubicación/radio o cierre del incidente retiran las parejas que dejaron
+  de cumplir el criterio. El refresco puede tardar hasta 15 minutos en detectar cambios del catálogo.
+- Si cambia la causa, cierra la anterior y crea otra afectación. Si varios productores informan el mismo
+  incidente vial, se conserva una sola afectación hasta que no quede ningún reporte activo de esa causa.
+  moduloOrigen y correlationId conservan los valores del reporte que abrió la afectación.
+- El bloqueo transaccional compartido serializa timers/listeners entre instancias. Persistencia y outbox
+  se confirman juntos; un fallo de publicación revierte el estado y permite reintentar en el refresco.
+- Tras restaurarse, la fila abierta se elimina; el historial y el UUID quedan en los eventos del outbox/EDA.
+  No se crean snapshots cero ni se eliminan antiguos mensajes del outbox encolados por versiones anteriores.
+
+BI debe contar estaciones distintas, no sumar afectaciones: varias causas pueden afectar una estación.
+Para el indicador original, el filtro es causaTipo=INCIDENTE_VIAL. BI debe confirmar si también incluirá
+RECLAMO y EMERGENCIA sin vínculo vial, o si necesita que los productores entreguen ese vínculo.
+No se cambia unilateralmente la definición de la métrica. También hay que alinear el ID estable de estación
+con los eventos de viajes de la rama separada; esta entrega no modifica esos eventos.
 
 ## Demanda del destino en CU-INT-01
 
@@ -87,61 +114,32 @@ los descartes y decidir la estación, evitando una segunda consulta que podía o
 u otra disponibilidad. El contrato de 12 campos de RecomendacionDestinoActualizada se conserva.
 La API de eventos agrega `expectedDemand`; la UI lo muestra y distingue el cupo completo.
 
-## Dónde está cada cambio
+## Implementación y validación
 
-| Archivo/clase | Responsabilidad |
-| --- | --- |
-| AffectedStationsMetricsService | Conteo global, estaciones únicas, radio y filtros |
-| AffectedStationsMetricsPublisher | Snapshot al commit y refresco de 15 minutos |
-| AffectedStationsEventWriter | Transacción REQUIRES_NEW que delega al EventPublisher existente |
-| StationRepository | Consulta de estaciones activas no eliminadas |
-| EstacionesAfectadasActualizadas.json | Schema mínimo para la única métrica acordada |
-| CulturalDestination / V11 | Persistencia de cupo completo y cálculo de demanda de referencia |
-| InboundEventService | Proyección de ACTIVE_FULL y actualización del número de inscriptos |
-| StationRecommendationService | Selección de candidatas según demanda, manteniendo IA y fallback |
-| CulturalDestinationService | Recomendación del endpoint según demanda del evento |
-| DestinationRecommendationPublisher | Reutiliza el snapshot seguro para publicación del CU |
-| CulturalDestinationResponse | Campo REST adicional expectedDemand |
+- AffectedStationsService: reconcilia afectaciones y publica por el outbox oficial en REQUIRES_NEW.
+- StationAffectationRepository: bloqueo compartido y registro de parejas abiertas.
+- AffectedStationsMetricsPublisher: listener AFTER_COMMIT y cron de recuperación existentes.
+- CityIncident / InboundEventService: correlación y vínculo vial explícito recibido del productor.
+- V12: migración aditiva; schemas nuevos reemplazan el snapshot propio.
+- AffectedStationsBiIntegrationTest: MySQL/Flyway reales, idempotencia, restauraciones independientes,
+  catálogo, emergencias, vínculo vial, correlación, rollback, concurrencia y recuperación ante fallo de outbox.
+- MigrationUpgradeIntegrationTest: upgrade desde V6 hasta V12 conservando datos y checksums.
 
-Los archivos Java están bajo `src/main/java/com/citypass/movilidad/` en sus paquetes habituales.
-Se incorporaron selectivamente los archivos de la rama BI de estaciones afectadas; no se fusionó una
-versión vieja del CU ni se mezcló `feat/integracion-bi` de viajes. Las ramas originales se conservan.
+Comando oficial: `./gradlew --no-daemon test bootJar`.
+La descarga de Confluent sigue bloqueada con HTTP 403 en este entorno. Para diagnóstico local se usa un
+init script **fuera del repositorio**, que excluye esa dependencia y su EventBusIntegrationTest.
+Las pruebas de dominio/MySQL/outbox ejecutadas con ese arnés no validan Kafka/Avro/EDA real ni sustituyen
+la suite oficial. El pipeline debe ejecutar la suite completa con acceso a las dependencias oficiales.
 
-## Validación y reproducción
-
-Tests nuevos/revisados:
-
-- AffectedStationsMetricsServiceTest: superposición sin doble conteo, cero, fuera de radio y radio configurable.
-- AffectedStationsMetricsPublisherTest: exactamente los dos campos acordados y recuperación tras fallo.
-- AffectedStationsEventWriterTest: usa el publicador/outbox oficial.
-- AffectedStationsBiIntegrationTest: MySQL y Flyway reales, estaciones activas/inactivas/eliminadas,
-  creación y resolución de incidentes, snapshots 1→1→1→0, rollback sin publicación y refresco periódico.
-  También verifica el contrato JSON versionado.
-- CulturalDestinationDemandTest: cobertura de demanda, disponibilidad insuficiente, demanda desconocida,
-  ausencia de anclajes, IA caída y exclusión de incidentes antes de elegir candidatas.
-- InboundEventServiceTest: ACTIVE_FULL y descenso posterior de inscriptos.
-- CuInt01PersistenceIntegrationTest: endpoints reales de eventos/recomendación y cancelación, además
-  de sus pruebas previas de commit/rollback/outbox e invalidaciones.
-- MigrationUpgradeIntegrationTest: migración de la V6 oficial hasta V11 y repetibilidad.
-
-Validación oficial desde backend:
-
-```sh
-bash gradlew --no-daemon clean compileJava test jacocoTestReport
-OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 recommendation-service/.venv/bin/python -m pytest recommendation-service --cov=recommendation-service/app --cov=recommendation-service/training --cov-config=recommendation-service/.coveragerc --cov-report=xml:recommendation-service/coverage.xml
-```
-
-El entorno local tiene Confluent bloqueado; el arnés externo de diagnóstico
-`/workspace/.setup/cu-unit-tests.init.gradle` excluye únicamente su integración específica y no
-reemplaza el build oficial. El pipeline del PR ejecuta la suite con las dependencias oficiales.
-Las pruebas locales del CU usan payloads controlados y MySQL real. No son una prueba con productores
-reales de otros módulos ni con el consumidor real de BI. Los resultados definitivos se informan por commit.
+Validación local de esta entrega: 71 pruebas ejecutadas, sin fallos, errores ni omitidas, usando
+el arnés externo descrito. Incluye deserialización de los payloads con Apache Avro, migración V6→V12,
+MySQL/outbox y regresiones de recomendaciones. No se probó el transporte Kafka/Confluent ni el consumidor real de BI.
 
 ## Qué falta confirmar y con quién
 
 | Responsable | Confirmación o entrega pendiente |
 | --- | --- |
-| BI | Aceptar nombre/tópico, campos y tipos del snapshot; consumirlo como valor absoluto por fecha; URL HTTPS del HTML; permisos CSP/frame y autenticación del embed |
+| BI | Aceptar schemas y extensiones propuestas, filtro de causas y conteo por estación; URL HTTPS del HTML; permisos CSP/frame y autenticación del embed |
 | Espacios | Schema exacto de ReservaConfirmada; publicación real y consumidor de RecomendacionDestinoActualizada; semántica de inscriptos/ACTIVE_FULL y validación de la regla de demanda; versiones/fechas para ordenar actualizaciones |
 | Reclamos | Schemas definitivos de creación/actualización/resolución, publicación real, estados terminales, cambios de coordenadas/afectaCirculacion y garantías de orden |
 | Emergencias | Lo mismo para EmergenciaCreada/EmergenciaActualizada; acordar reaperturas y cambios de ubicación sin inventar campos |
@@ -156,6 +154,6 @@ No hay cambios de Login, permisos generales, credenciales ni infraestructura EDA
 ## Prueba conjunta pendiente
 
 Publicar evento cultural → ver demanda y recomendación → crear incidente cercano → verificar
-alternativa/invalidez y snapshot BI → resolver incidente → verificar recuperación y snapshot cero →
+alternativa/invalidez y EstacionUrbanaAfectada → resolver incidente → verificar recuperación y EstacionUrbanaRestaurada →
 cancelar evento → verificar última invalidación → comprobar que BI muestra el indicador en su HTML.
 Debe ejecutarse en un ambiente de integración, con backend activo, sin desplegar esta rama a producción.

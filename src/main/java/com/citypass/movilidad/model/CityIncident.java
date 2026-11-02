@@ -44,6 +44,14 @@ public class CityIncident {
     @Column(name = "external_id", nullable = false, length = 64)
     private String externalId;
 
+    /** Correlación recibida del productor; no es un identificador de incidente vial. */
+    @Column(name = "correlation_id", length = 255)
+    private String correlationId;
+
+    /** Solo se completa si el productor identifica explícitamente una causa INCIDENTE_VIAL. */
+    @Column(name = "road_incident_id", length = 64)
+    private String roadIncidentId;
+
     @Column(nullable = false, length = 60)
     private String category;
 
