@@ -70,17 +70,23 @@ class IncidentAdminServiceTest {
         assertThat(service.findByIdForAdmin(1L, 10L).id()).isEqualTo(10L);
     }
 
+    /**
+     * El rol ya no se chequea acá: lo decide {@code @PreAuthorize} con el grupo LDAP del token,
+     * y eso se verifica en FederatedAuthIntegrationTest (acá el servicio se construye con new,
+     * sin proxy de Spring, así que la anotación no corre). Lo que el servicio sigue
+     * garantizando es el kill-switch local por estado del usuario.
+     */
     @Test
-    void rejectsAdministrativeAccessForMissingInactiveOrNonAdminUser() {
+    void rejectsAdministrativeAccessForMissingOrDisabledUser() {
         when(userRepository.findById(1L)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.findAllForAdmin(1L, null, null, null, null))
                 .isInstanceOf(ResourceNotFoundException.class);
 
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, "USER", UserStatus.ACTIVE)));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, "ADMIN", UserStatus.BLOCKED)));
         assertThatThrownBy(() -> service.findAllForAdmin(1L, null, null, null, null))
                 .isInstanceOf(ForbiddenOperationException.class);
 
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, "ADMIN", UserStatus.BLOCKED)));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, "ADMIN", UserStatus.INACTIVE)));
         assertThatThrownBy(() -> service.findAllForAdmin(1L, null, null, null, null))
                 .isInstanceOf(ForbiddenOperationException.class);
         verifyNoInteractions(incidentRepository);

@@ -15,11 +15,14 @@ import com.citypass.movilidad.repository.RoleRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
+import com.citypass.movilidad.support.FederatedSecurityTestConfig;
+import com.citypass.movilidad.support.TestSecrets;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -27,14 +30,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-
-import java.math.BigDecimal;
-
+import static com.citypass.movilidad.support.FederatedSecurityTestConfig.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
 
 /**
  * Flujo completo del ciclo de vida de un viaje (MOV-026, MOV-027, MOV-028) y su historial
@@ -43,10 +46,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Testcontainers
 @AutoConfigureMockMvc
-@SpringBootTest
+@SpringBootTest(properties = {
+        "security.local.enabled=false",
+        // El modo seguro exige una clave de firma elegida para los tokens de ciudadano:
+        // sin esto el contexto no arranca, que es justamente la garantia de LocalSigningKey.
+        TestSecrets.CITIZEN_AUTH_SECRET_PROPERTY})
+@Import(FederatedSecurityTestConfig.class)
 class TripFlowIntegrationTest {
-
-    private static final String USER_HEADER = "X-User-Id";
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
@@ -94,7 +100,7 @@ class TripFlowIntegrationTest {
 
         long tripId = startTrip(user, bike);
 
-        mockMvc.perform(get("/api/v1/trips/active").header(USER_HEADER, user.getId()))
+        mockMvc.perform(get("/api/v1/trips/active").with(bearer(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(tripId))
                 .andExpect(jsonPath("$.bikeId").value(bike.getId()))
@@ -103,12 +109,12 @@ class TripFlowIntegrationTest {
 
         // Un usuario no puede tener dos viajes activos.
         Bike otherBike = bike("TRIP-FLOW-2", origin, BikeStatus.AVAILABLE);
-        mockMvc.perform(post("/api/v1/trips").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + otherBike.getId() + "}"))
                 .andExpect(status().isConflict());
 
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"destinationStationId\":" + destination.getId() + "}"))
                 .andExpect(status().isOk())
@@ -117,7 +123,7 @@ class TripFlowIntegrationTest {
                 .andExpect(jsonPath("$.endedAt").isNotEmpty())
                 .andExpect(jsonPath("$.durationSeconds").isNumber());
 
-        mockMvc.perform(get("/api/v1/trips/active").header(USER_HEADER, user.getId()))
+        mockMvc.perform(get("/api/v1/trips/active").with(bearer(user)))
                 .andExpect(status().isNoContent());
 
         Bike finalBike = bikeRepository.findById(bike.getId()).orElseThrow();
@@ -148,7 +154,7 @@ class TripFlowIntegrationTest {
 
         long tripId = startTrip(user, bike);
 
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"destinationStationId\":" + full.getId() + "}"))
                 .andExpect(status().isConflict())
@@ -166,7 +172,7 @@ class TripFlowIntegrationTest {
                 .extracting(BikeStatusHistory::getNewStatus)
                 .containsExactly(BikeStatus.IN_USE);
 
-        mockMvc.perform(get("/api/v1/trips/active").header(USER_HEADER, user.getId()))
+        mockMvc.perform(get("/api/v1/trips/active").with(bearer(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(tripId));
     }
@@ -178,7 +184,7 @@ class TripFlowIntegrationTest {
         Bike bike = bike("TRIP-MISSING-STATION-1", origin, BikeStatus.AVAILABLE);
         long tripId = startTrip(user, bike);
 
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"destinationStationId\":999999999}"))
                 .andExpect(status().isNotFound())
@@ -197,7 +203,7 @@ class TripFlowIntegrationTest {
         Bike bike = bike("TRIP-DISABLED-STATION-1", origin, BikeStatus.AVAILABLE);
         long tripId = startTrip(user, bike);
 
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"destinationStationId\":" + disabled.getId() + "}"))
                 .andExpect(status().isConflict())
@@ -218,7 +224,7 @@ class TripFlowIntegrationTest {
         inconsistentBike.setStation(origin);
         bikeRepository.save(inconsistentBike);
 
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"destinationStationId\":" + destination.getId() + "}"))
                 .andExpect(status().isConflict())
@@ -240,12 +246,12 @@ class TripFlowIntegrationTest {
     }
 
     @Test
-    void rechazaIniciarConBicicletaNoDisponibleOSinHeaderDeUsuario() throws Exception {
+    void rechazaIniciarConBicicletaNoDisponibleOSinToken() throws Exception {
         User user = user("rechazo@example.com");
         Station origin = station("Origen rechazo", 10);
         Bike bike = bike("TRIP-REJECT-1", origin, BikeStatus.MAINTENANCE);
 
-        mockMvc.perform(post("/api/v1/trips").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + "}"))
                 .andExpect(status().isConflict());
@@ -253,8 +259,7 @@ class TripFlowIntegrationTest {
         mockMvc.perform(post("/api/v1/trips")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + "}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Falta el header obligatorio " + USER_HEADER));
+                .andExpect(status().isUnauthorized());
 
         assertThat(tripRepository.findByUserIdAndStatus(user.getId(), TripStatus.ACTIVE)).isEmpty();
         Bike unchanged = bikeRepository.findById(bike.getId()).orElseThrow();
@@ -272,7 +277,7 @@ class TripFlowIntegrationTest {
         long primerViaje = completeTrip(user, bike("HIST-1", origin, BikeStatus.AVAILABLE), destination);
         long segundoViaje = completeTrip(user, bike("HIST-2", origin, BikeStatus.AVAILABLE), destination);
 
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()))
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.content[0].id").value(segundoViaje))
@@ -301,7 +306,7 @@ class TripFlowIntegrationTest {
         // Queda un viaje en curso del mismo usuario: el historial es sólo de viajes finalizados.
         long viajeEnCurso = startTrip(owner, bike("HIST-EN-CURSO", origin, BikeStatus.AVAILABLE));
 
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, owner.getId()))
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].id").value(viajePropio));
@@ -316,7 +321,7 @@ class TripFlowIntegrationTest {
         User user = user("historial-vacio@example.com");
 
         // Un usuario nuevo no es un caso de error: 200 con la página vacía.
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()))
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isEmpty())
                 .andExpect(jsonPath("$.totalElements").value(0))
@@ -324,28 +329,34 @@ class TripFlowIntegrationTest {
                 .andExpect(jsonPath("$.last").value(true));
     }
 
+    /**
+     * Un `sub` que el backend nunca vio se da de alta en el primer request (aprovisionamiento
+     * just-in-time), así que su historial es una página vacía y no un 404: la fuente de verdad
+     * de quién existe es el IdP, no nuestra tabla.
+     */
     @Test
-    void rechazaElHistorialDeUnUsuarioInexistenteYLaPaginacionInvalida() throws Exception {
+    void daDeAltaAlUsuarioNuevoYRechazaLaPaginacionInvalida() throws Exception {
         User user = user("historial-validaciones@example.com");
 
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, 999999L))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer("U999999")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        assertThat(userRepository.findByExternalUserId("U999999")).isPresent();
 
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()).param("size", "0"))
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(user)).param("size", "0"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()).param("size", "51"))
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(user)).param("size", "51"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/trips/history").header(USER_HEADER, user.getId()).param("page", "-1"))
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(user)).param("page", "-1"))
                 .andExpect(status().isBadRequest());
 
         mockMvc.perform(get("/api/v1/trips/history"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Falta el header obligatorio " + USER_HEADER));
+                .andExpect(status().isUnauthorized());
     }
 
     private long completeTrip(User user, Bike bike, Station destination) throws Exception {
         long tripId = startTrip(user, bike);
-        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/trips/" + tripId + "/end").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"destinationStationId\":" + destination.getId() + "}"))
                 .andExpect(status().isOk());
@@ -353,7 +364,7 @@ class TripFlowIntegrationTest {
     }
 
     private long startTrip(User user, Bike bike) throws Exception {
-        String body = mockMvc.perform(post("/api/v1/trips").header(USER_HEADER, user.getId())
+        String body = mockMvc.perform(post("/api/v1/trips").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + "}"))
                 .andExpect(status().isCreated())
@@ -376,8 +387,10 @@ class TripFlowIntegrationTest {
                 .containsExactly(BikeStatus.IN_USE);
     }
 
+    /** El external_user_id es el `sub` del token: la clave con la que el backend lo resuelve. */
     private User user(String email) {
         User user = new User();
+        user.setExternalUserId("U" + Math.abs(email.hashCode()));
         user.setFirstName("Usuario");
         user.setLastName("Viajes");
         user.setEmail(email);

@@ -176,8 +176,9 @@ criterio de respaldo (`source = FALLBACK`).
 
 ### 5. Usuario de prueba
 
-La migración V3 crea un usuario demo con **id = 1** y rol `USER`. Es el que usa el frontend para los
-endpoints que identifican al usuario con el header `X-User-Id` (ver [Seguridad](#seguridad)).
+La migración V3 crea un usuario demo con **id = 1** y rol `USER`. Es el que se usa como identidad en modo
+local (`movilidad.auth.local-user-id`), donde no hay token. Con `SECURITY_LOCAL_ENABLED=false` la identidad sale
+del claim `sub` del JWT y la fila se crea sola en el primer request (ver [Seguridad](#seguridad)).
 
 Para probar los endpoints de administración (incidencias y mantenimiento) localmente, hace falta un usuario
 con rol `ADMIN`. Por ejemplo, en tu base local:
@@ -200,7 +201,15 @@ Todas tienen un default pensado para desarrollo local.
 | `DB_PASSWORD` | `root` | Password de MySQL |
 | `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | Parámetros de la URL JDBC. En bases gestionadas hay que exigir TLS |
 | `SECURITY_LOCAL_ENABLED` | `true` | `true` deja todos los endpoints abiertos; `false` exige JWT (ver [Seguridad](#seguridad)) |
-| `AUTH_JWK_SET_URI` | `http://localhost:9000/.well-known/jwks.json` | JWKS para validar los JWT (solo con seguridad activa) |
+| `AUTH_JWK_SET_URI` | `https://api.citypass-login.pp.ua/.well-known/jwks.json` | JWKS del Login Federado, para validar la firma de los JWT |
+| `AUTH_ISSUER` | `https://idp.citypass.local` | `iss` esperado. Es un string exacto, no una URL alcanzable |
+| `AUTH_AUDIENCE` | `citypass-movilidad-api` | `aud` propio del módulo |
+| `AUTH_REQUIRED_TOKEN_USE` | `human` | Valor exigido en `token_use`: descarta los tokens de servicio |
+| `AUTH_LOCAL_USER_ID` | `1` | Identidad usada solo en modo local, donde no hay token |
+| `AUTH_USER_INFO_URI` | `https://api.citypass-login.pp.ua/me` | Perfil del empleado en el IdP: de ahí salen el email y el apellido que el token no trae |
+| `AUTH_USER_INFO_ENABLED` | `true` | `false` apaga esa consulta, para desarrollo sin salida a internet |
+| `CITIZEN_AUTH_SECRET` | *(sin default)* | Secreto HS256 en base64url con el que se firman los tokens de ciudadano. **Obligatorio en modo seguro: sin esto el backend no arranca** |
+| `CITIZEN_AUTH_ISSUER` | `https://movilidad.citypass.local` | `iss` de nuestros tokens. Distinto al del IdP: es lo que separa a las dos poblaciones |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma. Admite comodines |
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
@@ -217,14 +226,22 @@ radio y límite de la búsqueda de estaciones cercanas y timeouts y candidatas d
 Todas las rutas cuelgan de `/api/v1`. La referencia completa, con esquemas de request y response y ejemplos,
 está en Swagger UI. Resumen:
 
+### Autenticación de ciudadanos (públicos)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/auth/register` | Crear cuenta de ciudadano. Devuelve el par de tokens: queda logueado |
+| `POST` | `/auth/login` | Ingresar con email y contraseña |
+| `POST` | `/auth/refresh` | Renovar el par de tokens. El refresh **rota**: guardar siempre el último |
+
 ### Estaciones
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `GET` | `/stations` | Todas las estaciones |
 | `GET` | `/stations/{id}` | Una estación |
-| `POST` | `/stations` | Crear una estación |
-| `PATCH` | `/stations/{id}` | Actualizar una estación (incluye activar/desactivar con `status`) |
+| `POST` | `/stations` | Crear una estación (**requiere ADMIN**) |
+| `PATCH` | `/stations/{id}` | Actualizar una estación, incluye activar/desactivar con `status` (**requiere ADMIN**) |
 | `GET` | `/stations/availability` | Disponibilidad (bicis y anclajes libres) de todas las estaciones |
 | `GET` | `/stations/{id}/availability` | Disponibilidad de una estación |
 | `GET` | `/stations/nearby?lat&lng[&radius][&limit]` | Estaciones activas cercanas, ordenadas por distancia, con disponibilidad |
@@ -238,13 +255,13 @@ está en Swagger UI. Resumen:
 | `GET` | `/bikes/{id}` | Una bicicleta |
 | `GET` | `/bikes/station/{stationId}` | Bicicletas de una estación (cualquier estado) |
 | `GET` | `/bikes/available[?stationId]` | Bicicletas disponibles para retirar |
-| `POST` | `/bikes` | Alta de bicicleta |
-| `PATCH` | `/bikes/{id}/status` | Cambio de estado administrativo |
-| `PATCH` | `/bikes/{id}/station` | Traslado a otra estación |
+| `POST` | `/bikes` | Alta de bicicleta (**requiere ADMIN**) |
+| `PATCH` | `/bikes/{id}/status` | Cambio de estado administrativo (**requiere ADMIN**) |
+| `PATCH` | `/bikes/{id}/station` | Traslado a otra estación (**requiere ADMIN**) |
 | `GET` | `/bikes/{id}/status-history` | Historial de cambios de estado |
-| `DELETE` | `/bikes/{id}` | Baja lógica |
+| `DELETE` | `/bikes/{id}` | Baja lógica (**requiere ADMIN**) |
 
-### Viajes (requieren `X-User-Id`)
+### Viajes (requieren token)
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -253,7 +270,7 @@ está en Swagger UI. Resumen:
 | `POST` | `/trips/{id}/end` | Finalizar el viaje devolviendo la bici en una estación |
 | `GET` | `/trips/history?page&size` | Historial paginado de viajes finalizados |
 
-### Emergencias durante un viaje (requieren `X-User-Id`)
+### Emergencias durante un viaje (requieren token)
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -264,15 +281,15 @@ está en Swagger UI. Resumen:
 
 ### Incidencias
 
-| Método | Ruta | Header | Descripción |
+| Método | Ruta | Auth | Descripción |
 |---|---|---|---|
 | `GET` | `/incidents/types` | — | Tipos de incidencia activos |
-| `POST` | `/incidents` | `X-User-Id` | Reportar una incidencia sobre una bicicleta |
-| `GET` | `/incidents[?status&bikeId&userId&typeId]` | `X-User-Id` (ADMIN) | Listar y filtrar incidencias |
-| `GET` | `/incidents/{id}` | `X-User-Id` (ADMIN) | Detalle de una incidencia |
-| `PATCH` | `/incidents/{id}/status` | `X-User-Id` (ADMIN) | Cambiar el estado (revisión, resuelta, rechazada) |
+| `POST` | `/incidents` | Token | Reportar una incidencia sobre una bicicleta |
+| `GET` | `/incidents[?status&bikeId&userId&typeId]` | Token (grupo ADMIN) | Listar y filtrar incidencias |
+| `GET` | `/incidents/{id}` | Token (grupo ADMIN) | Detalle de una incidencia |
+| `PATCH` | `/incidents/{id}/status` | Token (grupo ADMIN) | Cambiar el estado (revisión, resuelta, rechazada) |
 
-### Mantenimiento (requieren `X-User-Id` de un ADMIN)
+### Mantenimiento (requieren token del grupo ADMIN)
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -397,11 +414,14 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | Migración | Contenido |
 |---|---|
 | `V1__init_schema.sql` | Esquema inicial: roles, usuarios, estaciones, bicicletas, historial de estados, viajes, tipos de incidencia, incidencias, mantenimiento, historial de disponibilidad, outbox de eventos |
-| `V2__seed_reference_data.sql` | Roles (`ADMIN`, `OPERATOR`, `USER`) y tipos de incidencia (pinchazo, frenos, cadena, vandalismo, otro) |
+| `V2__seed_reference_data.sql` | Roles (`ADMIN`, `OPERATOR`, `USER`) y tipos de incidencia (pinchazo, frenos, cadena, vandalismo, otro). `OPERATOR` lo borra después la `V8` |
 | `V3__seed_demo_user.sql` | Usuario demo con id = 1 y rol `USER` |
 | `V4__maintenance_origin_station.sql` | Estación de origen de cada orden de mantenimiento |
 | `V5__event_bus_outbox_inbox.sql` | Reintentos del outbox de eventos y tabla `event_inbox` de eventos recibidos |
 | `V6__bike_emergencies.sql` | Tabla `bike_emergencies`, estado `EMERGENCY` de viajes y `BLOCKED` de bicicletas |
+| `V7__federated_identity.sql` | Identidad federada: `email`/`first_name`/`last_name` pasan a nullable y `external_user_id` a unico |
+| `V8__drop_operator_role.sql` | Baja del rol `OPERATOR`, que ningun `@PreAuthorize` chequeaba. Reasigna a `USER` antes de borrarlo |
+| `V9__local_citizen_auth.sql` | Login de ciudadanos: contador de intentos fallidos en `users` y tabla `refresh_tokens` |
 
 La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 
@@ -439,14 +459,108 @@ Hay dos modos, controlados por `SECURITY_LOCAL_ENABLED`:
 | Modo | Valor | Comportamiento |
 |---|---|---|
 | Local / demo | `true` (default, y el que usa hoy producción) | Todos los endpoints abiertos |
-| Seguro | `false` | Exige JWT válido (validado contra `AUTH_JWK_SET_URI`), salvo disponibilidad, estaciones cercanas, recomendación, health y Swagger, que quedan públicos |
+| Seguro | `false` | Exige JWT válido (validado contra el JWKS del IdP, ver abajo), salvo disponibilidad, estaciones cercanas, recomendación, health y Swagger, que quedan públicos |
 
-**Identificación del usuario:** mientras no esté integrado el Login Federado (Grupo 2), el usuario actual se
-identifica con el header **`X-User-Id`**. Lo usan viajes, incidencias y mantenimiento. Los endpoints de
-administración validan que ese usuario esté activo y tenga rol `ADMIN` (si no, `403`).
+### Login Federado (Grupo 2)
 
-> Con `SECURITY_LOCAL_ENABLED=true`, cualquiera con la URL puede usar los endpoints de escritura y hacerse pasar
-> por otro usuario cambiando `X-User-Id`. Es aceptable para la demo, no para un entorno real.
+La autenticación la provee el IdP del Grupo 2, respaldado por LDAP. **Este backend nunca habla LDAP**: es un
+resource server OAuth2 que valida el JWT contra el JWKS del IdP, sin llamarlo en cada request. El formulario de
+login lo hace el frontend contra `POST https://api.citypass-login.pp.ua/auth/login` con el `clientId` del módulo,
+y manda el `access_token` como `Authorization: Bearer <token>`.
+
+| Dato | Valor |
+|---|---|
+| `clientId` (lo usa el frontend) | `citypass-movilidad-web` |
+| `aud` que valida este backend | `citypass-movilidad-api` |
+| `iss` esperado | `https://idp.citypass.local` (string exacto, **no** es una URL alcanzable) |
+| JWKS | `https://api.citypass-login.pp.ua/.well-known/jwks.json` |
+| Vida del access token | 15 min (el refresh lo maneja el frontend, y **rota**) |
+
+Un token se rechaza con `401` si no cumple las cinco validaciones: firma RS256 contra el JWKS (buscada por `kid`),
+`iss` exacto, `exp` vigente, `aud` que contenga `citypass-movilidad-api`, y `token_use = human`.
+
+**Identificación del usuario:** sale del claim `sub` del token (el `employeeNumber`, p. ej. `U000042`), que es la
+clave estable, y se guarda en `users.external_user_id`. La fila local se crea en el primer request autenticado de
+cada persona (aprovisionamiento just-in-time).
+
+**Perfil (email, nombre y apellido):** el access token **no** los trae, pero el contrato de eventos del bus los
+exige, así que en esa primera alta el backend los consulta una sola vez al `GET /me` del IdP. El `/me` devuelve
+el nombre sin separar (`fullName`), que se parte en "todo menos la última palabra" y "última palabra".
+
+Si el IdP no contesta, el alta **no se bloquea**: la persona opera igual, la fila queda con el
+`preferred_username` como nombre y el resto nulo, y se completa en un request posterior. Un fallo no se reintenta
+antes de `movilidad.idp.retry-cooldown` (10 min por defecto), para que un IdP caído no implique una llamada
+fallida por request. Con `movilidad.idp.enabled=false` la consulta se apaga entera, para desarrollo sin salida a
+internet.
+
+**Roles:** son los grupos LDAP del claim `groups`, que el delegado del módulo administra en el panel del IdP. El
+mapeo grupo→rol se configura sin recompilar:
+
+```properties
+movilidad.auth.group-roles[admin]=ADMIN
+movilidad.auth.group-roles[delegados]=ADMIN
+movilidad.auth.group-roles[operadores]=USER
+movilidad.auth.role-precedence=ADMIN,USER
+```
+
+Un cambio de grupos se refleja al próximo login o refresh (máximo 15 min, la vida del token). `users.status`
+queda como kill-switch local: una fila `BLOCKED` se rechaza con `403` aunque el token sea válido.
+
+> **Ojo con el alcance del IdP.** El spec del Grupo 2 lo define como *solo para personal municipal*; los usuarios
+> finales los resuelve cada grupo por separado. Hoy este backend exige token federado en **todos** los endpoints,
+> incluidos los de ciudadanos (`/api/v1/trips/**` y `POST /api/v1/incidents`), así que un ciudadano necesita que el
+> delegado le cree una cuenta en `ou=Movilidad`. Para devolverles el acceso sin tocar código, hay que listar esas
+> rutas en `movilidad.auth.citizen-open-paths`.
+
+> Con `SECURITY_LOCAL_ENABLED=true` no hay token ni autenticación: cualquiera con la URL puede usar los endpoints
+> de escritura, y la identidad cae al usuario de `movilidad.auth.local-user-id`. Aceptable para la demo, no para
+> un entorno real. En ese modo `@PreAuthorize` queda inerte a propósito (ver `MethodSecurityConfig`), así que el
+> `403` de admin tampoco se aplica.
+
+### Login de ciudadanos
+
+El IdP del Grupo 2 es **solo para personal municipal**, así que los usuarios finales los autentica este módulo
+con tokens que firma él mismo. Un ciudadano es una fila de `users` con `email` y `password_hash` y
+`external_user_id` en NULL; un empleado del IdP es lo inverso. El índice único de `external_user_id` admite
+varios NULL, así que conviven sin colisionar.
+
+| Dato | Valor |
+|---|---|
+| Firma | HS256 con `CITIZEN_AUTH_SECRET` (base64url, 32 bytes o más) |
+| `iss` | `https://movilidad.citypass.local` |
+| `sub` | El id local del usuario, en decimal |
+| `token_use` | `citizen` (el del IdP es `human`) |
+| Vida del access token | 30 min |
+| Vida del refresh token | 30 días, con rotación en cada uso |
+
+**Por qué HS256 y no RS256:** el emisor y el único verificador son el mismo proceso. No hay JWKS que publicar
+ni otro módulo que consuma estos tokens, así que lo que agrega una firma asimétrica —verificar sin poder
+emitir— no tiene consumidor acá. `LocalSigningKey` es la única clase que conoce el algoritmo, así que una
+migración futura queda contenida.
+
+**La clave es obligatoria en modo seguro.** Sin `CITIZEN_AUTH_SECRET` y con `SECURITY_LOCAL_ENABLED=false`, el
+arranque falla con un mensaje explícito, en lugar de firmar con una clave que nadie eligió. En modo local, sin
+la variable se genera una aleatoria al arrancar: los tokens dejan de valer en cada reinicio, que en desarrollo
+es irrelevante y evita tener un secreto de firma commiteado. Para generarla:
+
+```bash
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+```
+
+**Authorities:** un ciudadano recibe `ROLE_CITIZEN` y nada más. No recibe `ROLE_USER`, que es el que obtiene
+todo token federado válido, así las dos poblaciones quedan disjuntas y los `@PreAuthorize("hasRole('ADMIN')")`
+del personal le niegan el acceso sin reglas extra.
+
+**Intentos fallidos:** cinco en 15 minutos bloquean la cuenta 10 minutos (`ACCOUNT_LOCKED`). El límite es por
+cuenta y no por IP, así que no frena a quien prueba una contraseña contra muchas cuentas distintas.
+
+**Refresh:** rota en cada uso. Reusar uno ya gastado revoca la sesión entera, porque no se puede distinguir un
+replay de un cliente desincronizado. El frontend tiene que guardar siempre el último.
+
+**Login:** los tres caminos de fallo —email inexistente, contraseña incorrecta y cuenta sin contraseña local—
+devuelven el mismo `401 INVALID_CREDENTIALS`, con el mismo mensaje, y ejecutan el hash igual, para no delatar
+por tiempo si la cuenta existe. El registro sí informa que un email está tomado (`409`): es una fuga aceptada a
+conciencia, porque esconderla exigiría verificación por mail.
 
 **CORS:** `CORS_ALLOWED_ORIGINS` tiene que incluir el dominio del frontend (admite patrones como
 `https://daii-grupo-8-frontend-*.vercel.app` para los previews de Vercel). No uses `https://*.vercel.app`:
@@ -497,8 +611,11 @@ cada PR.
 
 ## Pendientes y dependencias externas
 
-- **Login Federado (Grupo 2)**: reemplazar el header `X-User-Id` por la identidad del JWT y pasar producción a
-  `SECURITY_LOCAL_ENABLED=false`.
+- **Login Federado (Grupo 2)**: la validación del token y el mapeo de grupos ya están integrados. Queda pasar
+  producción a `SECURITY_LOCAL_ENABLED=false` en un deploy coordinado con el frontend (en cuanto es `false`, todo
+  request sin token válido recibe `401`) y pasarle al Grupo 2 la URL del frontend para su CORS.
+- **Login de ciudadanos**: implementado (ver la sección más abajo). Queda cargar `CITIZEN_AUTH_SECRET` en Render
+  antes de pasar a modo seguro: sin esa variable el backend no arranca, a propósito.
 - **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publican
   `EmergenciaBicicleta` y `ReporteBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
   consumir los de otros grupos.

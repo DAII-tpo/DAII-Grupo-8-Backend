@@ -7,7 +7,7 @@ package com.citypass.movilidad.event;
  */
 public record ReporteBicicletaEvent(
         long reporteId,
-        // Identificador estable de la persona (convención del bus). Null hasta integrar el Login Federado.
+        // Identificador estable de la persona (convención del bus): el `sub` del token federado.
         String actorSub,
         long reportadoEn,
         TipoIncidencia tipo,
@@ -33,5 +33,18 @@ public record ReporteBicicletaEvent(
     }
 
     public record Usuario(long usuarioId, String nombre, String apellido, String email) {
+
+        /**
+         * El contrato declara los tres campos como obligatorios, pero el access token no trae
+         * email ni apellido: si el IdP no los pudo dar, la fila local queda incompleta. Un nulo
+         * haría que el gateway rechazara el evento y terminara en FAILED sin que nadie lo note,
+         * así que se normaliza a vacío. Es a propósito que no se invente una dirección con forma
+         * de mail real: un dato falso es peor que un campo vacío.
+         */
+        public Usuario {
+            nombre = nombre == null ? "" : nombre;
+            apellido = apellido == null ? "" : apellido;
+            email = email == null ? "" : email;
+        }
     }
 }
