@@ -153,9 +153,11 @@ class FederatedAuthIntegrationTest {
 
         User alta = userRepository.findByExternalUserId(sub).orElseThrow();
         assertThat(alta.getExternalUserId()).isEqualTo(sub);
-        // El access token no trae email: la columna queda nula en lugar de inventarse un valor.
-        assertThat(alta.getEmail()).isNull();
-        assertThat(alta.getFirstName()).isEqualTo("jperez");
+        // El access token no trae email ni apellido: salen del GET /me del IdP, que acá responde
+        // el doble de FederatedSecurityTestConfig con datos derivados del sub.
+        assertThat(alta.getEmail()).isEqualTo("u000200@citypass.local");
+        assertThat(alta.getFirstName()).isEqualTo("Persona");
+        assertThat(alta.getLastName()).isEqualTo(sub);
         // Role es LAZY y acá no hay sesión abierta (open-in-view=false): el id lo da el
         // proxy sin inicializarlo, así que se compara contra el de la fila ADMIN.
         assertThat(alta.getRole().getId())

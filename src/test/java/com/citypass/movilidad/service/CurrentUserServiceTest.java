@@ -1,5 +1,7 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.client.FederatedUserInfo;
+import com.citypass.movilidad.client.FederatedUserInfoClient;
 import com.citypass.movilidad.config.AuthProperties;
 import com.citypass.movilidad.config.FederatedRoleResolver;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
@@ -18,6 +20,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -40,11 +43,12 @@ class CurrentUserServiceTest {
             Map.of("admin", "ADMIN", "operadores", "OPERATOR"),
             "USER", List.of("ADMIN", "OPERATOR", "USER"),
             List.of(), List.of(), 1L);
+    private final FederatedUserInfoClient userInfoClient = mock(FederatedUserInfoClient.class);
     private final FederatedUserProvisioner provisioner =
             new FederatedUserProvisioner(userRepository, roleRepository, authProperties);
     private final CurrentUserService service = new CurrentUserService(
             userRepository, provisioner,
-            new FederatedRoleResolver(authProperties), authProperties);
+            new FederatedRoleResolver(authProperties), userInfoClient, authProperties);
 
     @AfterEach
     void limpiarContexto() {
@@ -113,10 +117,62 @@ class CurrentUserServiceTest {
         User alta = service.requireCurrentUser();
         assertThat(alta.getId()).isEqualTo(99L);
         assertThat(alta.getExternalUserId()).isEqualTo(SUB);
-        // El access token no trae email: queda nulo en lugar de inventarse un valor.
+        // Alta degradada: el IdP no contestó el perfil, así que el email queda nulo en lugar de
+        // inventarse un valor y el nombre cae al preferred_username del token.
         assertThat(alta.getEmail()).isNull();
         assertThat(alta.getFirstName()).isEqualTo("jperez");
         assertThat(alta.getRole().getName()).isEqualTo("ADMIN");
+    }
+
+    /** El alta normal toma del IdP el email y el apellido, que el access token no trae. */
+    @Test
+    void daDeAltaConElPerfilQueDevuelveElIdp() {
+        autenticar(SUB, List.of("admin"));
+        when(userRepository.findByExternalUserId(SUB)).thenReturn(Optional.empty());
+        when(roleRepository.findByName("ADMIN")).thenReturn(Optional.of(role("ADMIN")));
+        when(userInfoClient.fetch(any(), eq(SUB))).thenReturn(Optional.of(
+                new FederatedUserInfo("ana.perez@citypass.local", "Ana", "Pérez")));
+        when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        User alta = service.requireCurrentUser();
+        assertThat(alta.getEmail()).isEqualTo("ana.perez@citypass.local");
+        assertThat(alta.getFirstName()).isEqualTo("Ana");
+        assertThat(alta.getLastName()).isEqualTo("Pérez");
+    }
+
+    /**
+     * Una fila creada mientras el IdP estaba caído se completa en un request posterior. Importa
+     * porque el contrato de eventos del bus exige email y apellido.
+     */
+    @Test
+    void completaElPerfilDeUnaFilaQueQuedoIncompleta() {
+        autenticar(SUB, List.of("admin"));
+        User incompleta = user(7L, "ADMIN", UserStatus.ACTIVE);
+        incompleta.setFirstName("jperez");
+        when(userRepository.findByExternalUserId(SUB)).thenReturn(Optional.of(incompleta));
+        when(userInfoClient.fetch(any(), eq(SUB))).thenReturn(Optional.of(
+                new FederatedUserInfo("ana.perez@citypass.local", "Ana", "Pérez")));
+        when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.requireCurrentUser();
+        assertThat(incompleta.getEmail()).isEqualTo("ana.perez@citypass.local");
+        assertThat(incompleta.getLastName()).isEqualTo("Pérez");
+        // El nombre real del directorio reemplaza al preferred_username del alta degradada.
+        assertThat(incompleta.getFirstName()).isEqualTo("Ana");
+    }
+
+    /** Con la fila ya completa no se consulta al IdP: una llamada HTTP por request es inaceptable. */
+    @Test
+    void noConsultaAlIdpSiLaFilaYaEstaCompleta() {
+        autenticar(SUB, List.of("admin"));
+        User completa = user(7L, "ADMIN", UserStatus.ACTIVE);
+        completa.setEmail("ana.perez@citypass.local");
+        completa.setLastName("Pérez");
+        when(userRepository.findByExternalUserId(SUB)).thenReturn(Optional.of(completa));
+
+        assertThat(service.currentUserId()).isEqualTo(7L);
+        verify(userInfoClient, never()).fetch(any(), any());
+        verify(userRepository, never()).save(any());
     }
 
     /** Dos requests simultáneos del mismo sub: el índice único hace fallar al segundo insert. */

@@ -206,6 +206,8 @@ Todas tienen un default pensado para desarrollo local.
 | `AUTH_AUDIENCE` | `citypass-movilidad-api` | `aud` propio del módulo |
 | `AUTH_REQUIRED_TOKEN_USE` | `human` | Valor exigido en `token_use`: descarta los tokens de servicio |
 | `AUTH_LOCAL_USER_ID` | `1` | Identidad usada solo en modo local, donde no hay token |
+| `AUTH_USER_INFO_URI` | `https://api.citypass-login.pp.ua/me` | Perfil del empleado en el IdP: de ahí salen el email y el apellido que el token no trae |
+| `AUTH_USER_INFO_ENABLED` | `true` | `false` apaga esa consulta, para desarrollo sin salida a internet |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma. Admite comodines |
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
@@ -466,8 +468,17 @@ Un token se rechaza con `401` si no cumple las cinco validaciones: firma RS256 c
 
 **Identificación del usuario:** sale del claim `sub` del token (el `employeeNumber`, p. ej. `U000042`), que es la
 clave estable, y se guarda en `users.external_user_id`. La fila local se crea en el primer request autenticado de
-cada persona (aprovisionamiento just-in-time): el access token no trae email ni nombre, así que esas columnas
-quedan nulas y `preferred_username` va a `first_name`.
+cada persona (aprovisionamiento just-in-time).
+
+**Perfil (email, nombre y apellido):** el access token **no** los trae, pero el contrato de eventos del bus los
+exige, así que en esa primera alta el backend los consulta una sola vez al `GET /me` del IdP. El `/me` devuelve
+el nombre sin separar (`fullName`), que se parte en "todo menos la última palabra" y "última palabra".
+
+Si el IdP no contesta, el alta **no se bloquea**: la persona opera igual, la fila queda con el
+`preferred_username` como nombre y el resto nulo, y se completa en un request posterior. Un fallo no se reintenta
+antes de `movilidad.idp.retry-cooldown` (10 min por defecto), para que un IdP caído no implique una llamada
+fallida por request. Con `movilidad.idp.enabled=false` la consulta se apaga entera, para desarrollo sin salida a
+internet.
 
 **Roles:** son los grupos LDAP del claim `groups`, que el delegado del módulo administra en el panel del IdP. El
 mapeo grupo→rol se configura sin recompilar:

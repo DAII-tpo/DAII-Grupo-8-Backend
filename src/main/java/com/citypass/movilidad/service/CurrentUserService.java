@@ -1,5 +1,7 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.client.FederatedUserInfo;
+import com.citypass.movilidad.client.FederatedUserInfoClient;
 import com.citypass.movilidad.config.AuthProperties;
 import com.citypass.movilidad.config.FederatedRoleResolver;
 import com.citypass.movilidad.config.FederatedJwtClaims;
@@ -31,15 +33,18 @@ public class CurrentUserService {
     private final UserRepository userRepository;
     private final FederatedUserProvisioner provisioner;
     private final FederatedRoleResolver roleResolver;
+    private final FederatedUserInfoClient userInfoClient;
     private final AuthProperties authProperties;
 
     public CurrentUserService(UserRepository userRepository,
                               FederatedUserProvisioner provisioner,
                               FederatedRoleResolver roleResolver,
+                              FederatedUserInfoClient userInfoClient,
                               AuthProperties authProperties) {
         this.userRepository = userRepository;
         this.provisioner = provisioner;
         this.roleResolver = roleResolver;
+        this.userInfoClient = userInfoClient;
         this.authProperties = authProperties;
     }
 
@@ -79,26 +84,78 @@ public class CurrentUserService {
             throw new IllegalStateException("El token no trae el claim sub, que es la clave de la persona");
         }
         User user = userRepository.findByExternalUserId(externalUserId)
-                .map(existing -> reconcileRole(existing, jwt))
+                .map(existing -> reconcile(existing, jwt))
                 .orElseGet(() -> provisioner.provision(
-                        externalUserId,
-                        jwt.getClaimAsString(FederatedJwtClaims.PREFERRED_USERNAME),
-                        roleResolver.resolveRole(jwt)));
+                        externalUserId, profileOf(jwt), roleResolver.resolveRole(jwt)));
         requireActive(user);
         return user;
+    }
+
+    /**
+     * Perfil con el que se da de alta a la persona. Si el IdP no contesta, el nombre cae a
+     * {@code preferred_username} y el resto queda nulo: la persona opera igual y la fila se
+     * completa en un request posterior.
+     */
+    private FederatedUserInfo profileOf(Jwt jwt) {
+        return userInfoClient.fetch(jwt.getTokenValue(), jwt.getSubject())
+                .orElseGet(() -> new FederatedUserInfo(
+                        null, jwt.getClaimAsString(FederatedJwtClaims.PREFERRED_USERNAME), null));
+    }
+
+    /**
+     * Baja al snapshot local lo que haya cambiado: el rol según los grupos del token, y el perfil
+     * si quedó incompleto en un alta previa. Un solo {@code save} para los dos.
+     */
+    private User reconcile(User user, Jwt jwt) {
+        boolean changed = applyRole(user, jwt);
+        changed = applyMissingProfile(user, jwt) || changed;
+        return changed ? userRepository.save(user) : user;
     }
 
     /**
      * Un cambio de grupos en el panel del delegado se refleja al próximo login o refresh (máximo
      * 15 min, la vida del access token); acá se baja ese cambio a la fila local.
      */
-    private User reconcileRole(User user, Jwt jwt) {
+    private boolean applyRole(User user, Jwt jwt) {
         String expectedRole = roleResolver.resolveRole(jwt);
         if (user.getRole() != null && expectedRole.equals(user.getRole().getName())) {
-            return user;
+            return false;
         }
         user.setRole(provisioner.roleNamed(expectedRole));
-        return userRepository.save(user);
+        return true;
+    }
+
+    /**
+     * Completa las filas que se crearon sin email o sin apellido porque el IdP no estaba
+     * disponible. No es cosmético: el contrato de eventos del bus exige esos campos, así que una
+     * fila incompleta hace que los eventos de esa persona nunca se publiquen.
+     */
+    private boolean applyMissingProfile(User user, Jwt jwt) {
+        if (user.getEmail() != null && user.getLastName() != null) {
+            return false;
+        }
+        Optional<FederatedUserInfo> consultado =
+                userInfoClient.fetch(jwt.getTokenValue(), jwt.getSubject());
+        if (consultado.isEmpty()) {
+            return false;
+        }
+        FederatedUserInfo profile = consultado.get();
+        boolean changed = false;
+        // Solo se completa lo que falta: lo que el IdP no informe no borra lo que ya había.
+        if (user.getEmail() == null && profile.email() != null) {
+            user.setEmail(profile.email());
+            changed = true;
+        }
+        if (user.getLastName() == null && profile.lastName() != null) {
+            user.setLastName(profile.lastName());
+            changed = true;
+        }
+        // El nombre real del directorio reemplaza al preferred_username del alta degradada.
+        if (profile.firstName() != null && !profile.firstName().equals(user.getFirstName())) {
+            user.setFirstName(profile.firstName());
+            changed = true;
+        }
+        return changed;
     }
 
     /** Kill-switch local: una fila bloqueada se rechaza aunque el token sea válido. */

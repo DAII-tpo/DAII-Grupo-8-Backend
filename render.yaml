@@ -47,6 +47,13 @@ services:
         value: https://idp.citypass.local
       - key: AUTH_AUDIENCE
         value: citypass-movilidad-api
+      # El access token no trae email ni apellido, y el contrato de eventos del bus los exige:
+      # se consultan al IdP una vez, en el alta de cada persona. Si no contesta, el alta no se
+      # bloquea y la fila se completa en un request posterior.
+      - key: AUTH_USER_INFO_URI
+        value: https://api.citypass-login.pp.ua/me
+      - key: AUTH_USER_INFO_ENABLED
+        value: "true"
 
       # --- CORS: dominios del frontend, separados por coma ---
       - key: CORS_ALLOWED_ORIGINS

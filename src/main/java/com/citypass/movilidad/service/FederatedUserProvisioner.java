@@ -1,5 +1,6 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.client.FederatedUserInfo;
 import com.citypass.movilidad.config.AuthProperties;
 import com.citypass.movilidad.model.Role;
 import com.citypass.movilidad.model.User;
@@ -40,10 +41,12 @@ public class FederatedUserProvisioner {
     }
 
     /**
-     * Crea la fila local de una persona del IdP. El access token no trae email, nombre ni
-     * apellido (no existen esos claims), así que esas columnas quedan nulas en lugar de
-     * rellenarse con valores inventados; {@code preferred_username} va a {@code first_name},
-     * que es para mostrar en pantalla.
+     * Crea la fila local de una persona del IdP, con el perfil ya resuelto.
+     *
+     * <p>El perfil llega resuelto y no se consulta acá a propósito: el access token no trae email
+     * ni apellido, hay que pedírselos al IdP, y esa llamada HTTP no tiene que quedar dentro de
+     * esta transacción. Si el IdP no los dio, los componentes vienen nulos y la fila queda
+     * incompleta hasta que un request posterior la repare.
      *
      * <p>En una carrera entre dos requests del mismo sub, el índice único
      * {@code uk_users_external_user_id} hace fallar al segundo insert: se relee la fila ganadora
@@ -51,10 +54,12 @@ public class FederatedUserProvisioner {
      * permite que ese fallo no arrastre al request entero.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public User provision(String externalUserId, String preferredUsername, String roleName) {
+    public User provision(String externalUserId, FederatedUserInfo profile, String roleName) {
         User user = User.builder()
                 .externalUserId(externalUserId)
-                .firstName(preferredUsername)
+                .firstName(profile.firstName())
+                .lastName(profile.lastName())
+                .email(profile.email())
                 .role(roleNamed(roleName))
                 .status(UserStatus.ACTIVE)
                 .build();
