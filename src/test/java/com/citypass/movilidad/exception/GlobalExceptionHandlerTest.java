@@ -174,7 +174,7 @@ class GlobalExceptionHandlerTest {
     void devuelveBadRequestSiFaltaUnHeaderObligatorio() throws Exception {
         mockMvc.perform(get("/probe/header"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Falta el header obligatorio X-User-Id"));
+                .andExpect(jsonPath("$.message").value("Falta el header obligatorio X-Probe-Id"));
     }
 
     @Test
@@ -248,7 +248,7 @@ class GlobalExceptionHandlerTest {
         }
 
         @GetMapping("/header")
-        void header(@RequestHeader("X-User-Id") Long userId) {
+        void header(@RequestHeader("X-Probe-Id") Long userId) {
             // Solo interesa la validación del header.
         }
 

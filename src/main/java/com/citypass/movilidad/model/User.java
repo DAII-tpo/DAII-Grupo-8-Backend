@@ -36,16 +36,17 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "external_user_id", length = 64)
+    /** `sub` del Login Federado (employeeNumber). Clave natural de la identidad federada. */
+    @Column(name = "external_user_id", length = 64, unique = true)
     private String externalUserId;
 
-    @Column(name = "first_name", nullable = false, length = 100)
+    @Column(name = "first_name", length = 100)
     private String firstName;
 
-    @Column(name = "last_name", nullable = false, length = 100)
+    @Column(name = "last_name", length = 100)
     private String lastName;
 
-    @Column(nullable = false, length = 255, unique = true)
+    @Column(length = 255, unique = true)
     private String email;
 
     @Column(name = "password_hash", length = 255)

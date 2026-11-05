@@ -67,8 +67,11 @@ class MaintenanceServiceTest {
                 .isInstanceOf(BusinessRuleException.class).hasMessageContaining("en curso");
         verify(bikes,never()).sendToMaintenance(any(),any(),any());
     }
-    @Test void rejectsUser(){
-        Role role=new Role(); role.setName("USER"); admin.setRole(role);
+    /** El rol lo decide @PreAuthorize (ver FederatedAuthIntegrationTest); acá, el estado. */
+    @Test void rejectsDisabledUser(){
+        admin.setStatus(UserStatus.BLOCKED);
+        assertThatThrownBy(()->service.findAll(1L)).isInstanceOf(ForbiddenOperationException.class);
+        admin.setStatus(UserStatus.INACTIVE);
         assertThatThrownBy(()->service.findAll(1L)).isInstanceOf(ForbiddenOperationException.class);
     }
 

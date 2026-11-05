@@ -173,8 +173,9 @@ criterio de respaldo (`source = FALLBACK`).
 
 ### 5. Usuario de prueba
 
-La migración V3 crea un usuario demo con **id = 1** y rol `USER`. Es el que usa el frontend para los
-endpoints que identifican al usuario con el header `X-User-Id` (ver [Seguridad](#seguridad)).
+La migración V3 crea un usuario demo con **id = 1** y rol `USER`. Es el que se usa como identidad en modo
+local (`movilidad.auth.local-user-id`), donde no hay token. Con `SECURITY_LOCAL_ENABLED=false` la identidad sale
+del claim `sub` del JWT y la fila se crea sola en el primer request (ver [Seguridad](#seguridad)).
 
 Para probar los endpoints de administración (incidencias y mantenimiento) localmente, hace falta un usuario
 con rol `ADMIN`. Por ejemplo, en tu base local:
@@ -197,7 +198,11 @@ Todas tienen un default pensado para desarrollo local.
 | `DB_PASSWORD` | `root` | Password de MySQL |
 | `DB_PARAMS` | `useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | Parámetros de la URL JDBC. En bases gestionadas hay que exigir TLS |
 | `SECURITY_LOCAL_ENABLED` | `true` | `true` deja todos los endpoints abiertos; `false` exige JWT (ver [Seguridad](#seguridad)) |
-| `AUTH_JWK_SET_URI` | `http://localhost:9000/.well-known/jwks.json` | JWKS para validar los JWT (solo con seguridad activa) |
+| `AUTH_JWK_SET_URI` | `https://api.citypass-login.pp.ua/.well-known/jwks.json` | JWKS del Login Federado, para validar la firma de los JWT |
+| `AUTH_ISSUER` | `https://idp.citypass.local` | `iss` esperado. Es un string exacto, no una URL alcanzable |
+| `AUTH_AUDIENCE` | `citypass-movilidad-api` | `aud` propio del módulo |
+| `AUTH_REQUIRED_TOKEN_USE` | `human` | Valor exigido en `token_use`: descarta los tokens de servicio |
+| `AUTH_LOCAL_USER_ID` | `1` | Identidad usada solo en modo local, donde no hay token |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma. Admite comodines |
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
@@ -240,7 +245,7 @@ está en Swagger UI. Resumen:
 | `GET` | `/bikes/{id}/status-history` | Historial de cambios de estado |
 | `DELETE` | `/bikes/{id}` | Baja lógica |
 
-### Viajes (requieren `X-User-Id`)
+### Viajes (requieren token)
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -251,15 +256,15 @@ está en Swagger UI. Resumen:
 
 ### Incidencias
 
-| Método | Ruta | Header | Descripción |
+| Método | Ruta | Auth | Descripción |
 |---|---|---|---|
 | `GET` | `/incidents/types` | — | Tipos de incidencia activos |
-| `POST` | `/incidents` | `X-User-Id` | Reportar una incidencia sobre una bicicleta |
-| `GET` | `/incidents[?status&bikeId&userId&typeId]` | `X-User-Id` (ADMIN) | Listar y filtrar incidencias |
-| `GET` | `/incidents/{id}` | `X-User-Id` (ADMIN) | Detalle de una incidencia |
-| `PATCH` | `/incidents/{id}/status` | `X-User-Id` (ADMIN) | Cambiar el estado (revisión, resuelta, rechazada) |
+| `POST` | `/incidents` | Token | Reportar una incidencia sobre una bicicleta |
+| `GET` | `/incidents[?status&bikeId&userId&typeId]` | Token (grupo ADMIN) | Listar y filtrar incidencias |
+| `GET` | `/incidents/{id}` | Token (grupo ADMIN) | Detalle de una incidencia |
+| `PATCH` | `/incidents/{id}/status` | Token (grupo ADMIN) | Cambiar el estado (revisión, resuelta, rechazada) |
 
-### Mantenimiento (requieren `X-User-Id` de un ADMIN)
+### Mantenimiento (requieren token del grupo ADMIN)
 
 | Método | Ruta | Descripción |
 |---|---|---|
@@ -402,14 +407,53 @@ Hay dos modos, controlados por `SECURITY_LOCAL_ENABLED`:
 | Modo | Valor | Comportamiento |
 |---|---|---|
 | Local / demo | `true` (default, y el que usa hoy producción) | Todos los endpoints abiertos |
-| Seguro | `false` | Exige JWT válido (validado contra `AUTH_JWK_SET_URI`), salvo disponibilidad, estaciones cercanas, recomendación, health y Swagger, que quedan públicos |
+| Seguro | `false` | Exige JWT válido (validado contra el JWKS del IdP, ver abajo), salvo disponibilidad, estaciones cercanas, recomendación, health y Swagger, que quedan públicos |
 
-**Identificación del usuario:** mientras no esté integrado el Login Federado (Grupo 2), el usuario actual se
-identifica con el header **`X-User-Id`**. Lo usan viajes, incidencias y mantenimiento. Los endpoints de
-administración validan que ese usuario esté activo y tenga rol `ADMIN` (si no, `403`).
+### Login Federado (Grupo 2)
 
-> Con `SECURITY_LOCAL_ENABLED=true`, cualquiera con la URL puede usar los endpoints de escritura y hacerse pasar
-> por otro usuario cambiando `X-User-Id`. Es aceptable para la demo, no para un entorno real.
+La autenticación la provee el IdP del Grupo 2, respaldado por LDAP. **Este backend nunca habla LDAP**: es un
+resource server OAuth2 que valida el JWT contra el JWKS del IdP, sin llamarlo en cada request. El formulario de
+login lo hace el frontend contra `POST https://api.citypass-login.pp.ua/auth/login` con el `clientId` del módulo,
+y manda el `access_token` como `Authorization: Bearer <token>`.
+
+| Dato | Valor |
+|---|---|
+| `clientId` (lo usa el frontend) | `citypass-movilidad-web` |
+| `aud` que valida este backend | `citypass-movilidad-api` |
+| `iss` esperado | `https://idp.citypass.local` (string exacto, **no** es una URL alcanzable) |
+| JWKS | `https://api.citypass-login.pp.ua/.well-known/jwks.json` |
+| Vida del access token | 15 min (el refresh lo maneja el frontend, y **rota**) |
+
+Un token se rechaza con `401` si no cumple las cinco validaciones: firma RS256 contra el JWKS (buscada por `kid`),
+`iss` exacto, `exp` vigente, `aud` que contenga `citypass-movilidad-api`, y `token_use = human`.
+
+**Identificación del usuario:** sale del claim `sub` del token (el `employeeNumber`, p. ej. `U000042`), que es la
+clave estable, y se guarda en `users.external_user_id`. La fila local se crea en el primer request autenticado de
+cada persona (aprovisionamiento just-in-time): el access token no trae email ni nombre, así que esas columnas
+quedan nulas y `preferred_username` va a `first_name`.
+
+**Roles:** son los grupos LDAP del claim `groups`, que el delegado del módulo administra en el panel del IdP. El
+mapeo grupo→rol se configura sin recompilar:
+
+```properties
+movilidad.auth.group-roles[admin]=ADMIN
+movilidad.auth.group-roles[operadores]=OPERATOR
+movilidad.auth.role-precedence=ADMIN,OPERATOR,USER
+```
+
+Un cambio de grupos se refleja al próximo login o refresh (máximo 15 min, la vida del token). `users.status`
+queda como kill-switch local: una fila `BLOCKED` se rechaza con `403` aunque el token sea válido.
+
+> **Ojo con el alcance del IdP.** El spec del Grupo 2 lo define como *solo para personal municipal*; los usuarios
+> finales los resuelve cada grupo por separado. Hoy este backend exige token federado en **todos** los endpoints,
+> incluidos los de ciudadanos (`/api/v1/trips/**` y `POST /api/v1/incidents`), así que un ciudadano necesita que el
+> delegado le cree una cuenta en `ou=Movilidad`. Para devolverles el acceso sin tocar código, hay que listar esas
+> rutas en `movilidad.auth.citizen-open-paths`.
+
+> Con `SECURITY_LOCAL_ENABLED=true` no hay token ni autenticación: cualquiera con la URL puede usar los endpoints
+> de escritura, y la identidad cae al usuario de `movilidad.auth.local-user-id`. Aceptable para la demo, no para
+> un entorno real. En ese modo `@PreAuthorize` queda inerte a propósito (ver `MethodSecurityConfig`), así que el
+> `403` de admin tampoco se aplica.
 
 **CORS:** `CORS_ALLOWED_ORIGINS` tiene que incluir el dominio del frontend (admite patrones como
 `https://daii-grupo-8-frontend-*.vercel.app` para los previews de Vercel). No uses `https://*.vercel.app`:
@@ -460,8 +504,10 @@ cada PR.
 
 ## Pendientes y dependencias externas
 
-- **Login Federado (Grupo 2)**: reemplazar el header `X-User-Id` por la identidad del JWT y pasar producción a
-  `SECURITY_LOCAL_ENABLED=false`.
+- **Login Federado (Grupo 2)**: la validación del token y el mapeo de grupos ya están integrados. Queda pasar
+  producción a `SECURITY_LOCAL_ENABLED=false` en un deploy coordinado con el frontend (en cuanto es `false`, todo
+  request sin token válido recibe `401`), pasarle al Grupo 2 la URL del frontend para su CORS, y pedirle las
+  credenciales del delegado del módulo para crear los grupos y los usuarios de prueba.
 - **Event bus (Grupo 1)**: publicar los eventos de viaje (`movilidad.viaje.iniciado` / `movilidad.viaje.finalizado`)
   cuando esté definido el contrato. Hoy `TripEventPublisher` solo los registra en el log.
 - **Recomendación con datos reales**: el modelo está entrenado con datos sintéticos (ver sus limitaciones en

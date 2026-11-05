@@ -5,8 +5,10 @@ import com.citypass.movilidad.exception.*;
 import com.citypass.movilidad.model.*;
 import com.citypass.movilidad.model.enums.*;
 import com.citypass.movilidad.repository.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -25,15 +27,17 @@ public class MaintenanceService {
     }
 
     /** Todas las órdenes, de la más reciente a la más antigua. */
+    @PreAuthorize("hasRole('ADMIN')")
     public List<MaintenanceResponse> findAll(Long adminId) {
-        requireAdmin(adminId);
+        requireActiveUser(adminId);
         return records.findAllByOrderByStartedAtDesc().stream().map(this::response).toList();
     }
 
     @Transactional
     /** Abre una orden: la bici pasa a MAINTENANCE y se guarda su estación de origen. */
+    @PreAuthorize("hasRole('ADMIN')")
     public MaintenanceResponse create(Long adminId, MaintenanceCreateRequest request) {
-        User admin=requireAdmin(adminId);
+        User admin=requireActiveUser(adminId);
         Bike bike=bikes.lockActiveBike(request.bikeId());
         BikeIncident incident=request.incidentId()==null ? null : incidents.findById(request.incidentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Incidencia no encontrada: "+request.incidentId()));
@@ -52,8 +56,9 @@ public class MaintenanceService {
 
     @Transactional
     /** Cierra la orden y devuelve la bici a circulación. */
+    @PreAuthorize("hasRole('ADMIN')")
     public MaintenanceResponse complete(Long adminId, Long id, MaintenanceCompleteRequest request) {
-        User admin=requireAdmin(adminId);
+        User admin=requireActiveUser(adminId);
         MaintenanceRecord record=records.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Mantenimiento no encontrado: "+id));
         if(record.getStatus()!=MaintenanceStatus.IN_PROGRESS)
@@ -73,10 +78,11 @@ public class MaintenanceService {
         return record.getOriginStation().getId();
     }
 
-    private User requireAdmin(Long id) {
+    /** Igual que en IncidentService: el rol lo decide @PreAuthorize, acá solo el estado. */
+    private User requireActiveUser(Long id) {
         User user=users.findById(id).orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: "+id));
-        if(user.getStatus()!=UserStatus.ACTIVE || user.getRole()==null || !"ADMIN".equals(user.getRole().getName()))
-            throw new ForbiddenOperationException("El usuario no tiene permisos de administrador: "+id);
+        if(user.getStatus()!=UserStatus.ACTIVE)
+            throw new ForbiddenOperationException("El usuario no está habilitado: "+id);
         return user;
     }
     private MaintenanceResponse response(MaintenanceRecord r) {

@@ -13,12 +13,14 @@ import com.citypass.movilidad.repository.IncidentTypeRepository;
 import com.citypass.movilidad.repository.RoleRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import com.citypass.movilidad.repository.UserRepository;
+import com.citypass.movilidad.support.FederatedSecurityTestConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -26,9 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-
-import java.math.BigDecimal;
-
+import static com.citypass.movilidad.support.FederatedSecurityTestConfig.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -36,12 +36,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.math.BigDecimal;
+
 @Testcontainers
 @AutoConfigureMockMvc
-@SpringBootTest
+@SpringBootTest(properties = "security.local.enabled=false")
+@Import(FederatedSecurityTestConfig.class)
 class IncidentFlowIntegrationTest {
-
-    private static final String USER_HEADER = "X-User-Id";
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
@@ -79,11 +80,11 @@ class IncidentFlowIntegrationTest {
         Bike bike = bike();
         Long typeId = typeRepository.findByCode("FLAT_TIRE").orElseThrow().getId();
 
-        mockMvc.perform(get("/api/v1/incidents/types"))
+        mockMvc.perform(get("/api/v1/incidents/types").with(bearer(user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.code == 'FLAT_TIRE')]").exists());
 
-        String body = mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, user.getId())
+        String body = mockMvc.perform(post("/api/v1/incidents").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
                                 + ",\"description\":\"Rueda trasera desinflada\"}"))
@@ -109,7 +110,7 @@ class IncidentFlowIntegrationTest {
         Long typeId = typeRepository.findByCode("OTHER").orElseThrow().getId();
         long before = incidentRepository.count();
 
-        mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/incidents").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":999999999,\"incidentTypeId\":" + typeId
                                 + ",\"description\":\"Bicicleta inexistente\"}"))
@@ -126,7 +127,7 @@ class IncidentFlowIntegrationTest {
         Bike bike = bike();
         Long typeId = typeRepository.findByCode("BRAKE_FAILURE").orElseThrow().getId();
 
-        String createdBody = mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, reporter.getId())
+        String createdBody = mockMvc.perform(post("/api/v1/incidents").with(bearer(reporter))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
                                 + ",\"description\":\"Los frenos no responden\"}"))
@@ -134,10 +135,10 @@ class IncidentFlowIntegrationTest {
                 .andReturn().getResponse().getContentAsString();
         long incidentId = objectMapper.readTree(createdBody).get("id").asLong();
 
-        mockMvc.perform(get("/api/v1/incidents").header(USER_HEADER, reporter.getId()))
+        mockMvc.perform(get("/api/v1/incidents").with(bearer(reporter)))
                 .andExpect(status().isForbidden());
 
-        mockMvc.perform(get("/api/v1/incidents").header(USER_HEADER, admin.getId())
+        mockMvc.perform(get("/api/v1/incidents").with(bearer(admin, "admin"))
                         .param("status", "OPEN")
                         .param("bikeId", bike.getId().toString())
                         .param("userId", reporter.getId().toString())
@@ -146,12 +147,12 @@ class IncidentFlowIntegrationTest {
                 .andExpect(jsonPath("$[0].id").value(incidentId))
                 .andExpect(jsonPath("$[0].reportedByUserEmail").value(reporter.getEmail()));
 
-        mockMvc.perform(get("/api/v1/incidents/" + incidentId).header(USER_HEADER, admin.getId()))
+        mockMvc.perform(get("/api/v1/incidents/" + incidentId).with(bearer(admin, "admin")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bikeCode").value(bike.getCode()));
 
         mockMvc.perform(patch("/api/v1/incidents/" + incidentId + "/status")
-                        .header(USER_HEADER, admin.getId())
+                        .with(bearer(admin, "admin"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"RESOLVED\"}"))
                 .andExpect(status().isOk())
@@ -179,7 +180,7 @@ class IncidentFlowIntegrationTest {
                 .andExpect(jsonPath("$.availableSlots").value(9));
 
         // Reporte: queda fuera de servicio en la estación, ocupando el anclaje.
-        String incidentBody = mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, reporter.getId())
+        String incidentBody = mockMvc.perform(post("/api/v1/incidents").with(bearer(reporter))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
                                 + ",\"description\":\"Rueda pinchada\"}"))
@@ -193,7 +194,7 @@ class IncidentFlowIntegrationTest {
                 .andExpect(jsonPath("$.availableSlots").value(9));
 
         // Mantenimiento: se retira de la estación y libera el anclaje.
-        String maintenanceBody = mockMvc.perform(post("/api/v1/maintenance").header(USER_HEADER, admin.getId())
+        String maintenanceBody = mockMvc.perform(post("/api/v1/maintenance").with(bearer(admin, "admin"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + ",\"incidentId\":" + incidentId
                                 + ",\"description\":\"Cambio de cámara\"}"))
@@ -210,13 +211,14 @@ class IncidentFlowIntegrationTest {
 
         // Mientras la orden está abierta no se puede sacar de mantenimiento por otro camino.
         mockMvc.perform(patch("/api/v1/bikes/" + bike.getId() + "/station")
+                        .with(bearer(admin, "admin"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"stationId\":" + stationId + "}"))
                 .andExpect(status().isConflict());
 
         // Finalizar sin indicar estación: vuelve a la de origen, disponible.
         mockMvc.perform(patch("/api/v1/maintenance/" + maintenanceId + "/complete")
-                        .header(USER_HEADER, admin.getId())
+                        .with(bearer(admin, "admin"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"resolution\":\"Cámara nueva\"}"))
                 .andExpect(status().isOk())
@@ -233,11 +235,14 @@ class IncidentFlowIntegrationTest {
         return user("USER");
     }
 
+    /** El external_user_id es el `sub` del token: la clave con la que el backend lo resuelve. */
     private User user(String roleName) {
+        long unico = System.nanoTime();
         User user = new User();
+        user.setExternalUserId("U" + unico);
         user.setFirstName("Usuario");
         user.setLastName("Incidencias");
-        user.setEmail("incidencias-" + System.nanoTime() + "@example.com");
+        user.setEmail("incidencias-" + unico + "@example.com");
         user.setRole(roleRepository.findByName(roleName).orElseThrow());
         return userRepository.save(user);
     }
