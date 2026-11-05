@@ -8,6 +8,7 @@ import com.citypass.movilidad.model.enums.StationSource;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import com.citypass.movilidad.repository.TripRepository;
+import com.citypass.movilidad.support.TestSecrets;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +46,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 class LocalModeBearerTest {
 
-    private static final String PASSWORD = "Bicicleta2026";
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
@@ -107,7 +107,7 @@ class LocalModeBearerTest {
         String email = "local-" + UUID.randomUUID() + "@example.com";
         String registro = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + TestSecrets.CITIZEN_PASSWORD
                                 + "\",\"firstName\":\"Ana\",\"lastName\":\"Pérez\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();

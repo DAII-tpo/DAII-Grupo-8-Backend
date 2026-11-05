@@ -10,6 +10,7 @@ import com.citypass.movilidad.repository.StationRepository;
 import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
 import com.citypass.movilidad.support.FederatedSecurityTestConfig;
+import com.citypass.movilidad.support.TestSecrets;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -50,11 +51,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @SpringBootTest(properties = {
         "security.local.enabled=false",
-        "movilidad.citizen-auth.secret=c2VjcmV0by1kZS1wcnVlYmEtZGUtMzItYnl0ZXMhISE"})
+        TestSecrets.CITIZEN_AUTH_SECRET_PROPERTY})
 @Import(FederatedSecurityTestConfig.class)
 class CitizenAuthFlowIntegrationTest {
 
-    private static final String PASSWORD = "Bicicleta2026";
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
@@ -98,7 +98,7 @@ class CitizenAuthFlowIntegrationTest {
     private JsonNode registrar(String email) throws Exception {
         String body = mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + TestSecrets.CITIZEN_PASSWORD
                                 + "\",\"firstName\":\"Ana\",\"lastName\":\"Pérez\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
@@ -126,9 +126,9 @@ class CitizenAuthFlowIntegrationTest {
         // La fila del ciudadano no tiene identidad en el IdP: eso lo distingue de un empleado.
         var fila = userRepository.findByEmail(email).orElseThrow();
         assertThat(fila.getExternalUserId()).isNull();
-        assertThat(fila.getPasswordHash()).isNotBlank().isNotEqualTo(PASSWORD);
+        assertThat(fila.getPasswordHash()).isNotBlank().isNotEqualTo(TestSecrets.CITIZEN_PASSWORD);
 
-        JsonNode ingreso = login(email, PASSWORD, 200);
+        JsonNode ingreso = login(email, TestSecrets.CITIZEN_PASSWORD, 200);
         assertThat(ingreso.get("userId").asLong()).isEqualTo(fila.getId());
     }
 
@@ -139,7 +139,7 @@ class CitizenAuthFlowIntegrationTest {
 
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + TestSecrets.CITIZEN_PASSWORD
                                 + "\",\"firstName\":\"Ana\",\"lastName\":\"Pérez\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_REGISTERED"));
@@ -237,13 +237,13 @@ class CitizenAuthFlowIntegrationTest {
         registrar(email);
 
         for (int i = 0; i < 5; i++) {
-            login(email, "EstaEstaMal123", 401);
+            login(email, TestSecrets.WRONG_PASSWORD, 401);
         }
 
         // Con la contraseña correcta, el código cambia: es el bloqueo y no las credenciales.
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + email + "\",\"password\":\"" + PASSWORD + "\"}"))
+                        .content("{\"email\":\"" + email + "\",\"password\":\"" + TestSecrets.CITIZEN_PASSWORD + "\"}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("ACCOUNT_LOCKED"));
     }
@@ -254,8 +254,8 @@ class CitizenAuthFlowIntegrationTest {
         String email = emailNuevo();
         registrar(email);
 
-        login(email, "EstaEstaMal123", 401);
-        login(email, "EstaEstaMal123", 401);
+        login(email, TestSecrets.WRONG_PASSWORD, 401);
+        login(email, TestSecrets.WRONG_PASSWORD, 401);
 
         assertThat(userRepository.findByEmail(email).orElseThrow().getFailedLoginAttempts())
                 .isEqualTo(2);
@@ -266,8 +266,8 @@ class CitizenAuthFlowIntegrationTest {
         String email = emailNuevo();
         registrar(email);
 
-        JsonNode inexistente = login(emailNuevo(), PASSWORD, 401);
-        JsonNode incorrecta = login(email, "EstaEstaMal123", 401);
+        JsonNode inexistente = login(emailNuevo(), TestSecrets.CITIZEN_PASSWORD, 401);
+        JsonNode incorrecta = login(email, TestSecrets.WRONG_PASSWORD, 401);
 
         assertThat(inexistente.get("code").asText()).isEqualTo("INVALID_CREDENTIALS");
         assertThat(incorrecta.get("code").asText())
@@ -281,7 +281,7 @@ class CitizenAuthFlowIntegrationTest {
     void losEndpointsDeAuthNoExigenToken() throws Exception {
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"" + emailNuevo() + "\",\"password\":\"" + PASSWORD + "\"}"))
+                        .content("{\"email\":\"" + emailNuevo() + "\",\"password\":\"" + TestSecrets.CITIZEN_PASSWORD + "\"}"))
                 // 401 de credenciales, no de token ausente: el request llegó al controller.
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));

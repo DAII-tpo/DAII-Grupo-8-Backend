@@ -4,6 +4,7 @@ import com.citypass.movilidad.dto.AuthTokenResponse;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.UnauthorizedException;
 import com.citypass.movilidad.service.CitizenAuthService;
+import com.citypass.movilidad.support.TestSecrets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -33,13 +34,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 class AuthControllerTest {
 
-    private static final String REGISTRO = """
-            {"email":"ana.perez@example.com","password":"Bicicleta2026",
-             "firstName":"Ana","lastName":"Pérez"}
-            """;
+    private static final String EMAIL = "ana.perez@example.com";
 
-    private static final String LOGIN =
-            "{\"email\":\"ana.perez@example.com\",\"password\":\"Bicicleta2026\"}";
+    private static final String REGISTRO = "{\"email\":\"" + EMAIL + "\",\"password\":\""
+            + TestSecrets.CITIZEN_PASSWORD + "\",\"firstName\":\"Ana\",\"lastName\":\"Pérez\"}";
+
+    private static final String LOGIN = "{\"email\":\"" + EMAIL + "\",\"password\":\""
+            + TestSecrets.CITIZEN_PASSWORD + "\"}";
 
     @Autowired
     private MockMvc mockMvc;

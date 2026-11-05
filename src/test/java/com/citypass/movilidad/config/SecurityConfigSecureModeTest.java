@@ -1,6 +1,7 @@
 package com.citypass.movilidad.config;
 
 import com.citypass.movilidad.support.FederatedSecurityTestConfig;
+import com.citypass.movilidad.support.TestSecrets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -28,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "security.local.enabled=false",
         // El modo seguro exige una clave de firma elegida para los tokens de ciudadano:
         // sin esto el contexto no arranca, que es justamente la garantia de LocalSigningKey.
-        "movilidad.citizen-auth.secret=c2VjcmV0by1kZS1wcnVlYmEtZGUtMzItYnl0ZXMhISE"})
+        TestSecrets.CITIZEN_AUTH_SECRET_PROPERTY})
 @Import(FederatedSecurityTestConfig.class)
 class SecurityConfigSecureModeTest {
 

@@ -1,6 +1,7 @@
 package com.citypass.movilidad.client;
 
 import com.citypass.movilidad.config.IdpProperties;
+import com.citypass.movilidad.support.MutableClock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,11 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,7 +40,7 @@ class HttpFederatedUserInfoClientTest {
              "email":"delegado-mov@citypass.local","module":"movilidad","groups":["delegados"]}
             """;
 
-    private final MutableClock clock = new MutableClock();
+    private final MutableClock clock = MutableClock.fija();
     private RestClient.Builder builder;
     private MockRestServiceServer server;
 
@@ -219,28 +216,4 @@ class HttpFederatedUserInfoClientTest {
         return new HttpFederatedUserInfoClient.MeResponse(fullName, email);
     }
 
-    /** Reloj movible: el cooldown se mide contra él. */
-    private static final class MutableClock extends Clock {
-
-        private Instant now = Instant.parse("2026-01-01T10:00:00Z");
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
-        }
-
-        void advance(Duration amount) {
-            now = now.plus(amount);
-        }
-    }
 }

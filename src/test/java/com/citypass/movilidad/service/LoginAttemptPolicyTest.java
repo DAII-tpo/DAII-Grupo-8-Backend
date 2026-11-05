@@ -2,13 +2,11 @@ package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.config.CitizenAuthProperties;
 import com.citypass.movilidad.model.User;
+import com.citypass.movilidad.support.MutableClock;
 import org.junit.jupiter.api.Test;
 
-import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -18,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class LoginAttemptPolicyTest {
 
-    private final MutableClock clock = new MutableClock();
+    private final MutableClock clock = MutableClock.fija();
     private final LoginAttemptPolicy policy = new LoginAttemptPolicy(
             new CitizenAuthProperties("iss", "aud", null, Duration.ofMinutes(30),
                     Duration.ofDays(30), 5, Duration.ofMinutes(15), Duration.ofMinutes(10)),
@@ -126,27 +124,4 @@ class LoginAttemptPolicyTest {
         assertThat(policy.isLocked(cuenta())).isFalse();
     }
 
-    private static final class MutableClock extends Clock {
-
-        private Instant now = Instant.parse("2026-01-01T10:00:00Z");
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
-        }
-
-        void advance(Duration amount) {
-            now = now.plus(amount);
-        }
-    }
 }

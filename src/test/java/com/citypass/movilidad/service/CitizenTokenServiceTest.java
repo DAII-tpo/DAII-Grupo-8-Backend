@@ -2,16 +2,12 @@ package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.config.CitizenAuthProperties;
 import com.citypass.movilidad.model.User;
+import com.citypass.movilidad.support.MutableClock;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
 
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Base64;
 
@@ -35,7 +31,7 @@ class CitizenTokenServiceTest {
     private static final String AUDIENCE = "citypass-movilidad-api";
     private static final Duration TTL = Duration.ofMinutes(30);
 
-    private final MutableClock clock = new MutableClock();
+    private final MutableClock clock = MutableClock.real();
 
     private static String secretoDe(int bytes, byte relleno) {
         byte[] crudo = new byte[bytes];
@@ -87,7 +83,7 @@ class CitizenTokenServiceTest {
 
     @Test
     void rechazaUnTokenVencido() {
-        MutableClock atrasado = new MutableClock();
+        MutableClock atrasado = MutableClock.real();
         atrasado.advance(Duration.ofHours(-2));
         CitizenTokenService servicio = new CitizenTokenService(
                 propiedades(ISSUER, AUDIENCE, SECRETO), atrasado, false);
@@ -171,31 +167,4 @@ class CitizenTokenServiceTest {
         assertThatThrownBy(() -> segundo.decoder().decode(token)).isInstanceOf(JwtException.class);
     }
 
-    /**
-     * Reloj movible que arranca en el instante real, truncado a segundos porque {@code exp} e
-     * {@code iat} se serializan en segundos y si no las comparaciones fallan por los nanos.
-     */
-    private static final class MutableClock extends Clock {
-
-        private Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
-        }
-
-        void advance(Duration amount) {
-            now = now.plus(amount);
-        }
-    }
 }
