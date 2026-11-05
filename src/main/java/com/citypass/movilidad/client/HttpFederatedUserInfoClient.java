@@ -68,7 +68,7 @@ public class HttpFederatedUserInfoClient implements FederatedUserInfoClient {
     }
 
     /**
-     * El IdP devuelve el nombre sin separar, así que se parte en "todo menos la última palabra" y
+     * El IdP devuelve el nombre sin separar, así que se parte en "lo anterior a la última palabra" y
      * "última palabra": es lo que mejor resuelve los dos apellidos, que acá son lo habitual. Con
      * una sola palabra va entera al nombre, para que el nombre nunca quede vacío.
      */

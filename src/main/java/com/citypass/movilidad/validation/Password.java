@@ -31,12 +31,10 @@ import static java.lang.annotation.ElementType.PARAMETER;
 @Constraint(validatedBy = {})
 @ReportAsSingleViolation
 @Size(min = 10, max = 72)
-@Pattern.List({
-        @Pattern(regexp = ".*[a-z].*"),
-        @Pattern(regexp = ".*[A-Z].*"),
-        @Pattern(regexp = ".*\\d.*"),
-        @Pattern(regexp = "\\S+")
-})
+@Pattern(regexp = "[^a-z]*[a-z].*")
+@Pattern(regexp = "[^A-Z]*[A-Z].*")
+@Pattern(regexp = "\\D*\\d.*")
+@Pattern(regexp = "\\S+")
 public @interface Password {
 
     String message() default "debe tener entre 10 y 72 caracteres, sin espacios, "

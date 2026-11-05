@@ -64,12 +64,20 @@ public class CurrentUserService {
      */
     @Transactional
     public Long currentUserId() {
-        return requireCurrentUser().getId();
+        return resolveCurrentUser().getId();
     }
 
     /** La entidad de la persona autenticada, dándola de alta si es su primer request. */
     @Transactional
     public User requireCurrentUser() {
+        return resolveCurrentUser();
+    }
+
+    /**
+     * Sin {@code @Transactional} a propósito: lo llaman los dos métodos públicos, que ya abren la
+     * transacción. Llamar a uno público desde el otro por {@code this} saltearía el proxy.
+     */
+    private User resolveCurrentUser() {
         Optional<Jwt> jwt = currentJwt();
         if (jwt.isEmpty()) {
             return localFallbackUser();

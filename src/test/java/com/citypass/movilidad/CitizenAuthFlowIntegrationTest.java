@@ -27,7 +27,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.UUID;
 
 import static com.citypass.movilidad.support.FederatedSecurityTestConfig.bearer;
@@ -40,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Registro, ingreso y uso de la API por un ciudadano, en modo seguro y contra MySQL real.
  *
- * <p>El test que da sentido a todo el paso es {@code elViajeQuedaImputadoAlCiudadano}: si la
+ * <p>El test que da sentido al paso entero es {@code elViajeQuedaImputadoAlCiudadano}: si la
  * identidad se resolviera mal, los viajes de todas las personas caerían en el usuario demo, sin
  * ningún error visible.
  *
@@ -147,7 +146,7 @@ class CitizenAuthFlowIntegrationTest {
 
     /**
      * El test central del paso: el viaje tiene que quedar imputado al ciudadano y no al usuario
-     * demo de la V3, que es a quien caía todo cuando la identidad no se resolvía.
+     * demo de la V3, que es a quien caían las acciones cuando la identidad no se resolvía.
      */
     @Test
     void elViajeQuedaImputadoAlCiudadano() throws Exception {

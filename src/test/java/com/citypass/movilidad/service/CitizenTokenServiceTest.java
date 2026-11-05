@@ -5,6 +5,7 @@ import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.support.MutableClock;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
 
 import java.time.Duration;
@@ -77,7 +78,8 @@ class CitizenTokenServiceTest {
     void rechazaUnTokenFirmadoConOtraClave() {
         String ajeno = servicio(OTRO_SECRETO).issueAccessToken(ciudadano(42L));
 
-        assertThatThrownBy(() -> servicio(SECRETO).decoder().decode(ajeno))
+        JwtDecoder decoder = servicio(SECRETO).decoder();
+        assertThatThrownBy(() -> decoder.decode(ajeno))
                 .isInstanceOf(JwtException.class);
     }
 
@@ -90,7 +92,8 @@ class CitizenTokenServiceTest {
 
         String vencidoHaceRato = servicio.issueAccessToken(ciudadano(42L));
 
-        assertThatThrownBy(() -> servicio.decoder().decode(vencidoHaceRato))
+        JwtDecoder decoder = servicio.decoder();
+        assertThatThrownBy(() -> decoder.decode(vencidoHaceRato))
                 .isInstanceOf(JwtException.class);
     }
 
@@ -105,7 +108,8 @@ class CitizenTokenServiceTest {
                 propiedades("https://idp.citypass.local", AUDIENCE, SECRETO), clock, false)
                 .issueAccessToken(ciudadano(42L));
 
-        assertThatThrownBy(() -> servicio(SECRETO).decoder().decode(token))
+        JwtDecoder decoder = servicio(SECRETO).decoder();
+        assertThatThrownBy(() -> decoder.decode(token))
                 .isInstanceOf(JwtException.class);
     }
 
@@ -115,7 +119,8 @@ class CitizenTokenServiceTest {
                 propiedades(ISSUER, "citypass-reclamos-api", SECRETO), clock, false)
                 .issueAccessToken(ciudadano(42L));
 
-        assertThatThrownBy(() -> servicio(SECRETO).decoder().decode(token))
+        JwtDecoder decoder = servicio(SECRETO).decoder();
+        assertThatThrownBy(() -> decoder.decode(token))
                 .isInstanceOf(JwtException.class);
     }
 
@@ -128,7 +133,8 @@ class CitizenTokenServiceTest {
 
     @Test
     void fallaAlArrancarConUnSecretoDemasiadoCorto() {
-        assertThatThrownBy(() -> servicio(secretoDe(31, (byte) 7)))
+        String corto = secretoDe(31, (byte) 7);
+        assertThatThrownBy(() -> servicio(corto))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("31")
                 .hasMessageContaining("32");
@@ -164,7 +170,8 @@ class CitizenTokenServiceTest {
 
         assertThat(primero.decoder().decode(token).getSubject()).isEqualTo("42");
         // Cada arranque genera la suya: el token del primero no vale para el segundo.
-        assertThatThrownBy(() -> segundo.decoder().decode(token)).isInstanceOf(JwtException.class);
+        JwtDecoder decoder = segundo.decoder();
+        assertThatThrownBy(() -> decoder.decode(token)).isInstanceOf(JwtException.class);
     }
 
 }

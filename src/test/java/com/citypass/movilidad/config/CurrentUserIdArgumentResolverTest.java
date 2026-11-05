@@ -31,12 +31,15 @@ class CurrentUserIdArgumentResolverTest {
     @SuppressWarnings("unused")
     static class Endpoints {
         void anotado(@CurrentUserId Long userId) {
+            // Vacío: solo interesa la firma, que se lee por reflexión.
         }
 
         void anotadoPeroNoEsLong(@CurrentUserId String userId) {
+            // Vacío: solo interesa la firma, que se lee por reflexión.
         }
 
         void sinAnotar(Long userId) {
+            // Vacío: solo interesa la firma, que se lee por reflexión.
         }
     }
 

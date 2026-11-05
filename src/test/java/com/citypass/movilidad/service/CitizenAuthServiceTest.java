@@ -113,8 +113,8 @@ class CitizenAuthServiceTest {
     void rechazaUnEmailYaRegistrado() {
         when(users.existsByEmail(EMAIL)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.register(
-                new CitizenRegisterRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD, "Ana", "Pérez")))
+        CitizenRegisterRequest request = new CitizenRegisterRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD, "Ana", "Pérez");
+        assertThatThrownBy(() -> service.register(request))
                 .isInstanceOf(EmailAlreadyRegisteredException.class);
 
         verify(users, never()).save(any());
@@ -125,8 +125,8 @@ class CitizenAuthServiceTest {
         when(users.existsByEmail(EMAIL)).thenReturn(false);
         when(roles.findByName("USER")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.register(
-                new CitizenRegisterRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD, "Ana", "Pérez")))
+        CitizenRegisterRequest request = new CitizenRegisterRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD, "Ana", "Pérez");
+        assertThatThrownBy(() -> service.register(request))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("USER");
     }
@@ -156,7 +156,8 @@ class CitizenAuthServiceTest {
         when(attempts.isLocked(user)).thenReturn(false);
         when(users.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        assertThatThrownBy(() -> service.login(new CitizenLoginRequest(EMAIL, TestSecrets.WRONG_PASSWORD)))
+        CitizenLoginRequest request = new CitizenLoginRequest(EMAIL, TestSecrets.WRONG_PASSWORD);
+        assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasFieldOrPropertyWithValue("code", CitizenAuthService.CODE_INVALID_CREDENTIALS);
 
@@ -172,7 +173,8 @@ class CitizenAuthServiceTest {
     void conUnEmailInexistenteIgualEjecutaElEncoder() {
         when(users.findByEmailForUpdate(EMAIL)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.login(new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD)))
+        CitizenLoginRequest request = new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD);
+        assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasFieldOrPropertyWithValue("code", CitizenAuthService.CODE_INVALID_CREDENTIALS);
 
@@ -186,7 +188,8 @@ class CitizenAuthServiceTest {
         when(users.findByEmailForUpdate(EMAIL))
                 .thenReturn(Optional.of(ciudadano(UserStatus.ACTIVE, null)));
 
-        assertThatThrownBy(() -> service.login(new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD)))
+        CitizenLoginRequest request = new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD);
+        assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasFieldOrPropertyWithValue("code", CitizenAuthService.CODE_INVALID_CREDENTIALS);
     }
@@ -198,7 +201,8 @@ class CitizenAuthServiceTest {
         when(encoder.matches(TestSecrets.CITIZEN_PASSWORD, TestSecrets.FAKE_BCRYPT_HASH)).thenReturn(true);
         when(attempts.isLocked(user)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.login(new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD)))
+        CitizenLoginRequest request = new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD);
+        assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasFieldOrPropertyWithValue("code", CitizenAuthService.CODE_ACCOUNT_LOCKED);
     }
@@ -215,7 +219,8 @@ class CitizenAuthServiceTest {
         when(encoder.matches(TestSecrets.WRONG_PASSWORD, TestSecrets.FAKE_BCRYPT_HASH)).thenReturn(false);
         when(attempts.isLocked(user)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.login(new CitizenLoginRequest(EMAIL, TestSecrets.WRONG_PASSWORD)))
+        CitizenLoginRequest request = new CitizenLoginRequest(EMAIL, TestSecrets.WRONG_PASSWORD);
+        assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasFieldOrPropertyWithValue("code", CitizenAuthService.CODE_INVALID_CREDENTIALS);
 
@@ -229,7 +234,8 @@ class CitizenAuthServiceTest {
         when(encoder.matches(TestSecrets.CITIZEN_PASSWORD, TestSecrets.FAKE_BCRYPT_HASH)).thenReturn(true);
         when(attempts.isLocked(user)).thenReturn(false);
 
-        assertThatThrownBy(() -> service.login(new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD)))
+        CitizenLoginRequest request = new CitizenLoginRequest(EMAIL, TestSecrets.CITIZEN_PASSWORD);
+        assertThatThrownBy(() -> service.login(request))
                 .isInstanceOf(ForbiddenOperationException.class);
 
         verify(attempts, never()).registerSuccess(any());
@@ -257,7 +263,8 @@ class CitizenAuthServiceTest {
         when(refreshTokens.rotate("el-viejo")).thenReturn(new RefreshTokenService.Rotation(
                 ciudadano(UserStatus.BLOCKED, TestSecrets.FAKE_BCRYPT_HASH), "el-nuevo"));
 
-        assertThatThrownBy(() -> service.refresh(new TokenRefreshRequest("el-viejo")))
+        TokenRefreshRequest request = new TokenRefreshRequest("el-viejo");
+        assertThatThrownBy(() -> service.refresh(request))
                 .isInstanceOf(ForbiddenOperationException.class);
     }
 }

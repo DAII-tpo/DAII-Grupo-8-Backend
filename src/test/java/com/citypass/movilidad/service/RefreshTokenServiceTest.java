@@ -17,9 +17,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,7 +74,7 @@ class RefreshTokenServiceTest {
         service.issueForNewSession(ciudadano());
 
         ArgumentCaptor<RefreshToken> captor = ArgumentCaptor.forClass(RefreshToken.class);
-        verify(repository, org.mockito.Mockito.times(2)).save(captor.capture());
+        verify(repository, times(2)).save(captor.capture());
 
         assertThat(captor.getAllValues().get(0).getFamilyId())
                 .isNotEqualTo(captor.getAllValues().get(1).getFamilyId());
@@ -164,7 +164,7 @@ class RefreshTokenServiceTest {
 
         service.deleteExpired();
 
-        verify(repository).deleteExpiredBefore(eq(AHORA));
+        verify(repository).deleteExpiredBefore(AHORA);
     }
 
     @Test

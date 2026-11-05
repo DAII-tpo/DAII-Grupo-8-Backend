@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Authorities de un ciudadano: {@code ROLE_CITIZEN} y nada más.
  *
- * <p>Deliberadamente <strong>no</strong> otorga {@code ROLE_USER}, que es el que recibe todo token
+ * <p>Deliberadamente <strong>no</strong> otorga {@code ROLE_USER}, que es el que recibe cualquier token
  * federado válido. Con eso las dos poblaciones quedan disjuntas en authorities, y los
  * {@code @PreAuthorize("hasRole('ADMIN')")} del personal siguen negando a un ciudadano sin tocar
  * una línea.

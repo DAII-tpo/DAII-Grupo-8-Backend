@@ -6,7 +6,6 @@ import com.citypass.movilidad.support.MutableClock;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

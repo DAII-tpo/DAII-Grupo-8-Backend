@@ -177,7 +177,19 @@ class EmergencyFlowIntegrationTest {
         List<EventOutbox> events = eventsOf(fixture.tripId);
         assertThat(events).hasSize(1);
         assertThat(events.get(0).getStatus()).isEqualTo(EventOutboxStatus.PENDING);
-        JsonNode data = objectMapper.readTree(events.get(0).getPayload());
+        assertPayloadDelAviso(objectMapper.readTree(events.get(0).getPayload()), emergency, fixture);
+
+        // Ya enviada, no se vuelve a enviar.
+        mockMvc.perform(triage(fixture, emergencyId, SIN_LESIONES))
+                .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/v1/emergencies/current").with(bearer(fixture.user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(emergencyId))
+                .andExpect(jsonPath("$.status").value("REPORTED"));
+    }
+
+    /** El evento que recibe Emergencias: ubicación, triage, viaje y usuario. */
+    private static void assertPayloadDelAviso(JsonNode data, JsonNode emergency, Fixture fixture) {
         assertThat(data.get("emergenciaId").asText()).isEqualTo(emergency.get("code").asText());
         assertThat(data.at("/ubicacion/latitud").asDouble()).isEqualTo(-34.6037);
         assertThat(data.at("/ubicacion/longitud").asDouble()).isEqualTo(-58.3816);
@@ -190,14 +202,6 @@ class EmergencyFlowIntegrationTest {
         assertThat(data.at("/viaje/estacionOrigenId").asLong()).isEqualTo(fixture.station.getId());
         assertThat(data.at("/usuario/usuarioId").asLong()).isEqualTo(fixture.user.getId());
         assertThat(data.at("/usuario/email").asText()).isEqualTo(fixture.user.getEmail());
-
-        // Ya enviada, no se vuelve a enviar.
-        mockMvc.perform(triage(fixture, emergencyId, SIN_LESIONES))
-                .andExpect(status().isConflict());
-        mockMvc.perform(get("/api/v1/emergencies/current").with(bearer(fixture.user)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(emergencyId))
-                .andExpect(jsonPath("$.status").value("REPORTED"));
     }
 
     @Test

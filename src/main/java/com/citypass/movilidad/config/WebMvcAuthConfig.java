@@ -20,7 +20,7 @@ public class WebMvcAuthConfig implements WebMvcConfigurer {
 
     /**
      * Se pide por {@code ObjectProvider} y no directo porque los slices {@code @WebMvcTest} solo
-     * cargan la capa web: sin esto, esta configuración arrastraría a todo test de controller a
+     * cargan la capa web: sin esto, esta configuración arrastraría a cualquier test de controller a
      * necesitar los {@code @Service}. El servicio se resuelve recién cuando un endpoint usa de
      * verdad {@link CurrentUserId}.
      */

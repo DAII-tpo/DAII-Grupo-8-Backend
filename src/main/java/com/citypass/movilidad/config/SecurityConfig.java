@@ -19,7 +19,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
-/** Seguridad: modo local (todo abierto) o modo seguro (JWT federado), y configuración de CORS. */
+/** Seguridad: modo local (sin restricciones) o modo seguro (JWT federado), y configuración de CORS. */
 @Configuration
 @EnableWebSecurity
 @SuppressWarnings("java:S4502")
@@ -58,7 +58,7 @@ public class SecurityConfig {
      * {@code SecurityContext}, {@code @CurrentUserId} cae al usuario demo, y un ciudadano vería y
      * crearía los viajes de ese usuario. Sin error, con datos cruzados entre personas.
      *
-     * <p>El bearer es <em>opcional</em>: sin header el request entra anónimo y todo sigue abierto
+     * <p>El bearer es <em>opcional</em>: sin header el request entra anónimo y la API sigue abierta
      * como antes; con un header inválido da 401, que es lo correcto.
      *
      * <p>El resolver llega como {@code ObjectProvider} porque los {@code @WebMvcTest} incluyen los
@@ -121,7 +121,7 @@ public class SecurityConfig {
      *
      * <p>El chequeo de longitud no es cosmético: {@code requestMatchers(metodo)} sin patrones
      * matchea <em>todas</em> las rutas de ese método, así que una property vacía dejaría abierta
-     * la API entera. Con la lista vacía no se registra ningún matcher y todo cae en
+     * la API entera. Con la lista vacía no se registra ningún matcher y cualquier ruta cae en
      * {@code anyRequest().authenticated()}.
      */
     private static void permitIfAny(

@@ -26,6 +26,9 @@ public final class LocalSigningKey {
 
     private static final Logger LOG = LoggerFactory.getLogger(LocalSigningKey.class);
 
+    /** Una sola instancia: SecureRandom es thread-safe y crearla en cada llamada es lo que marca S2119. */
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private LocalSigningKey() {
     }
 
@@ -52,7 +55,7 @@ public final class LocalSigningKey {
         LOG.warn("Sin CITIZEN_AUTH_SECRET: se genera una clave de firma aleatoria. Los tokens de "
                 + "ciudadano dejan de valer en cada reinicio. Solo sirve para desarrollo.");
         byte[] aleatoria = new byte[MIN_LENGTH_BYTES];
-        new SecureRandom().nextBytes(aleatoria);
+        RANDOM.nextBytes(aleatoria);
         return new SecretKeySpec(aleatoria, ALGORITHM);
     }
 

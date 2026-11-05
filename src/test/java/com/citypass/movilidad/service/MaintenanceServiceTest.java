@@ -58,12 +58,14 @@ class MaintenanceServiceTest {
     }
     @Test void rejectsInUseThroughBikeServiceAndInvalidIncident(){
         doThrow(new BusinessRuleException("IN_USE")).when(bikes).sendToMaintenance(any(),any(),any());
-        assertThatThrownBy(()->service.create(1L,new MaintenanceCreateRequest(2L,null,"Ajuste")))
+        MaintenanceCreateRequest request=new MaintenanceCreateRequest(2L,null,"Ajuste");
+        assertThatThrownBy(()->service.create(1L,request))
                 .isInstanceOf(BusinessRuleException.class);
     }
     @Test void rejectsBikeWithMaintenanceInProgress(){
         when(records.existsByBikeIdAndStatus(2L,MaintenanceStatus.IN_PROGRESS)).thenReturn(true);
-        assertThatThrownBy(()->service.create(1L,new MaintenanceCreateRequest(2L,null,"Ajuste")))
+        MaintenanceCreateRequest request=new MaintenanceCreateRequest(2L,null,"Ajuste");
+        assertThatThrownBy(()->service.create(1L,request))
                 .isInstanceOf(BusinessRuleException.class).hasMessageContaining("en curso");
         verify(bikes,never()).sendToMaintenance(any(),any(),any());
     }
@@ -90,19 +92,21 @@ class MaintenanceServiceTest {
                 .isEqualTo(9L);
 
         Bike other=new Bike(); other.setId(99L); incident.setBike(other);
-        assertThatThrownBy(()->service.create(1L,new MaintenanceCreateRequest(2L,9L,"Ajuste")))
+        MaintenanceCreateRequest request=new MaintenanceCreateRequest(2L,9L,"Ajuste");
+        assertThatThrownBy(()->service.create(1L,request))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("no corresponde");
     }
 
     @Test void rejectsMissingOrFinishedMaintenance(){
         when(records.findByIdForUpdate(8L)).thenReturn(Optional.empty());
-        assertThatThrownBy(()->service.complete(1L,8L,new MaintenanceCompleteRequest("Lista")))
+        MaintenanceCompleteRequest request=new MaintenanceCompleteRequest("Lista");
+        assertThatThrownBy(()->service.complete(1L,8L,request))
                 .isInstanceOf(ResourceNotFoundException.class);
 
         MaintenanceRecord done=new MaintenanceRecord(); done.setStatus(MaintenanceStatus.COMPLETED);
         when(records.findByIdForUpdate(3L)).thenReturn(Optional.of(done));
-        assertThatThrownBy(()->service.complete(1L,3L,new MaintenanceCompleteRequest("Lista")))
+        assertThatThrownBy(()->service.complete(1L,3L,request))
                 .isInstanceOf(BusinessRuleException.class);
     }
 

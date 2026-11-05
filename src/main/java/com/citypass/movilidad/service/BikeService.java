@@ -32,6 +32,9 @@ public class BikeService {
     // Prefijo del motivo en el historial: identifica que la bici salió de servicio por un reporte.
     public static final String INCIDENT_REASON_PREFIX = "Incidencia reportada";
 
+    private static final String BIKE_NOT_FOUND = "Bicicleta no encontrada: ";
+    private static final String STATION_NOT_FOUND = "Estación no encontrada: ";
+
     private final BikeRepository bikeRepository;
     private final StationRepository stationRepository;
     private final BikeStatusHistoryRepository historyRepository;
@@ -191,7 +194,7 @@ public class BikeService {
     @Transactional
     public Bike lockActiveBike(Long id) {
         return bikeRepository.findByIdAndDeletedAtIsNullForUpdate(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException(BIKE_NOT_FOUND + id));
     }
 
     /** Pasa la bici a MAINTENANCE y la retira de su estación. Devuelve la estación de origen. */
@@ -229,7 +232,7 @@ public class BikeService {
         } else if (current == null || !current.getId().equals(stationId)) {
             // Con lock para no superar la capacidad de la estación.
             Station destination = stationRepository.findByIdAndDeletedAtIsNullForUpdate(stationId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
+                    .orElseThrow(() -> new ResourceNotFoundException(STATION_NOT_FOUND + stationId));
             if (destination.getStatus() != StationStatus.ACTIVE) {
                 throw new BusinessRuleException("La estación no está habilitada: " + stationId
                         + ". Indicá otra estación para devolver la bicicleta");
@@ -310,7 +313,7 @@ public class BikeService {
                             + bike.getId());
         }
         Station destination = stationRepository.findByIdAndDeletedAtIsNullForUpdate(stationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + stationId));
+                .orElseThrow(() -> new ResourceNotFoundException(STATION_NOT_FOUND + stationId));
         if (destination.getStatus() != StationStatus.ACTIVE) {
             throw new BusinessRuleException("La estación no está habilitada: " + stationId);
         }
@@ -353,7 +356,7 @@ public class BikeService {
     /** Historial de cambios de estado, del más reciente al más antiguo. */
     public List<BikeStatusHistoryResponse> history(Long id) {
         bikeRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException(BIKE_NOT_FOUND + id));
         return historyRepository.findAllByBikeIdOrderByChangedAtDesc(id).stream()
                 .map(item -> new BikeStatusHistoryResponse(
                         item.getId(), item.getPreviousStatus(), item.getNewStatus(),
@@ -364,7 +367,7 @@ public class BikeService {
 
     private Bike activeBike(Long id) {
         return bikeRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Bicicleta no encontrada: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException(BIKE_NOT_FOUND + id));
     }
 
     private Station activeStation(Long id) {
@@ -377,7 +380,7 @@ public class BikeService {
 
     private Station existingStation(Long id) {
         return stationRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Estación no encontrada: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException(STATION_NOT_FOUND + id));
     }
 
     // Todas las bicis presentes ocupan anclaje, sin importar su estado.

@@ -40,7 +40,7 @@ public record AuthProperties(
         /** GET abiertos sin token. */
         @DefaultValue({}) List<String> publicGetPaths,
 
-        /** Rutas abiertas a ciudadanos. Vacío = todo lo demás exige token federado. */
+        /** Rutas abiertas a ciudadanos. Vacío = el resto exige token federado. */
         @DefaultValue({}) List<String> citizenOpenPaths,
 
         /** Usuario usado solo en modo local (security.local.enabled=true), donde no hay token. */
