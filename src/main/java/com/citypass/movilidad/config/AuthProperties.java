@@ -35,7 +35,7 @@ public record AuthProperties(
         @DefaultValue("USER") String defaultRole,
 
         /** {@code users.role} es de un solo valor: con varios grupos gana el primero de la lista. */
-        @DefaultValue({"ADMIN", "OPERATOR", "USER"}) List<String> rolePrecedence,
+        @DefaultValue({"ADMIN", "USER"}) List<String> rolePrecedence,
 
         /** GET abiertos sin token. */
         @DefaultValue({}) List<String> publicGetPaths,

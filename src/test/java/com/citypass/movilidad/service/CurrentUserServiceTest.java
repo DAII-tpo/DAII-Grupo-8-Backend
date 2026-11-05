@@ -40,8 +40,8 @@ class CurrentUserServiceTest {
     private final AuthProperties authProperties = new AuthProperties(
             "https://api.citypass-login.pp.ua/.well-known/jwks.json",
             "https://idp.citypass.local", "citypass-movilidad-api", "human",
-            Map.of("admin", "ADMIN", "operadores", "OPERATOR"),
-            "USER", List.of("ADMIN", "OPERATOR", "USER"),
+            Map.of("admin", "ADMIN", "operadores", "USER"),
+            "USER", List.of("ADMIN", "USER"),
             List.of(), List.of(), 1L);
     private final FederatedUserInfoClient userInfoClient = mock(FederatedUserInfoClient.class);
     private final FederatedUserProvisioner provisioner =
@@ -96,11 +96,12 @@ class CurrentUserServiceTest {
         autenticar(SUB, List.of("operadores"));
         User existente = user(7L, "ADMIN", UserStatus.ACTIVE);
         when(userRepository.findByExternalUserId(SUB)).thenReturn(Optional.of(existente));
-        when(roleRepository.findByName("OPERATOR")).thenReturn(Optional.of(role("OPERATOR")));
+        when(roleRepository.findByName("USER")).thenReturn(Optional.of(role("USER")));
         when(userRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         service.requireCurrentUser();
-        assertThat(existente.getRole().getName()).isEqualTo("OPERATOR");
+        // Pasó de admin a personal técnico: la degradación también tiene que bajarse.
+        assertThat(existente.getRole().getName()).isEqualTo("USER");
     }
 
     @Test
@@ -271,7 +272,7 @@ class CurrentUserServiceTest {
     @Test
     void avisaAlArrancarSiUnRolMapeadoNoEstaEnLaBase() {
         when(roleRepository.findByName("ADMIN")).thenReturn(Optional.empty());
-        when(roleRepository.findByName("OPERATOR")).thenReturn(Optional.of(role("OPERATOR")));
+        when(roleRepository.findByName("USER")).thenReturn(Optional.of(role("USER")));
 
         provisioner.warnAboutMissingRoles();
         verify(roleRepository).findByName("ADMIN");

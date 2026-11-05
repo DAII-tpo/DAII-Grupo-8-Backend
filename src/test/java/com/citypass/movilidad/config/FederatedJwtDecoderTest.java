@@ -30,7 +30,7 @@ class FederatedJwtDecoderTest {
         return new AuthProperties(
                 "https://api.citypass-login.pp.ua/.well-known/jwks.json",
                 TestJwtFactory.ISSUER, TestJwtFactory.AUDIENCE, "human",
-                Map.of("admin", "ADMIN"), "USER", List.of("ADMIN", "OPERATOR", "USER"),
+                Map.of("admin", "ADMIN"), "USER", List.of("ADMIN", "USER"),
                 List.of(), List.of(), 1L);
     }
 

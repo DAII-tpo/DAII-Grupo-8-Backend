@@ -17,6 +17,7 @@ import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
 import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +46,14 @@ public class BikeService {
         this.maintenanceRepository = maintenanceRepository;
     }
 
-    /** Da de alta una bici validando código único, estación activa y capacidad. */
+    /**
+     * Da de alta una bici validando código único, estación activa y capacidad.
+     *
+     * <p>Solo administración: la anotación va por método y no a nivel de clase porque los flujos
+     * de viaje, incidencias y emergencias entran por otros métodos de este mismo servicio y los
+     * ejecuta un ciudadano.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public BikeResponse create(BikeCreateRequest request) {
         String code = request.code().trim();
@@ -109,6 +117,7 @@ public class BikeService {
     }
 
     /** Cambio de estado administrativo, validado contra BikeStatusTransitionPolicy. */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public BikeResponse changeStatus(Long id, BikeStatusChangeRequest request) {
         Bike bike = activeBike(id);
@@ -138,6 +147,7 @@ public class BikeService {
     }
 
     /** Traslada la bici a otra estación activa con lugar. */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public BikeResponse transfer(Long id, Long stationId) {
         Bike bike = activeBike(id);
@@ -159,6 +169,7 @@ public class BikeService {
     }
 
     /** Baja lógica: la bici queda OUT_OF_SERVICE con fecha de baja. */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public void delete(Long id) {
         Bike bike = activeBike(id);

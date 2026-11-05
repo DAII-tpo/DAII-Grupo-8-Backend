@@ -230,8 +230,8 @@ está en Swagger UI. Resumen:
 |---|---|---|
 | `GET` | `/stations` | Todas las estaciones |
 | `GET` | `/stations/{id}` | Una estación |
-| `POST` | `/stations` | Crear una estación |
-| `PATCH` | `/stations/{id}` | Actualizar una estación (incluye activar/desactivar con `status`) |
+| `POST` | `/stations` | Crear una estación (**requiere ADMIN**) |
+| `PATCH` | `/stations/{id}` | Actualizar una estación, incluye activar/desactivar con `status` (**requiere ADMIN**) |
 | `GET` | `/stations/availability` | Disponibilidad (bicis y anclajes libres) de todas las estaciones |
 | `GET` | `/stations/{id}/availability` | Disponibilidad de una estación |
 | `GET` | `/stations/nearby?lat&lng[&radius][&limit]` | Estaciones activas cercanas, ordenadas por distancia, con disponibilidad |
@@ -245,11 +245,11 @@ está en Swagger UI. Resumen:
 | `GET` | `/bikes/{id}` | Una bicicleta |
 | `GET` | `/bikes/station/{stationId}` | Bicicletas de una estación (cualquier estado) |
 | `GET` | `/bikes/available[?stationId]` | Bicicletas disponibles para retirar |
-| `POST` | `/bikes` | Alta de bicicleta |
-| `PATCH` | `/bikes/{id}/status` | Cambio de estado administrativo |
-| `PATCH` | `/bikes/{id}/station` | Traslado a otra estación |
+| `POST` | `/bikes` | Alta de bicicleta (**requiere ADMIN**) |
+| `PATCH` | `/bikes/{id}/status` | Cambio de estado administrativo (**requiere ADMIN**) |
+| `PATCH` | `/bikes/{id}/station` | Traslado a otra estación (**requiere ADMIN**) |
 | `GET` | `/bikes/{id}/status-history` | Historial de cambios de estado |
-| `DELETE` | `/bikes/{id}` | Baja lógica |
+| `DELETE` | `/bikes/{id}` | Baja lógica (**requiere ADMIN**) |
 
 ### Viajes (requieren token)
 
@@ -404,11 +404,13 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | Migración | Contenido |
 |---|---|
 | `V1__init_schema.sql` | Esquema inicial: roles, usuarios, estaciones, bicicletas, historial de estados, viajes, tipos de incidencia, incidencias, mantenimiento, historial de disponibilidad, outbox de eventos |
-| `V2__seed_reference_data.sql` | Roles (`ADMIN`, `OPERATOR`, `USER`) y tipos de incidencia (pinchazo, frenos, cadena, vandalismo, otro) |
+| `V2__seed_reference_data.sql` | Roles (`ADMIN`, `OPERATOR`, `USER`) y tipos de incidencia (pinchazo, frenos, cadena, vandalismo, otro). `OPERATOR` lo borra después la `V8` |
 | `V3__seed_demo_user.sql` | Usuario demo con id = 1 y rol `USER` |
 | `V4__maintenance_origin_station.sql` | Estación de origen de cada orden de mantenimiento |
 | `V5__event_bus_outbox_inbox.sql` | Reintentos del outbox de eventos y tabla `event_inbox` de eventos recibidos |
 | `V6__bike_emergencies.sql` | Tabla `bike_emergencies`, estado `EMERGENCY` de viajes y `BLOCKED` de bicicletas |
+| `V7__federated_identity.sql` | Identidad federada: `email`/`first_name`/`last_name` pasan a nullable y `external_user_id` a unico |
+| `V8__drop_operator_role.sql` | Baja del rol `OPERATOR`, que ningun `@PreAuthorize` chequeaba. Reasigna a `USER` antes de borrarlo |
 
 La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 
@@ -485,8 +487,9 @@ mapeo grupo→rol se configura sin recompilar:
 
 ```properties
 movilidad.auth.group-roles[admin]=ADMIN
-movilidad.auth.group-roles[operadores]=OPERATOR
-movilidad.auth.role-precedence=ADMIN,OPERATOR,USER
+movilidad.auth.group-roles[delegados]=ADMIN
+movilidad.auth.group-roles[operadores]=USER
+movilidad.auth.role-precedence=ADMIN,USER
 ```
 
 Un cambio de grupos se refleja al próximo login o refresh (máximo 15 min, la vida del token). `users.status`

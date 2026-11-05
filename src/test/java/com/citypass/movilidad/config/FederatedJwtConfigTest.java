@@ -25,7 +25,7 @@ class FederatedJwtConfigTest {
     private final AuthProperties properties = new AuthProperties(
             "https://api.citypass-login.pp.ua/.well-known/jwks.json",
             "https://idp.citypass.local", "citypass-movilidad-api", "human",
-            Map.of("admin", "ADMIN"), "USER", List.of("ADMIN", "OPERATOR", "USER"),
+            Map.of("admin", "ADMIN"), "USER", List.of("ADMIN", "USER"),
             List.of(), List.of(), 1L);
 
     @Test

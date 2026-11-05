@@ -27,7 +27,7 @@ class FederatedJwtValidatorsTest {
         return new AuthProperties(
                 "https://api.citypass-login.pp.ua/.well-known/jwks.json",
                 ISSUER, AUDIENCE, "human",
-                Map.of(), "USER", List.of("ADMIN", "OPERATOR", "USER"),
+                Map.of(), "USER", List.of("ADMIN", "USER"),
                 List.of(), List.of(), 1L);
     }
 

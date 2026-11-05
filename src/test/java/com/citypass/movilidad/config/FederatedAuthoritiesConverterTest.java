@@ -15,8 +15,8 @@ class FederatedAuthoritiesConverterTest {
     private static final Map<String, String> GRUPOS = Map.of(
             "admin", "ADMIN",
             "delegados", "ADMIN",
-            "operadores", "OPERATOR",
-            "soporte-n2", "OPERATOR");
+            "operadores", "USER",
+            "soporte-n2", "USER");
 
     private static FederatedAuthoritiesConverter converterDe(AuthProperties props) {
         return new FederatedAuthoritiesConverter(props, new FederatedRoleResolver(props));
@@ -30,7 +30,7 @@ class FederatedAuthoritiesConverterTest {
         return new AuthProperties(
                 "https://api.citypass-login.pp.ua/.well-known/jwks.json",
                 "https://idp.citypass.local", "citypass-movilidad-api", "human",
-                groupRoles, "USER", List.of("ADMIN", "OPERATOR", "USER"),
+                groupRoles, "USER", List.of("ADMIN", "USER"),
                 List.of(), List.of(), 1L);
     }
 
@@ -44,8 +44,18 @@ class FederatedAuthoritiesConverterTest {
 
     @Test
     void mapeaUnGrupoAlRolConfigurado() {
+        assertThat(authorities(tokenConGrupos(List.of("admin"))))
+                .contains("ROLE_ADMIN", "GROUP_admin");
+    }
+
+    /**
+     * El personal técnico queda con el rol por defecto y nada más. Se afirma con containsExactly
+     * a propósito: lo que importa es que no aparezca ningún rol elevado.
+     */
+    @Test
+    void elPersonalTecnicoNoRecibeRolElevado() {
         assertThat(authorities(tokenConGrupos(List.of("operadores"))))
-                .contains("ROLE_OPERATOR", "GROUP_operadores");
+                .containsExactly("ROLE_USER", "GROUP_operadores");
     }
 
     /** Emite el GROUP_ aunque el grupo no esté mapeado a ningún rol. */
@@ -76,7 +86,7 @@ class FederatedAuthoritiesConverterTest {
     /** El casing que entrega LDAP no es confiable, así que el mapeo compara en minúsculas. */
     @Test
     void elMapeoIgnoraMayusculasYEspacios() {
-        assertThat(authorities(tokenConGrupos(List.of("  Operadores  ")))).contains("ROLE_OPERATOR");
+        assertThat(authorities(tokenConGrupos(List.of("  Admin  ")))).contains("ROLE_ADMIN");
     }
 
     @Test
@@ -95,8 +105,8 @@ class FederatedAuthoritiesConverterTest {
     }
 
     @Test
-    void conUnSoloGrupoMapeadoElRolEsEseGrupo() {
-        assertThat(roleResolver.resolveRole(tokenConGrupos(List.of("soporte-n2")))).isEqualTo("OPERATOR");
+    void conUnSoloGrupoMapeadoElRolEsElMapeado() {
+        assertThat(roleResolver.resolveRole(tokenConGrupos(List.of("delegados")))).isEqualTo("ADMIN");
     }
 
     @Test
