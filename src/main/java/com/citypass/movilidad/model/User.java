@@ -49,8 +49,20 @@ public class User {
     @Column(length = 255, unique = true)
     private String email;
 
+    /** Solo para ciudadanos con cuenta local. Un empleado del IdP lo tiene en NULL. */
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
+
+    @Column(name = "failed_login_attempts", nullable = false)
+    @Builder.Default
+    private int failedLoginAttempts = 0;
+
+    /** Sin esta fecha el contador sería acumulativo de por vida y la ventana no significaría nada. */
+    @Column(name = "last_failed_login_at")
+    private Instant lastFailedLoginAt;
+
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "role_id", nullable = false)

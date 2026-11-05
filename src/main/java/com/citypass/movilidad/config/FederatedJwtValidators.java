@@ -27,12 +27,21 @@ public final class FederatedJwtValidators {
      * tokens), rechazaría todos los tokens con un error opaco. No cambiar por esa factory.
      */
     public static OAuth2TokenValidator<Jwt> of(AuthProperties properties) {
+        return of(properties.issuer(), properties.audience(), properties.requiredTokenUse());
+    }
+
+    /**
+     * La misma cadena para cualquier emisor. La usa también el login local de ciudadanos, que
+     * firma sus propios tokens: las reglas son idénticas y conviene que no se dupliquen, para que
+     * un cambio no quede aplicado a la mitad de los emisores.
+     */
+    public static OAuth2TokenValidator<Jwt> of(String issuer, String audience, String tokenUse) {
         return new DelegatingOAuth2TokenValidator<>(
                 new JwtTimestampValidator(),
                 // Compara iss como string plano, que es lo que necesitamos: el issuer no es una URL alcanzable.
-                new JwtIssuerValidator(properties.issuer()),
-                audienceValidator(properties.audience()),
-                tokenUseValidator(properties.requiredTokenUse()));
+                new JwtIssuerValidator(issuer),
+                audienceValidator(audience),
+                tokenUseValidator(tokenUse));
     }
 
     /**

@@ -61,7 +61,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Testcontainers
 @AutoConfigureMockMvc
-@SpringBootTest(properties = "security.local.enabled=false")
+@SpringBootTest(properties = {
+        "security.local.enabled=false",
+        // El modo seguro exige una clave de firma elegida para los tokens de ciudadano:
+        // sin esto el contexto no arranca, que es justamente la garantia de LocalSigningKey.
+        "movilidad.citizen-auth.secret=c2VjcmV0by1kZS1wcnVlYmEtZGUtMzItYnl0ZXMhISE"})
 @Import(FederatedSecurityTestConfig.class)
 class EmergencyFlowIntegrationTest {
 

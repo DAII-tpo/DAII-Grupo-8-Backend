@@ -3,15 +3,19 @@ package com.citypass.movilidad.service;
 import com.citypass.movilidad.client.FederatedUserInfo;
 import com.citypass.movilidad.client.FederatedUserInfoClient;
 import com.citypass.movilidad.config.AuthProperties;
+import com.citypass.movilidad.config.CitizenAuthProperties;
 import com.citypass.movilidad.config.FederatedRoleResolver;
 import com.citypass.movilidad.config.FederatedJwtClaims;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
+import com.citypass.movilidad.exception.UnauthorizedException;
 import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,17 +39,23 @@ public class CurrentUserService {
     private final FederatedRoleResolver roleResolver;
     private final FederatedUserInfoClient userInfoClient;
     private final AuthProperties authProperties;
+    private final CitizenAuthProperties citizenProperties;
+    private final boolean localMode;
 
     public CurrentUserService(UserRepository userRepository,
                               FederatedUserProvisioner provisioner,
                               FederatedRoleResolver roleResolver,
                               FederatedUserInfoClient userInfoClient,
-                              AuthProperties authProperties) {
+                              AuthProperties authProperties,
+                              CitizenAuthProperties citizenProperties,
+                              @Value("${security.local.enabled:true}") boolean localMode) {
         this.userRepository = userRepository;
         this.provisioner = provisioner;
         this.roleResolver = roleResolver;
         this.userInfoClient = userInfoClient;
         this.authProperties = authProperties;
+        this.citizenProperties = citizenProperties;
+        this.localMode = localMode;
     }
 
     /**
@@ -61,13 +71,58 @@ public class CurrentUserService {
     @Transactional
     public User requireCurrentUser() {
         Optional<Jwt> jwt = currentJwt();
-        if (jwt.isPresent()) {
-            return resolveUser(jwt.get());
+        if (jwt.isEmpty()) {
+            return localFallbackUser();
+        }
+        Jwt token = jwt.get();
+        // Se discrimina por el claim iss, que es lo único que distingue con certeza y que el
+        // decoder ya validó antes de llegar acá. Ramificar por "el sub parsea como número" sería
+        // adivinar: un employeeNumber numérico del IdP apuntaría a la fila de otra persona.
+        return citizenProperties.issuer().equals(token.getClaimAsString(JwtClaimNames.ISS))
+                ? resolveCitizen(token)
+                : resolveFederatedUser(token);
+    }
+
+    /**
+     * Sin token solo se opera en modo local, con el usuario demo configurado.
+     *
+     * <p>En modo seguro llegar acá sin identidad sería imputarle a ese usuario las acciones de
+     * cualquiera, en silencio. Por eso es un 401 y no un fallback.
+     */
+    private User localFallbackUser() {
+        if (!localMode) {
+            throw new UnauthorizedException("El request no tiene una identidad asociada");
         }
         Long localUserId = authProperties.localUserId();
         return userRepository.findById(localUserId)
                 .orElseThrow(() -> new IllegalStateException(
                         "El usuario local configurado no existe: " + localUserId));
+    }
+
+    /**
+     * Ciudadano con cuenta local: el {@code sub} es su id.
+     *
+     * <p>No da de alta a nadie ni reconcilia rol, al contrario de la rama federada: la cuenta se
+     * creó en el registro, y el rol de un ciudadano no se deriva de grupos LDAP. Si la fila no
+     * existe, el token sobrevivió a la baja de la cuenta.
+     */
+    private User resolveCitizen(Jwt jwt) {
+        User user = userRepository.findById(citizenId(jwt))
+                .orElseThrow(() -> new UnauthorizedException("La identidad del token ya no existe"));
+        requireActive(user);
+        return user;
+    }
+
+    private static Long citizenId(Jwt jwt) {
+        String subject = jwt.getSubject();
+        if (subject == null || subject.isBlank()) {
+            throw new UnauthorizedException("El token no trae el claim sub");
+        }
+        try {
+            return Long.valueOf(subject);
+        } catch (NumberFormatException ex) {
+            throw new UnauthorizedException("El sub del token no es una identidad local válida");
+        }
     }
 
     private static Optional<Jwt> currentJwt() {
@@ -78,7 +133,7 @@ public class CurrentUserService {
         return Optional.of(jwt);
     }
 
-    private User resolveUser(Jwt jwt) {
+    private User resolveFederatedUser(Jwt jwt) {
         String externalUserId = jwt.getSubject();
         if (externalUserId == null || externalUserId.isBlank()) {
             throw new IllegalStateException("El token no trae el claim sub, que es la clave de la persona");
@@ -162,7 +217,7 @@ public class CurrentUserService {
     private static void requireActive(User user) {
         if (user.getStatus() != UserStatus.ACTIVE) {
             throw new ForbiddenOperationException(
-                    "El usuario no está habilitado: " + user.getExternalUserId());
+                    "El usuario no está habilitado: " + user.getId());
         }
     }
 }

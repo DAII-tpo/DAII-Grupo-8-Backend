@@ -208,6 +208,8 @@ Todas tienen un default pensado para desarrollo local.
 | `AUTH_LOCAL_USER_ID` | `1` | Identidad usada solo en modo local, donde no hay token |
 | `AUTH_USER_INFO_URI` | `https://api.citypass-login.pp.ua/me` | Perfil del empleado en el IdP: de ahí salen el email y el apellido que el token no trae |
 | `AUTH_USER_INFO_ENABLED` | `true` | `false` apaga esa consulta, para desarrollo sin salida a internet |
+| `CITIZEN_AUTH_SECRET` | *(sin default)* | Secreto HS256 en base64url con el que se firman los tokens de ciudadano. **Obligatorio en modo seguro: sin esto el backend no arranca** |
+| `CITIZEN_AUTH_ISSUER` | `https://movilidad.citypass.local` | `iss` de nuestros tokens. Distinto al del IdP: es lo que separa a las dos poblaciones |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Orígenes del frontend habilitados, separados por coma. Admite comodines |
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
@@ -223,6 +225,14 @@ radio y límite de la búsqueda de estaciones cercanas y timeouts y candidatas d
 
 Todas las rutas cuelgan de `/api/v1`. La referencia completa, con esquemas de request y response y ejemplos,
 está en Swagger UI. Resumen:
+
+### Autenticación de ciudadanos (públicos)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/auth/register` | Crear cuenta de ciudadano. Devuelve el par de tokens: queda logueado |
+| `POST` | `/auth/login` | Ingresar con email y contraseña |
+| `POST` | `/auth/refresh` | Renovar el par de tokens. El refresh **rota**: guardar siempre el último |
 
 ### Estaciones
 
@@ -411,6 +421,7 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | `V6__bike_emergencies.sql` | Tabla `bike_emergencies`, estado `EMERGENCY` de viajes y `BLOCKED` de bicicletas |
 | `V7__federated_identity.sql` | Identidad federada: `email`/`first_name`/`last_name` pasan a nullable y `external_user_id` a unico |
 | `V8__drop_operator_role.sql` | Baja del rol `OPERATOR`, que ningun `@PreAuthorize` chequeaba. Reasigna a `USER` antes de borrarlo |
+| `V9__local_citizen_auth.sql` | Login de ciudadanos: contador de intentos fallidos en `users` y tabla `refresh_tokens` |
 
 La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 
@@ -506,6 +517,51 @@ queda como kill-switch local: una fila `BLOCKED` se rechaza con `403` aunque el 
 > un entorno real. En ese modo `@PreAuthorize` queda inerte a propósito (ver `MethodSecurityConfig`), así que el
 > `403` de admin tampoco se aplica.
 
+### Login de ciudadanos
+
+El IdP del Grupo 2 es **solo para personal municipal**, así que los usuarios finales los autentica este módulo
+con tokens que firma él mismo. Un ciudadano es una fila de `users` con `email` y `password_hash` y
+`external_user_id` en NULL; un empleado del IdP es lo inverso. El índice único de `external_user_id` admite
+varios NULL, así que conviven sin colisionar.
+
+| Dato | Valor |
+|---|---|
+| Firma | HS256 con `CITIZEN_AUTH_SECRET` (base64url, 32 bytes o más) |
+| `iss` | `https://movilidad.citypass.local` |
+| `sub` | El id local del usuario, en decimal |
+| `token_use` | `citizen` (el del IdP es `human`) |
+| Vida del access token | 30 min |
+| Vida del refresh token | 30 días, con rotación en cada uso |
+
+**Por qué HS256 y no RS256:** el emisor y el único verificador son el mismo proceso. No hay JWKS que publicar
+ni otro módulo que consuma estos tokens, así que lo que agrega una firma asimétrica —verificar sin poder
+emitir— no tiene consumidor acá. `LocalSigningKey` es la única clase que conoce el algoritmo, así que una
+migración futura queda contenida.
+
+**La clave es obligatoria en modo seguro.** Sin `CITIZEN_AUTH_SECRET` y con `SECURITY_LOCAL_ENABLED=false`, el
+arranque falla con un mensaje explícito, en lugar de firmar con una clave que nadie eligió. En modo local, sin
+la variable se genera una aleatoria al arrancar: los tokens dejan de valer en cada reinicio, que en desarrollo
+es irrelevante y evita tener un secreto de firma commiteado. Para generarla:
+
+```bash
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+```
+
+**Authorities:** un ciudadano recibe `ROLE_CITIZEN` y nada más. No recibe `ROLE_USER`, que es el que obtiene
+todo token federado válido, así las dos poblaciones quedan disjuntas y los `@PreAuthorize("hasRole('ADMIN')")`
+del personal le niegan el acceso sin reglas extra.
+
+**Intentos fallidos:** cinco en 15 minutos bloquean la cuenta 10 minutos (`ACCOUNT_LOCKED`). El límite es por
+cuenta y no por IP, así que no frena a quien prueba una contraseña contra muchas cuentas distintas.
+
+**Refresh:** rota en cada uso. Reusar uno ya gastado revoca la sesión entera, porque no se puede distinguir un
+replay de un cliente desincronizado. El frontend tiene que guardar siempre el último.
+
+**Login:** los tres caminos de fallo —email inexistente, contraseña incorrecta y cuenta sin contraseña local—
+devuelven el mismo `401 INVALID_CREDENTIALS`, con el mismo mensaje, y ejecutan el hash igual, para no delatar
+por tiempo si la cuenta existe. El registro sí informa que un email está tomado (`409`): es una fuga aceptada a
+conciencia, porque esconderla exigiría verificación por mail.
+
 **CORS:** `CORS_ALLOWED_ORIGINS` tiene que incluir el dominio del frontend (admite patrones como
 `https://daii-grupo-8-frontend-*.vercel.app` para los previews de Vercel). No uses `https://*.vercel.app`:
 habilitaría a cualquier sitio de Vercel con credenciales.
@@ -558,9 +614,8 @@ cada PR.
 - **Login Federado (Grupo 2)**: la validación del token y el mapeo de grupos ya están integrados. Queda pasar
   producción a `SECURITY_LOCAL_ENABLED=false` en un deploy coordinado con el frontend (en cuanto es `false`, todo
   request sin token válido recibe `401`) y pasarle al Grupo 2 la URL del frontend para su CORS.
-- **Login de ciudadanos**: el IdP del Grupo 2 es solo para personal municipal, así que el registro y el login de
-  los usuarios finales los resuelve este módulo por separado. Todavía no están implementados: hasta que lo estén,
-  con `SECURITY_LOCAL_ENABLED=false` un ciudadano no puede alquilar ni reportar una falla.
+- **Login de ciudadanos**: implementado (ver la sección más abajo). Queda cargar `CITIZEN_AUTH_SECRET` en Render
+  antes de pasar a modo seguro: sin esa variable el backend no arranca, a propósito.
 - **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publican
   `EmergenciaBicicleta` y `ReporteBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
   consumir los de otros grupos.

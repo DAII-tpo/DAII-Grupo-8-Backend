@@ -3,7 +3,9 @@ package com.citypass.movilidad.service;
 import com.citypass.movilidad.client.FederatedUserInfo;
 import com.citypass.movilidad.client.FederatedUserInfoClient;
 import com.citypass.movilidad.config.AuthProperties;
+import com.citypass.movilidad.config.CitizenAuthProperties;
 import com.citypass.movilidad.config.FederatedRoleResolver;
+import com.citypass.movilidad.exception.UnauthorizedException;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.model.Role;
 import com.citypass.movilidad.model.User;
@@ -26,6 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +37,7 @@ import java.util.Optional;
 class CurrentUserServiceTest {
 
     private static final String SUB = "U000042";
+    private static final String CITIZEN_ISSUER = "https://movilidad.citypass.local";
 
     private final UserRepository userRepository = mock(UserRepository.class);
     private final RoleRepository roleRepository = mock(RoleRepository.class);
@@ -46,9 +50,17 @@ class CurrentUserServiceTest {
     private final FederatedUserInfoClient userInfoClient = mock(FederatedUserInfoClient.class);
     private final FederatedUserProvisioner provisioner =
             new FederatedUserProvisioner(userRepository, roleRepository, authProperties);
-    private final CurrentUserService service = new CurrentUserService(
-            userRepository, provisioner,
-            new FederatedRoleResolver(authProperties), userInfoClient, authProperties);
+    private final CitizenAuthProperties citizenProperties = new CitizenAuthProperties(
+            CITIZEN_ISSUER, "citypass-movilidad-api", null, Duration.ofMinutes(30),
+            Duration.ofDays(30), 5, Duration.ofMinutes(15), Duration.ofMinutes(10));
+    private final CurrentUserService service = servicio(true);
+    private final CurrentUserService enModoSeguro = servicio(false);
+
+    private CurrentUserService servicio(boolean localMode) {
+        return new CurrentUserService(userRepository, provisioner,
+                new FederatedRoleResolver(authProperties), userInfoClient, authProperties,
+                citizenProperties, localMode);
+    }
 
     @AfterEach
     void limpiarContexto() {
@@ -75,6 +87,17 @@ class CurrentUserServiceTest {
                 .subject(subject)
                 .claim("preferred_username", "jperez")
                 .claim("groups", groups)
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, List.of()));
+    }
+
+    /** Token nuestro: lo distingue el iss, y el sub es el id local. */
+    private void autenticarCiudadano(String subject) {
+        Jwt jwt = Jwt.withTokenValue("token").header("alg", "HS256")
+                .issuer(CITIZEN_ISSUER)
+                .subject(subject)
+                .claim("token_use", "citizen")
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new JwtAuthenticationToken(jwt, List.of()));
@@ -211,7 +234,9 @@ class CurrentUserServiceTest {
 
         assertThatThrownBy(service::requireCurrentUser)
                 .isInstanceOf(ForbiddenOperationException.class)
-                .hasMessageContaining(SUB);
+                // El mensaje identifica por id local y no por external_user_id: un ciudadano lo
+                // tiene en NULL, y el mensaje habría dicho "no está habilitado: null".
+                .hasMessageContaining("7");
     }
 
     @Test
@@ -267,6 +292,63 @@ class CurrentUserServiceTest {
                 new TestingAuthenticationToken("alguien", "credenciales"));
         when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, "USER", UserStatus.ACTIVE)));
         assertThat(service.currentUserId()).isEqualTo(1L);
+    }
+
+    // --- Rama de ciudadano ---
+
+    /** El iss de nuestro token manda la resolución por id local, no por external_user_id. */
+    @Test
+    void resuelveAlCiudadanoPorElIssDeNuestroToken() {
+        autenticarCiudadano("7");
+        User ciudadano = user(7L, "USER", UserStatus.ACTIVE);
+        ciudadano.setExternalUserId(null);
+        when(userRepository.findById(7L)).thenReturn(Optional.of(ciudadano));
+
+        assertThat(service.currentUserId()).isEqualTo(7L);
+        // No da de alta ni reconcilia rol: la cuenta ya existe y su rol no sale de grupos LDAP.
+        verify(userRepository, never()).findByExternalUserId(any());
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    void rechazaUnCiudadanoQueYaNoExiste() {
+        autenticarCiudadano("7");
+        when(userRepository.findById(7L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(service::requireCurrentUser)
+                .isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void rechazaUnSubQueNoEsUnIdLocal() {
+        autenticarCiudadano("U000042");
+
+        assertThatThrownBy(service::requireCurrentUser)
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("identidad local");
+    }
+
+    @Test
+    void rechazaUnCiudadanoBloqueado() {
+        autenticarCiudadano("7");
+        when(userRepository.findById(7L))
+                .thenReturn(Optional.of(user(7L, "USER", UserStatus.BLOCKED)));
+
+        assertThatThrownBy(service::requireCurrentUser)
+                .isInstanceOf(ForbiddenOperationException.class)
+                .hasMessageContaining("7");
+    }
+
+    /**
+     * Este es el bug que el paso existe para cerrar: en modo seguro, un request sin identidad no
+     * puede imputarle sus acciones al usuario demo.
+     */
+    @Test
+    void enModoSeguroSinTokenNoCaeAlUsuarioDemo() {
+        assertThatThrownBy(enModoSeguro::requireCurrentUser)
+                .isInstanceOf(UnauthorizedException.class);
+
+        verify(userRepository, never()).findById(any());
     }
 
     @Test

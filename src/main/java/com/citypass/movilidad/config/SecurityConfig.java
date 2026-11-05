@@ -1,18 +1,17 @@
 package com.citypass.movilidad.config;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.authentication.AuthenticationManagerResolver;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -35,18 +34,53 @@ public class SecurityConfig {
             "/swagger-ui.html"
     };
 
+    /**
+     * Puerta de entrada del login de ciudadanos: por definición no puede exigir token.
+     *
+     * <p>Enumerados uno por uno y no {@code /api/v1/auth/**}: si mañana alguien agrega
+     * {@code /api/v1/auth/me}, el comodín lo dejaría abierto por accidente.
+     */
+    private static final String[] AUTH_PATHS = {
+            "/api/v1/auth/register",
+            "/api/v1/auth/login",
+            "/api/v1/auth/refresh"
+    };
+
     // Orígenes CORS (CORS_ALLOWED_ORIGINS, separados por coma). Admiten comodines para los previews de Vercel.
     @Value("${app.cors.allowed-origins}")
     private List<String> allowedOriginPatterns;
 
-    // Modo local (default): todos los endpoints abiertos.
+    /**
+     * Modo local (default): todos los endpoints abiertos, pero el bearer se valida si viene.
+     *
+     * <p>Montar el resource server acá es lo que hace que el login de ciudadanos funcione de verdad
+     * en modo local. Sin esto, un token se ignora en silencio: no queda nada en el
+     * {@code SecurityContext}, {@code @CurrentUserId} cae al usuario demo, y un ciudadano vería y
+     * crearía los viajes de ese usuario. Sin error, con datos cruzados entre personas.
+     *
+     * <p>El bearer es <em>opcional</em>: sin header el request entra anónimo y todo sigue abierto
+     * como antes; con un header inválido da 401, que es lo correcto.
+     *
+     * <p>El resolver llega como {@code ObjectProvider} porque los {@code @WebMvcTest} incluyen los
+     * beans {@code SecurityFilterChain} pero no las {@code @Configuration} comunes: si fuera un
+     * parámetro obligatorio, esos slices no arrancarían. Ausente, esta cadena se comporta como
+     * antes del login de ciudadanos.
+     */
     @Bean
     @ConditionalOnProperty(name = "security.local.enabled", havingValue = "true", matchIfMissing = true)
-    public SecurityFilterChain localSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain localSecurityFilterChain(
+            HttpSecurity http,
+            ObjectProvider<AuthenticationManagerResolver<HttpServletRequest>> resolver)
+            throws Exception {
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+
+        AuthenticationManagerResolver<HttpServletRequest> disponible = resolver.getIfAvailable();
+        if (disponible != null) {
+            http.oauth2ResourceServer(oauth2 -> oauth2.authenticationManagerResolver(disponible));
+        }
         return http.build();
     }
 
@@ -61,22 +95,24 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             AuthProperties authProperties,
-            JwtDecoder jwtDecoder,
-            Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter) throws Exception {
+            AuthenticationManagerResolver<HttpServletRequest> authenticationManagerResolver)
+            throws Exception {
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> {
                     permitIfAny(auth, HttpMethod.GET, authProperties.publicGetPaths());
                     auth.requestMatchers(INFRA_PATHS).permitAll();
-                    // Vacío por defecto: el IdP es solo para personal municipal, así que esta lista
-                    // es la que devuelve el acceso a los endpoints de ciudadanos cuando se necesite.
+                    auth.requestMatchers(AUTH_PATHS).permitAll();
+                    // Quedó sin uso: ahora un ciudadano tiene token propio, así que
+                    // anyRequest().authenticated() ya le da acceso. Ver el comentario de la lista.
                     permitIfAny(auth, null, authProperties.citizenOpenPaths());
                     auth.anyRequest().authenticated();
                 })
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt
-                        .decoder(jwtDecoder)
-                        .jwtAuthenticationConverter(jwtAuthenticationConverter)));
+                // El resolver y no .jwt(...): son mutuamente excluyentes, y hacen falta dos
+                // emisores. Ver JwtAuthenticationConfig por qué no se separa en dos cadenas.
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .authenticationManagerResolver(authenticationManagerResolver));
         return http.build();
     }
 
