@@ -41,7 +41,7 @@ inteligente de estaciones.
 | Mapeo | Spring Data JPA (Hibernate), MapStruct, Lombok |
 | Auth | JWT (Spring Security + `NimbusJwtDecoder`), desactivable para desarrollo |
 | IA / recomendación | Python 3.12 + FastAPI + scikit-learn (microservicio en [`recommendation-service/`](recommendation-service)) |
-| Event Bus | Apache Kafka (Grupo 1). La dependencia está incluida; la publicación de eventos está pendiente del contrato |
+| Event Bus | Bus CityPass+ (Grupo 1): publicación por HTTP con outbox, consumo desde Kafka (Avro + SASL/OAUTHBEARER) con inbox. Ver [docs/event-bus.md](docs/event-bus.md) |
 | Testing | JUnit 5, Mockito, Testcontainers (MySQL real), Jacoco · pytest + pytest-cov |
 | CI/CD | GitHub Actions + SonarQube (quality gate) · deploy en Render |
 
@@ -79,6 +79,7 @@ Spring Boot 4.x) y el serializador Avro de Confluent.
 │   ├── dto/           # Requests y responses de la API
 │   ├── mapper/        # Conversión entidad ↔ DTO (MapStruct) y mapeo del dataset Ecobici
 │   ├── client/        # Cliente HTTP del servicio de recomendación
+│   ├── eventbus/      # Integración con el bus de eventos: publicación (outbox) y consumo (Kafka + inbox)
 │   ├── importer/      # Modelos de la importación del dataset Ecobici
 │   ├── config/        # Seguridad, CORS, OpenAPI, propiedades y runner de importación
 │   ├── validation/    # Restricciones de Bean Validation reutilizables (@EntityId, @Latitude, @Longitude)
@@ -86,10 +87,12 @@ Spring Boot 4.x) y el serializador Avro de Confluent.
 ├── src/main/resources/
 │   ├── application.properties
 │   ├── db/migration/  # Migraciones Flyway (V1, V2, ...)
+│   ├── eventbus/event-types/  # Contratos (schemas) de los eventos que publica el módulo
 │   └── datasets/      # Dataset oficial de estaciones Ecobici (GeoJSON)
 ├── src/test/java/...  # Tests unitarios y de integración
 ├── recommendation-service/   # Microservicio Python de recomendación
 ├── docs/adr/          # Decisión de arquitectura del modelo de IA
+├── docs/event-bus.md  # Integración con el bus de eventos
 ├── Dockerfile         # Imagen del backend (build multi-stage)
 ├── render.yaml        # Blueprint de Render (backend + servicio de recomendación)
 └── .github/workflows/ # CI (PRs) y CD (push a main)
@@ -207,7 +210,8 @@ Todas tienen un default pensado para desarrollo local.
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
 | `ECOBICI_DATASET_LOCATION` | `classpath:datasets/ecobici-stations.geojson` | Dataset a importar |
-| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker de Kafka (todavía sin uso, ver [Pendientes](#pendientes-y-dependencias-externas)) |
+| `EVENTBUS_PUBLISHER_ENABLED` / `EVENTBUS_CONSUMER_ENABLED` | `false` | Activan la publicación y el consumo en el bus de eventos |
+| `EVENTBUS_CLIENT_ID` / `EVENTBUS_CLIENT_SECRET` | — | Credenciales de servicio del bus. El resto de las variables `EVENTBUS_*` está en [docs/event-bus.md](docs/event-bus.md#configuración) |
 | `SPRING_PROFILES_ACTIVE` | `local` | Perfil de Spring |
 
 Otros parámetros de negocio viven en [`application.properties`](src/main/resources/application.properties):
@@ -253,6 +257,15 @@ está en Swagger UI. Resumen:
 | `GET` | `/trips/active` | Viaje activo del usuario (`204` si no tiene) |
 | `POST` | `/trips/{id}/end` | Finalizar el viaje devolviendo la bici en una estación |
 | `GET` | `/trips/history?page&size` | Historial paginado de viajes finalizados |
+
+### Emergencias durante un viaje (requieren token)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/trips/{tripId}/emergencies` | Pedir ayuda (SOS) con la ubicación actual: pausa el viaje y bloquea la bici |
+| `GET` | `/emergencies/current` | Emergencia en curso del usuario (`204` si no tiene) |
+| `POST` | `/emergencies/{id}/cancel` | Cancelar un SOS enviado por error, dentro de la ventana de cancelación |
+| `POST` | `/emergencies/{id}/triage` | Enviar el cuestionario; avisa a Emergencias por el bus de eventos |
 
 ### Incidencias
 
@@ -308,8 +321,10 @@ Todos los errores responden con el mismo cuerpo:
 | `OUT_OF_SERVICE` | Fuera de circulación (por ejemplo, reportada y pendiente de revisión) | Sí | No |
 | `MAINTENANCE` | En reparación, con una orden de mantenimiento abierta (sin estación asignada) | No | No |
 | `STOLEN` | Robada | Sí, si sigue asignada a una estación | No |
+| `BLOCKED` | Bloqueada por una emergencia durante el viaje (sin estación asignada) | No | No |
 
-- `AVAILABLE ↔ IN_USE` solo lo producen los viajes; no es una transición administrativa.
+- `AVAILABLE ↔ IN_USE` solo lo producen los viajes, e `IN_USE ↔ BLOCKED` las emergencias; no son transiciones
+  administrativas.
 - Transiciones administrativas permitidas (`PATCH /bikes/{id}/status`):
   `AVAILABLE → MAINTENANCE | OUT_OF_SERVICE | STOLEN`,
   `MAINTENANCE → AVAILABLE | OUT_OF_SERVICE | STOLEN`,
@@ -337,6 +352,22 @@ que la estación esté activa y tenga capacidad.
 3. Las operaciones usan locks pesimistas para que dos requests simultáneas no generen dos viajes para el mismo
    usuario, no usen la misma bici ni superen la capacidad de una estación.
 
+### Emergencias durante un viaje (SOS)
+
+1. **Pedir ayuda**: con un viaje `ACTIVE`, el usuario manda su ubicación actual (la toma el navegador). El viaje
+   pasa a `EMERGENCY` (pausado: no se puede finalizar ni iniciar otro) y la bici a `BLOCKED`.
+2. **Ventana de cancelación** (10 s, `movilidad.emergency.cancel-window`): si fue un error, se cancela y el
+   viaje y la bici vuelven a `ACTIVE` / `IN_USE`. Durante la ventana no se avisa a nadie.
+3. **Cuestionario** (60 s más, `movilidad.emergency.triage-window`): tres preguntas (¿podés moverte?, ¿estás
+   sangrando?, ¿hay un vehículo involucrado?) que definen la prioridad sugerida: `P1` si hay sangrado o
+   vehículo, `P2` si no puede moverse, `P3` si se mueve sin lesiones graves.
+4. **Aviso a Emergencias**: un **único** evento `com.citypass.movilidad.EmergenciaBicicleta` en el bus, con la
+   emergencia, la ubicación, el cuestionario, el viaje y el usuario. Sale al enviar el cuestionario o, si no
+   llega, al vencer su plazo (lo controla el servidor, así sale aunque se cierre la app), sin respuestas y con
+   prioridad `P1`. El contrato está en
+   [`EmergenciaBicicleta.json`](src/main/resources/eventbus/event-types/EmergenciaBicicleta.json).
+5. El viaje queda pausado hasta que Emergencias lo resuelva (ver [Pendientes](#pendientes-y-dependencias-externas)).
+
 ### Incidencias
 
 1. Cualquier usuario activo puede reportar una incidencia sobre una bici.
@@ -344,6 +375,10 @@ que la estación esté activa y tenga capacidad.
 3. Si se reporta durante un viaje, la bici sigue `IN_USE` para que el usuario pueda terminar el viaje. Al
    devolverla, pasa a `OUT_OF_SERVICE` en la estación de destino si la incidencia sigue pendiente.
 4. El admin revisa: `OPEN → UNDER_REVIEW → RESOLVED | REJECTED` (también `OPEN → RESOLVED | REJECTED`).
+5. Cada reporte se publica en el bus como `com.citypass.movilidad.ReporteBicicleta`: tipo, descripción, bici (y
+   estación si estaba anclada), viaje si se reportó durante uno, ubicación si el navegador la compartió
+   (`latitude`/`longitude`/`accuracyMeters`, opcionales y siempre juntas) y usuario. Contrato en
+   [`ReporteBicicleta.json`](src/main/resources/eventbus/event-types/ReporteBicicleta.json).
 5. **Rechazada (reporte falso)**: la bici vuelve sola a `AVAILABLE`, siempre que haya salido de servicio por
    ese reporte y no tenga otras incidencias pendientes.
 6. **Resuelta**: la bici no cambia; vuelve a circular a través del mantenimiento.
@@ -370,8 +405,10 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | `V2__seed_reference_data.sql` | Roles (`ADMIN`, `OPERATOR`, `USER`) y tipos de incidencia (pinchazo, frenos, cadena, vandalismo, otro) |
 | `V3__seed_demo_user.sql` | Usuario demo con id = 1 y rol `USER` |
 | `V4__maintenance_origin_station.sql` | Estación de origen de cada orden de mantenimiento |
+| `V5__event_bus_outbox_inbox.sql` | Reintentos del outbox de eventos y tabla `event_inbox` de eventos recibidos |
+| `V6__bike_emergencies.sql` | Tabla `bike_emergencies`, estado `EMERGENCY` de viajes y `BLOCKED` de bicicletas |
 
-Las tablas `station_availability_history` y `event_outbox` ya existen en el esquema, pero todavía no se usan.
+La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 
 ## Estaciones Ecobici (dataset oficial)
 
@@ -506,10 +543,17 @@ cada PR.
 
 - **Login Federado (Grupo 2)**: la validación del token y el mapeo de grupos ya están integrados. Queda pasar
   producción a `SECURITY_LOCAL_ENABLED=false` en un deploy coordinado con el frontend (en cuanto es `false`, todo
-  request sin token válido recibe `401`), pasarle al Grupo 2 la URL del frontend para su CORS, y pedirle las
-  credenciales del delegado del módulo para crear los grupos y los usuarios de prueba.
-- **Event bus (Grupo 1)**: publicar los eventos de viaje (`movilidad.viaje.iniciado` / `movilidad.viaje.finalizado`)
-  cuando esté definido el contrato. Hoy `TripEventPublisher` solo los registra en el log.
+  request sin token válido recibe `401`) y pasarle al Grupo 2 la URL del frontend para su CORS.
+- **Login de ciudadanos**: el IdP del Grupo 2 es solo para personal municipal, así que el registro y el login de
+  los usuarios finales los resuelve este módulo por separado. Todavía no están implementados: hasta que lo estén,
+  con `SECURITY_LOCAL_ENABLED=false` un ciudadano no puede alquilar ni reportar una falla.
+- **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publican
+  `EmergenciaBicicleta` y `ReporteBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
+  consumir los de otros grupos.
+- **Cierre de emergencias (Grupo 6)**: un viaje pausado por una emergencia queda en `EMERGENCY` con la bici
+  `BLOCKED` hasta que Emergencias lo resuelva. Falta consumir sus eventos para cerrar el viaje sin cargo y
+  ordenar la recuperación de la bici.
 - **Recomendación con datos reales**: el modelo está entrenado con datos sintéticos (ver sus limitaciones en
   [recommendation-service/README.md](recommendation-service/README.md)).
 - **Historial de disponibilidad**: la tabla `station_availability_history` está creada pero todavía no se completa.
+.

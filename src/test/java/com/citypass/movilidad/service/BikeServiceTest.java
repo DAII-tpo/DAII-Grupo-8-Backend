@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -581,6 +582,33 @@ class BikeServiceTest {
         assertThat(inMaintenance.getStatus()).isEqualTo(BikeStatus.MAINTENANCE);
         verifyNoInteractions(historyRepository);
         verify(bikeRepository, never()).save(any());
+    }
+
+    @Test
+    void blocksBikeInUseForEmergencyAndUnblocksItWhenCancelled() {
+        Bike bike = bike(BikeStatus.IN_USE, null);
+
+        service.blockForEmergency(bike, null, "Emergencia EMG-20261029-0001");
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.BLOCKED);
+
+        service.unblockAfterCancelledEmergency(bike, null, "Emergencia EMG-20261029-0001 cancelada");
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.IN_USE);
+
+        ArgumentCaptor<BikeStatusHistory> history = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository, times(2)).save(history.capture());
+        assertThat(history.getAllValues()).extracting(BikeStatusHistory::getNewStatus)
+                .containsExactly(BikeStatus.BLOCKED, BikeStatus.IN_USE);
+    }
+
+    @Test
+    void rejectsBlockingBikeNotInUseOrUnblockingBikeNotBlocked() {
+        Bike available = bike(BikeStatus.AVAILABLE, activeStation(10L, 20));
+
+        assertThatThrownBy(() -> service.blockForEmergency(available, null, "Emergencia"))
+                .isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> service.unblockAfterCancelledEmergency(available, null, "Cancelada"))
+                .isInstanceOf(BusinessRuleException.class);
+        assertThat(available.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
     }
 
     private BikeStatusHistory history(BikeStatus newStatus, String reason) {
