@@ -17,6 +17,7 @@ import com.citypass.movilidad.repository.StationRepository;
 import com.citypass.movilidad.repository.TripRepository;
 import com.citypass.movilidad.repository.UserRepository;
 import com.citypass.movilidad.service.EmergencyDeadlineJob;
+import com.citypass.movilidad.support.FederatedSecurityTestConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -45,6 +47,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
+import static com.citypass.movilidad.support.FederatedSecurityTestConfig.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -58,10 +61,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @Testcontainers
 @AutoConfigureMockMvc
-@SpringBootTest
+@SpringBootTest(properties = "security.local.enabled=false")
+@Import(FederatedSecurityTestConfig.class)
 class EmergencyFlowIntegrationTest {
 
-    private static final String USER_HEADER = "X-User-Id";
     private static final String EVENT_TYPE = "com.citypass.movilidad.EmergenciaBicicleta";
     private static final String LOCATION =
             "{\"latitude\": -34.6037, \"longitude\": -58.3816, \"accuracyMeters\": 12.5}";
@@ -142,13 +145,13 @@ class EmergencyFlowIntegrationTest {
         assertThat(eventsOf(fixture.tripId)).isEmpty();
 
         // El viaje pausado se sigue viendo como el viaje en curso, y no se puede finalizar ni iniciar otro.
-        mockMvc.perform(get("/api/v1/trips/active").header(USER_HEADER, fixture.user.getId()))
+        mockMvc.perform(get("/api/v1/trips/active").with(bearer(fixture.user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EMERGENCY"));
         mockMvc.perform(endTrip(fixture))
                 .andExpect(status().isConflict());
         Bike other = bike(fixture.station);
-        mockMvc.perform(post("/api/v1/trips").header(USER_HEADER, fixture.user.getId())
+        mockMvc.perform(post("/api/v1/trips").with(bearer(fixture.user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + other.getId() + "}"))
                 .andExpect(status().isConflict());
@@ -186,7 +189,7 @@ class EmergencyFlowIntegrationTest {
         // Ya enviada, no se vuelve a enviar.
         mockMvc.perform(triage(fixture, emergencyId, SIN_LESIONES))
                 .andExpect(status().isConflict());
-        mockMvc.perform(get("/api/v1/emergencies/current").header(USER_HEADER, fixture.user.getId()))
+        mockMvc.perform(get("/api/v1/emergencies/current").with(bearer(fixture.user)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(emergencyId))
                 .andExpect(jsonPath("$.status").value("REPORTED"));
@@ -212,7 +215,7 @@ class EmergencyFlowIntegrationTest {
         clock.advance(Duration.ofMinutes(5));
         deadlineJob.sendExpired();
         assertThat(eventsOf(fixture.tripId)).isEmpty();
-        mockMvc.perform(get("/api/v1/emergencies/current").header(USER_HEADER, fixture.user.getId()))
+        mockMvc.perform(get("/api/v1/emergencies/current").with(bearer(fixture.user)))
                 .andExpect(status().isNoContent());
 
         // El viaje se puede terminar normalmente.
@@ -275,23 +278,23 @@ class EmergencyFlowIntegrationTest {
     }
 
     private RequestBuilder reportRequest(long tripId, User user, String location) {
-        return post("/api/v1/trips/" + tripId + "/emergencies").header(USER_HEADER, user.getId())
+        return post("/api/v1/trips/" + tripId + "/emergencies").with(bearer(user))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(location);
     }
 
     private RequestBuilder cancel(User user, long emergencyId) {
-        return post("/api/v1/emergencies/" + emergencyId + "/cancel").header(USER_HEADER, user.getId());
+        return post("/api/v1/emergencies/" + emergencyId + "/cancel").with(bearer(user));
     }
 
     private RequestBuilder endTrip(Fixture fixture) {
-        return post("/api/v1/trips/" + fixture.tripId + "/end").header(USER_HEADER, fixture.user.getId())
+        return post("/api/v1/trips/" + fixture.tripId + "/end").with(bearer(fixture.user))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"destinationStationId\":" + fixture.station.getId() + "}");
     }
 
     private RequestBuilder triage(Fixture fixture, long emergencyId, String answers) {
-        return post("/api/v1/emergencies/" + emergencyId + "/triage").header(USER_HEADER, fixture.user.getId())
+        return post("/api/v1/emergencies/" + emergencyId + "/triage").with(bearer(fixture.user))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(answers);
     }
@@ -307,7 +310,7 @@ class EmergencyFlowIntegrationTest {
         User user = user();
         Station station = station();
         Bike bike = bike(station);
-        String body = mockMvc.perform(post("/api/v1/trips").header(USER_HEADER, user.getId())
+        String body = mockMvc.perform(post("/api/v1/trips").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + "}"))
                 .andExpect(status().isCreated())
@@ -315,8 +318,10 @@ class EmergencyFlowIntegrationTest {
         return new Fixture(user, station, bike, objectMapper.readTree(body).get("id").asLong());
     }
 
+    /** El external_user_id es el `sub` del token: la clave con la que el backend lo resuelve. */
     private User user() {
         User user = new User();
+        user.setExternalUserId("U" + Math.abs(UUID.randomUUID().hashCode()));
         user.setFirstName("Ana");
         user.setLastName("Pérez");
         user.setEmail("emergencia-" + UUID.randomUUID() + "@example.com");

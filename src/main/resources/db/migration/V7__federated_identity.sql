@@ -1,4 +1,4 @@
--- V5__federated_identity.sql
+-- V7__federated_identity.sql
 -- Identidad federada (CityPass+ Login Federado, Grupo 2). El access token no trae email ni
 -- nombre y apellido: la única clave estable es `sub` (employeeNumber), que se guarda en
 -- external_user_id. Las columnas que el token no puede llenar pasan a NULL en lugar de

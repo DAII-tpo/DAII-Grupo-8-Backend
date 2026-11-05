@@ -133,7 +133,7 @@ class IncidentFlowIntegrationTest {
         Long typeId = typeRepository.findByCode("OTHER").orElseThrow().getId();
         long before = incidentRepository.count();
 
-        mockMvc.perform(post("/api/v1/incidents").header(USER_HEADER, user.getId())
+        mockMvc.perform(post("/api/v1/incidents").with(bearer(user))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"bikeId\":" + bike.getId() + ",\"incidentTypeId\":" + typeId
                                 + ",\"description\":\"Sin longitud\",\"latitude\":-34.6037}"))
