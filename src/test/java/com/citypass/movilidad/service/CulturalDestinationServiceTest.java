@@ -45,9 +45,13 @@ class CulturalDestinationServiceTest {
     void noRecomiendaEventosCanceladosDeshabilitadosTerminadosNiAusentes() {
         var ended = event("ended", false, true);
         ended.setEndsAt(Instant.now().minusSeconds(1));
+        var suspended = event("suspended", false, true);
+        suspended.setEventStatus("SUSPENDED");
+        var unknown = event("unknown", false, true);
+        unknown.setEventStatus("UNKNOWN");
         var noDate = event("no-date", false, true);
         noDate.setEndsAt(null);
-        for (var destination : List.of(event("cancelled", true, true), event("disabled", false, false), ended, noDate)) {
+        for (var destination : List.of(event("cancelled", true, true), event("disabled", false, false), suspended, unknown, ended, noDate)) {
             when(repo.findById(destination.getEventId())).thenReturn(java.util.Optional.of(destination));
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.recommendDropoff(destination.getEventId()))
                     .isInstanceOf(com.citypass.movilidad.exception.ResourceNotFoundException.class);

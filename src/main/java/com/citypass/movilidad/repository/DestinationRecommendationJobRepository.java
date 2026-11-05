@@ -11,11 +11,13 @@ public class DestinationRecommendationJobRepository {
     private final JdbcTemplate jdbc;
     public DestinationRecommendationJobRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    public void request(String eventId) {
+    public String request(String eventId) {
+        String token = UUID.randomUUID().toString();
         jdbc.update("""
-                INSERT INTO destination_recommendation_jobs (event_id, request_token) VALUES (?, ?)
-                ON DUPLICATE KEY UPDATE request_token = VALUES(request_token)
-                """, eventId, UUID.randomUUID().toString());
+                INSERT INTO destination_recommendation_jobs (event_id, request_token, pending) VALUES (?, ?, TRUE)
+                ON DUPLICATE KEY UPDATE request_token = VALUES(request_token), pending = TRUE
+                """, eventId, token);
+        return token;
     }
 
     public String token(String eventId) {
@@ -25,11 +27,11 @@ public class DestinationRecommendationJobRepository {
     }
 
     public List<String> pendingIds() {
-        return jdbc.queryForList("SELECT event_id FROM destination_recommendation_jobs ORDER BY event_id", String.class);
+        return jdbc.queryForList("SELECT event_id FROM destination_recommendation_jobs WHERE pending = TRUE ORDER BY event_id", String.class);
     }
 
     public void complete(String eventId, String token) {
-        jdbc.update("DELETE FROM destination_recommendation_jobs WHERE event_id = ? AND request_token = ?",
+        jdbc.update("UPDATE destination_recommendation_jobs SET pending = FALSE WHERE event_id = ? AND request_token = ?",
                 eventId, token);
     }
 }

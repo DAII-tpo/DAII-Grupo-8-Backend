@@ -67,6 +67,18 @@ public class CulturalDestination {
     @Builder.Default
     private boolean fullCapacity = false;
 
+    @Column(name = "event_status", nullable = false, length = 16)
+    @Builder.Default
+    private String eventStatus = "ACTIVE";
+
+    /** Revisión asociada a estos datos; evita publicar cálculos de una proyección anterior. */
+    @Column(name = "recommendation_token", length = 36)
+    private String recommendationToken;
+
+    public boolean isEventActive() {
+        return "ACTIVE".equals(eventStatus) || "ACTIVE_FULL".equals(eventStatus);
+    }
+
     /** Referencia de demanda del CU; no supone una proporción de asistentes en bici. */
     public int expectedDemand() {
         return fullCapacity ? maxCapacity : registrations;
@@ -83,8 +95,8 @@ public class CulturalDestination {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    /** Sirve como destino de la ruta: no cancelado, espacio habilitado y con ubicación. */
+    /** Sirve como destino: evento activo, no cancelado, espacio habilitado y con ubicación. */
     public boolean isRoutable() {
-        return !cancelled && spaceEnabled && latitude != null && longitude != null;
+        return !cancelled && isEventActive() && spaceEnabled && latitude != null && longitude != null;
     }
 }

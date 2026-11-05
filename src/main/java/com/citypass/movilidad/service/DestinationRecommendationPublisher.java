@@ -104,9 +104,9 @@ public class DestinationRecommendationPublisher {
 
     /** Permite ejecutar el recálculo en pruebas sin esperar al scheduler. */
     public void publish(String eventId) {
-        String requestToken = jobs.token(eventId);
         CulturalDestination destination = destinations.findById(eventId).orElse(null);
         if (destination == null) return;
+        String requestToken = destination.getRecommendationToken();
 
         String reason = invalidationReason(destination);
 
@@ -141,6 +141,7 @@ public class DestinationRecommendationPublisher {
 
     private String invalidationReason(CulturalDestination destination) {
         if (destination.isCancelled()) return "El evento fue cancelado";
+        if (!destination.isEventActive()) return "El evento está suspendido o su estado no permite recomendar un destino";
         if (!destination.isSpaceEnabled()) return "El espacio no está disponible";
         if (destination.getLatitude() == null || destination.getLongitude() == null) {
             return "El evento no tiene una ubicación disponible";

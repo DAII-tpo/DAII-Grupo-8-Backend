@@ -59,8 +59,8 @@ class MigrationUpgradeIntegrationTest {
 
         Flyway current = flyway("latest");
         var result = current.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(6);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("12");
+        assertThat(result.migrationsExecuted).isEqualTo(7);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("13");
         assertThat(jdbc.queryForObject("SELECT checksum FROM flyway_schema_history WHERE version = '6'",
                 Integer.class)).isEqualTo(checksum);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id = 'existing-trip'",
@@ -73,5 +73,29 @@ class MigrationUpgradeIntegrationTest {
                 + "VALUES (UUID(), 'CULTURAL_EVENT', 'new-event', 'com.citypass.movilidad.RecomendacionDestinoActualizada', '{}')");
         current.validate();
         assertThat(current.migrate().migrationsExecuted).isZero();
+    }
+    @Test
+    void actualizaLaBaseV12DeRenderSinPerderDestinosNiSolicitudes() {
+        flyway("12").migrate();
+        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
+        jdbc.update("""
+                INSERT INTO cultural_destinations
+                (event_id,space_id,title,starts_at,ends_at,max_capacity,registrations,full_capacity,cancelled,space_enabled,updated_at)
+                VALUES ('activo','sp','A',NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY),20,3,false,false,true,NOW()),
+                       ('completo','sp','B',NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY),20,20,true,false,true,NOW()),
+                       ('cancelado','sp','C',NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY),20,4,false,true,true,NOW())
+                """);
+        jdbc.update("INSERT INTO destination_recommendation_jobs (event_id,request_token) VALUES ('activo','token-previo')");
+        assertThat(flyway("latest").migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT event_status FROM cultural_destinations ORDER BY event_id", String.class))
+                .containsExactly("UNKNOWN", "CANCELLED", "ACTIVE_FULL");
+        assertThat(jdbc.queryForObject("SELECT request_token FROM destination_recommendation_jobs WHERE event_id='activo'", String.class))
+                .isEqualTo("token-previo");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM destination_recommendation_jobs WHERE pending=TRUE", Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT recommendation_token FROM cultural_destinations WHERE event_id='activo'", String.class))
+                .isEqualTo("token-previo");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM espacios_event_cursors WHERE entity_type='LOCK'", Integer.class)).isEqualTo(1);
+        assertThat(flyway("latest").migrate().migrationsExecuted).isZero();
     }
 }

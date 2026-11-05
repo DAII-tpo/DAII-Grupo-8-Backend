@@ -23,6 +23,7 @@ class InboundEventServiceTest {
     private CityIncidentRepository incidentRepo;
     private InboundEventService service;
     private com.citypass.movilidad.repository.InboundEntityStateRepository entityStates;
+    private com.citypass.movilidad.repository.EspaciosEventCursorRepository cursors;
     private final ObjectMapper mapper = new ObjectMapper();
 
     @BeforeEach
@@ -31,8 +32,11 @@ class InboundEventServiceTest {
         changes = mock(ApplicationEventPublisher.class);
         incidentRepo = mock(CityIncidentRepository.class);
         entityStates = mock(com.citypass.movilidad.repository.InboundEntityStateRepository.class);
+        cursors = mock(com.citypass.movilidad.repository.EspaciosEventCursorRepository.class);
+        when(cursors.accept(anyString(), anyString(), any())).thenReturn(true);
         service = new InboundEventService(destinations, incidentRepo, changes, entityStates,
-                mock(com.citypass.movilidad.repository.DestinationRecommendationJobRepository.class));
+                mock(com.citypass.movilidad.repository.DestinationRecommendationJobRepository.class), cursors,
+                mock(com.citypass.movilidad.repository.SpaceReservationRepository.class));
         when(destinations.findById("ev-42")).thenReturn(Optional.empty());
     }
 
@@ -42,7 +46,7 @@ class InboundEventServiceTest {
                 {
                   "eventoId":"ev-42", "espacioId":"esp-7", "titulo":"Encuentro cultural",
                   "inicio":"2026-11-01T15:00:00Z", "fin":"2026-11-01T18:00:00Z",
-                  "latitud":-34.6, "longitud":-58.4, "capacidad":300, "estado":"PUBLISHED"
+                  "latitud":-34.6, "longitud":-58.4, "capacidad":300, "estado":"ACTIVE"
                 }
                 """));
         ArgumentCaptor<CulturalDestination> saved = ArgumentCaptor.forClass(CulturalDestination.class);
@@ -57,7 +61,7 @@ class InboundEventServiceTest {
                 {
                   "eventoId":"ev-42", "espacioId":"esp-7", "titulo":"Encuentro cultural",
                   "inicio":"2026-11-01T15:00:00Z", "fin":"2026-11-01T18:00:00Z",
-                  "cupoMaximo":300, "capacidad":300, "estado":"PUBLISHED"
+                  "cupoMaximo":300, "capacidad":300, "estado":"ACTIVE"
                 }
                 """));
         ArgumentCaptor<CulturalDestination> saved = ArgumentCaptor.forClass(CulturalDestination.class);
@@ -172,7 +176,7 @@ class InboundEventServiceTest {
 
     @Test
     void ignoraTiposSinContratoYRechazaIdFaltante() throws Exception {
-        service.handle("com.citypass.espacios.ReservaConfirmada", mapper.readTree("{}"));
+        service.handle("com.citypass.espacios.TipoFuturoSinHandler", mapper.readTree("{}"));
         verifyNoInteractions(destinations, incidentRepo, changes);
         var empty = mapper.readTree("{}");
         assertThatThrownBy(() -> service.handle("com.citypass.reclamos.ReclamoCreado", empty))
@@ -217,7 +221,7 @@ class InboundEventServiceTest {
         var event = saved.getValue();
         assertThat(event.expectedDemand()).isEqualTo(100);
         when(destinations.findById("ev-42")).thenReturn(Optional.of(event));
-        ((com.fasterxml.jackson.databind.node.ObjectNode) payload).put("estado", "PUBLISHED").put("inscriptos", 5);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload).put("estado", "ACTIVE").put("inscriptos", 5);
         service.handle("com.citypass.espacios.EventoComunitarioPublicado", payload);
         assertThat(event.expectedDemand()).isEqualTo(5);
         assertThat(event.isFullCapacity()).isFalse();

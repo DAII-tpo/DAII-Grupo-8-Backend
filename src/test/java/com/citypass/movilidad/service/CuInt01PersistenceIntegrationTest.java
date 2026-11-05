@@ -62,7 +62,7 @@ class CuInt01PersistenceIntegrationTest {
         return """
                 {"eventoId":"%s","espacioId":"space-%s","titulo":"Festival",
                  "inicio":"2099-11-01T15:00:00Z","fin":"2099-11-01T18:00:00Z",
-                 "latitud":-34.6,"longitud":-58.4,"cupoMaximo":100,"estado":"PUBLISHED"}
+                 "latitud":-34.6,"longitud":-58.4,"cupoMaximo":100,"estado":"ACTIVE"}
                 """.formatted(id, id);
     }
 
@@ -157,12 +157,13 @@ class CuInt01PersistenceIntegrationTest {
         jobs.complete(id, oldToken);
         assertThat(jobs.token(id)).isEqualTo(currentToken);
         jobs.complete(id, currentToken);
-        assertThat(jobs.token(id)).isNull();
+        assertThat(jobs.token(id)).isEqualTo(currentToken);
+        assertThat(jobs.pendingIds()).doesNotContain(id);
     }
 
     @Test void apiExponeDemandaMaximaYDejaDeRecomendarTrasCancelacion() throws Exception {
         String id = UUID.randomUUID().toString();
-        String full = event(id).replace("PUBLISHED", "ACTIVE_FULL");
+        String full = event(id).replace("ACTIVE", "ACTIVE_FULL");
         transactions.executeWithoutResult(status -> handle("com.citypass.espacios.EventoComunitarioPublicado", full));
         http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/destinations/events"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())

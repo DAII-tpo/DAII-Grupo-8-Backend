@@ -11,7 +11,7 @@ public class CuInt01Handlers {
     private EventHandler handler(String topic, InboundEventService service) {
         return new EventHandler() {
             @Override public String topic() { return topic; }
-            @Override public void handle(IncomingEvent event) { service.handle(topic, event.data()); }
+            @Override public void handle(IncomingEvent event) { service.handle(topic, event.data(), event.metadata().receivedAt()); }
         };
     }
 
@@ -28,6 +28,11 @@ public class CuInt01Handlers {
     @Bean
     public EventHandler cuInt01Handler3(InboundEventService service) {
         return handler("com.citypass.espacios.EspacioEstadoCambiado", service);
+    }
+
+    @Bean
+    public EventHandler cuInt01Handler4(InboundEventService service) {
+        return handler("com.citypass.espacios.ReservaConfirmada", service);
     }
 
     @Bean

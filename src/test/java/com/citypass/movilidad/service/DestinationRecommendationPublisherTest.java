@@ -209,4 +209,17 @@ class DestinationRecommendationPublisherTest {
         verifyNoInteractions(nearby, recommendations);
     }
 
+    @Test
+    void suspensionYEstadoDesconocidoInvalidanSinConsultarEstaciones() {
+        for (String state : List.of("SUSPENDED", "UNKNOWN")) {
+            clearInvocations(writer);
+            CulturalDestination destination = destination();
+            destination.setEventStatus(state);
+            when(destinations.findById("ev-42")).thenReturn(Optional.of(destination));
+            publisher.publish("ev-42");
+            assertThat(capturePayload()).containsEntry("estado", "NO_RECOMMENDATION")
+                    .containsEntry("estacionId", null);
+        }
+        verifyNoInteractions(nearby, recommendations);
+    }
 }

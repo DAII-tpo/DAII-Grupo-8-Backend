@@ -1,5 +1,8 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.repository.EspaciosEventCursorRepository;
+import com.citypass.movilidad.repository.SpaceReservationRepository;
+import com.citypass.movilidad.repository.SpaceReservationRepository.Reservation;
 import com.citypass.movilidad.model.CityIncident;
 import com.citypass.movilidad.model.CulturalDestination;
 import com.citypass.movilidad.model.enums.IncidentSource;
@@ -43,25 +46,39 @@ public class InboundEventService {
     private final ApplicationEventPublisher domainEvents;
     private final InboundEntityStateRepository entityStates;
     private final DestinationRecommendationJobRepository jobs;
+    private final EspaciosEventCursorRepository cursors;
+    private final SpaceReservationRepository reservations;
 
     public InboundEventService(CulturalDestinationRepository destinationRepository,
                                CityIncidentRepository incidentRepository,
                                ApplicationEventPublisher domainEvents,
                                InboundEntityStateRepository entityStates,
-                               DestinationRecommendationJobRepository jobs) {
+                               DestinationRecommendationJobRepository jobs,
+                               EspaciosEventCursorRepository cursors,
+                               SpaceReservationRepository reservations) {
         this.destinationRepository = destinationRepository;
         this.incidentRepository = incidentRepository;
         this.domainEvents = domainEvents;
         this.entityStates = entityStates;
         this.jobs = jobs;
+        this.cursors = cursors;
+        this.reservations = reservations;
     }
 
-    /** Invocado por el dispatcher transaccional Kafka: la idempotencia la maneja event_inbox. */
+    /** Entrada local para pruebas; el handler Kafka utiliza la sobrecarga con metadata.receivedAt. */
     public void handle(String eventType, JsonNode data) {
+        handle(eventType, data, Instant.now());
+    }
+
+    /** El handler Kafka pasa la hora del gateway, no la hora local de procesamiento. */
+    public void handle(String eventType, JsonNode data, Instant receivedAt) {
+        java.util.Objects.requireNonNull(receivedAt, "metadata.receivedAt es obligatorio");
+        if (eventType.startsWith(ESPACIOS)) cursors.lock();
         switch (eventType) {
-            case ESPACIOS + "EventoComunitarioPublicado" -> upsertDestination(data);
-            case ESPACIOS + "EventoCancelado" -> cancelDestination(data);
-            case ESPACIOS + "EspacioEstadoCambiado" -> updateSpaceStatus(data);
+            case ESPACIOS + "EventoComunitarioPublicado" -> upsertDestination(data, receivedAt);
+            case ESPACIOS + "EventoCancelado" -> cancelDestination(data, receivedAt);
+            case ESPACIOS + "EspacioEstadoCambiado" -> updateSpaceStatus(data, receivedAt);
+            case ESPACIOS + "ReservaConfirmada" -> confirmReservation(data, receivedAt);
             case RECLAMOS + "ReclamoCreado" ->
                     openIncident(IncidentSource.RECLAMOS, text(data, "reclamoId"), data, epochMillis(data, "createdAt"));
             case RECLAMOS + "ReclamoActualizado" ->
@@ -76,9 +93,15 @@ public class InboundEventService {
 
     // --- Destinos (Espacios Públicos) ---------------------------------------
 
-    private void upsertDestination(JsonNode data) {
+    private void upsertDestination(JsonNode data, Instant receivedAt) {
         String eventId = text(data, "eventoId");
-        CulturalDestination destination = destinationRepository.findById(eventId)
+        boolean current = cursors.accept(CULTURAL_EVENT_STATE_TYPE, eventId, receivedAt);
+        var existing = destinationRepository.findById(eventId);
+        // Si cancelación y creación llegaron cruzadas, conservar el primer snapshot como cancelado
+        // permite devolver la invalidación sin resucitarlo ni reemplazar una proyección vigente.
+        if (!current && (existing.isPresent()
+                || !entityStates.hasState(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE))) return;
+        CulturalDestination destination = existing
                 .orElseGet(() -> CulturalDestination.builder().eventId(eventId).build());
 
         destination.setSpaceId(text(data, "espacioId"));
@@ -103,19 +126,22 @@ public class InboundEventService {
             throw new IllegalArgumentException("inicio y fin deben definir un intervalo válido");
         }
         destination.setMaxCapacity(capacity.intValue());
-        // El registro incremental por ReservaConfirmada se implementa cuando Espacios envíe su contrato.
+        // El total de inscriptos proviene únicamente de este snapshot, no de reservas.
         String state = optionalText(data, "estado");
         updateDemand(data, destination, state);
+        destination.setEventStatus(Set.of("ACTIVE", "ACTIVE_FULL", "SUSPENDED", CANCELLED_STATE).contains(
+                state == null ? "" : state) ? state : "UNKNOWN");
         if (CANCELLED_STATE.equals(state)) {
             entityStates.remember(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE);
         }
         destination.setCancelled(destination.isCancelled()
                 || CANCELLED_STATE.equals(state)
                 || entityStates.hasState(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE));
+        if (destination.isCancelled()) destination.setEventStatus(CANCELLED_STATE);
         destination.setSpaceEnabled(!entityStates.hasState("SPACE", destination.getSpaceId(), "DISABLED"));
         destination.setUpdatedAt(Instant.now());
+        destination.setRecommendationToken(jobs.request(eventId));
         destinationRepository.save(destination);
-        jobs.request(eventId);
         domainEvents.publishEvent(new CulturalDestinationChanged(eventId));
     }
 
@@ -131,33 +157,73 @@ public class InboundEventService {
         if (state != null) destination.setFullCapacity("ACTIVE_FULL".equals(state));
     }
 
-    private void cancelDestination(JsonNode data) {
+    private void cancelDestination(JsonNode data, Instant receivedAt) {
         String eventId = text(data, "eventoId");
+        // La cancelación es definitiva incluso si llegó con fecha anterior al último snapshot.
+        cursors.accept(CULTURAL_EVENT_STATE_TYPE, eventId, receivedAt);
         entityStates.remember(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE);
         destinationRepository.findById(eventId).ifPresent(destination -> {
             if (destination.isCancelled()) return;
             destination.setCancelled(true);
+            destination.setEventStatus(CANCELLED_STATE);
             destination.setUpdatedAt(Instant.now());
+            destination.setRecommendationToken(jobs.request(destination.getEventId()));
             destinationRepository.save(destination);
-            jobs.request(destination.getEventId());
             domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
         });
     }
 
-    private void updateSpaceStatus(JsonNode data) {
+    private void updateSpaceStatus(JsonNode data, Instant receivedAt) {
         String status = text(data, NEW_STATUS_FIELD);
         if (!"ENABLED".equals(status) && !"DISABLED".equals(status)) {
             throw new IllegalArgumentException("Estado de espacio desconocido: " + status);
         }
         boolean enabled = "ENABLED".equals(status);
         String spaceId = text(data, "espacioId");
+        if (!cursors.accept("SPACE", spaceId, receivedAt)) return;
         entityStates.remember("SPACE", spaceId, status);
         for (CulturalDestination destination : destinationRepository.findBySpaceId(spaceId)) {
             destination.setSpaceEnabled(enabled);
             destination.setUpdatedAt(Instant.now());
+            destination.setRecommendationToken(jobs.request(destination.getEventId()));
             destinationRepository.save(destination);
-            jobs.request(destination.getEventId());
             domainEvents.publishEvent(new CulturalDestinationChanged(destination.getEventId()));
+        }
+    }
+
+    private void confirmReservation(JsonNode data, Instant receivedAt) {
+        String id = text(data, "reservaId");
+        String type = text(data, "tipoReserva");
+        if (!"EVENTO".equals(type) && !"ESPACIO".equals(type)) {
+            throw new IllegalArgumentException("tipoReserva debe ser EVENTO o ESPACIO");
+        }
+        String resourceId = text(data, "recursoId");
+        String spaceId = text(data, "espacioId");
+        if ("ESPACIO".equals(type) && !resourceId.equals(spaceId)) {
+            throw new IllegalArgumentException("recursoId debe identificar el espacio reservado");
+        }
+        JsonNode people = data.path("cantidadPersonas");
+        if (!people.isIntegralNumber() || !people.canConvertToInt() || people.intValue() < 0) {
+            throw new IllegalArgumentException("cantidadPersonas debe ser un entero no negativo");
+        }
+        Instant start = iso(data, "inicio");
+        Instant end = iso(data, "fin");
+        if (start == null || end == null || !end.isAfter(start)) {
+            throw new IllegalArgumentException("inicio y fin deben definir un intervalo válido");
+        }
+        if (!cursors.accept("RESERVATION", id, receivedAt)) return;
+        reservations.save(new Reservation(id, type, resourceId, spaceId, people.intValue(), start, end));
+        // ESPACIO aporta demanda por lugar/horario, pero no contiene coordenadas ni un evento cultural.
+        // Se conserva sin inventar un destino; EVENTO reutiliza el snapshot conocido y nunca suma inscriptos.
+        if ("EVENTO".equals(type)) {
+            destinationRepository.findById(resourceId).ifPresent(destination -> {
+                if (!spaceId.equals(destination.getSpaceId())) {
+                    throw new IllegalArgumentException("La reserva y el evento pertenecen a espacios diferentes");
+                }
+                destination.setRecommendationToken(jobs.request(resourceId));
+                destinationRepository.save(destination);
+                domainEvents.publishEvent(new CulturalDestinationChanged(resourceId));
+            });
         }
     }
 

@@ -37,7 +37,7 @@ public class CulturalDestinationService {
                 .filter(CulturalDestination::isRoutable)
                 .filter(event -> event.getEndsAt() != null && event.getEndsAt().isAfter(Instant.now()))
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "El evento no existe, fue cancelado o su espacio no está disponible"));
+                        "El evento no existe, no está activo o su espacio no está disponible"));
 
         return recommendationService.recommendDestination(destination.getLatitude().doubleValue(),
                 destination.getLongitude().doubleValue(), destination.expectedDemand());
