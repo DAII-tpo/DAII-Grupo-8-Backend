@@ -61,6 +61,7 @@ import static org.mockito.Mockito.when;
  */
 @Testcontainers
 @SpringBootTest(properties = {
+        "movilidad.analytics.affected-stations.cron=-",
         "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}",
         "citypass.eventbus.consumer.enabled=true",
         "citypass.eventbus.consumer.security-protocol=PLAINTEXT",

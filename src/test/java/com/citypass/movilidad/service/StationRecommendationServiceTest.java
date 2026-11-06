@@ -40,15 +40,18 @@ class StationRecommendationServiceTest {
 
     private NearbyStationService nearbyStationService;
     private RecommendationClient recommendationClient;
+    private IncidentProximityFilter incidentFilter;
     private StationRecommendationService service;
 
     @BeforeEach
     void setUp() {
         nearbyStationService = mock(NearbyStationService.class);
         recommendationClient = mock(RecommendationClient.class);
+        incidentFilter = mock(IncidentProximityFilter.class);
+        when(incidentFilter.apply(any())).thenAnswer(invocation -> invocation.getArgument(0));
         service = new StationRecommendationService(nearbyStationService, recommendationClient,
                 new RecommendationMessageComposer(),
-                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true));
+                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true), incidentFilter);
     }
 
     @Test
