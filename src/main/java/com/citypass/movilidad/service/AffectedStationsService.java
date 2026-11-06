@@ -80,6 +80,7 @@ public class AffectedStationsService {
         data.put("latitud", station.getLatitude().doubleValue());
         data.put("longitud", station.getLongitude().doubleValue());
         // El CU restringe recomendaciones; no altera capacidad ni estado físico de la estación.
+        // Extensión pendiente de aceptación de BI; no equivale funcionalmente a BLOQUEADA.
         data.put("tipoAfectacion", "RECOMENDACION_RESTRINGIDA");
         data.put("afectacionDesde", now.toString());
         data.put("afectacionHastaEstimada", null);

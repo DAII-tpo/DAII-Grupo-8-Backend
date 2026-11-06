@@ -5,6 +5,9 @@ import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.MySQLContainer;
@@ -13,6 +16,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,6 +25,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Exercises Flyway itself, including the upgrade from the migration already on main. */
 @Testcontainers
 class MigrationUpgradeIntegrationTest {
+    @TempDir Path directory;
+    private Path integrated;
+    private Path legacy;
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
             .withDatabaseName("movilidad").withUsername("test").withPassword("test");
@@ -29,25 +37,51 @@ class MigrationUpgradeIntegrationTest {
                 .cleanDisabled(false).target(target).load();
     }
 
-    @BeforeEach
-    void resetDatabase() {
-        flyway("latest").clean();
+    private Flyway flyway(Path location, String target) {
+        return Flyway.configure().dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
+                .locations("filesystem:" + location).cleanDisabled(false).target(target).load();
     }
 
-    @Test
-    void reproduceElErrorDeResolverDosMigracionesConVersionSeis(@TempDir Path directory) throws Exception {
-        Files.writeString(directory.resolve("V6__bike_emergencies.sql"), "SELECT 1;");
-        Files.writeString(directory.resolve("V6__cu_int_01_destinos_incidentes.sql"), "SELECT 1;");
-        Flyway duplicate = Flyway.configure()
-                .dataSource(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword())
-                .locations("filesystem:" + directory).load();
+    @BeforeEach
+    void resetDatabase() throws IOException {
+        flyway("latest").clean();
+        integrated = Files.createDirectory(directory.resolve("integrated"));
+        legacy = Files.createDirectory(directory.resolve("legacy"));
+        var resolver = new PathMatchingResourcePatternResolver();
+        // El snapshot de Login se usa sin modificarlo. En el árbol integrado se exige igualdad byte a byte.
+        for (String pattern : List.of("classpath*:db/migration/V*__*.sql", "classpath*:db/main-login-v9/V*__*.sql")) {
+            for (var resource : resolver.getResources(pattern)) {
+                String name = resource.getFilename();
+                byte[] sql = resource.getContentAsByteArray();
+                Path target = integrated.resolve(name);
+                if (Files.exists(target)) assertThat(Files.readAllBytes(target)).isEqualTo(sql);
+                else Files.write(target, sql);
+                int version = Integer.parseInt(name.substring(1, name.indexOf("__")));
+                if (version <= 6 || version >= 10) {
+                    String oldName = version <= 6 ? name : name.replaceFirst("V" + version + "__", "V" + (version - 3) + "__");
+                    Files.write(legacy.resolve(oldName), sql);
+                }
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {7, 8, 9})
+    void reproduceLasColisionesDelPr36(int version) throws Exception {
+        Path duplicateDirectory = Files.createDirectory(directory.resolve("duplicate"));
+        for (Path source : List.of(integrated, legacy)) {
+            try (var files = Files.newDirectoryStream(source, "V" + version + "__*.sql")) {
+                for (Path file : files) Files.copy(file, duplicateDirectory.resolve(file.getFileName()));
+            }
+        }
+        Flyway duplicate = flyway(duplicateDirectory, "latest");
         assertThatThrownBy(duplicate::migrate).isInstanceOf(FlywayException.class)
-                .hasMessageContaining("Found more than one migration with version 6");
+                .hasMessageContaining("Found more than one migration with version " + version);
     }
 
     @Test
     void actualizaMainV6ACuInt01SinPerderDatosNiCambiarMigracionesAplicadas() {
-        Flyway previous = flyway("6");
+        Flyway previous = flyway(integrated, "6");
         previous.migrate();
         var jdbc = new JdbcTemplate(new DriverManagerDataSource(
                 mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
@@ -57,10 +91,10 @@ class MigrationUpgradeIntegrationTest {
         jdbc.update("INSERT INTO event_outbox (id, aggregate_type, aggregate_id, event_type, payload) "
                 + "VALUES (UUID(), 'TRIP', 'existing-trip', 'com.citypass.movilidad.ViajeIniciado', '{}')");
 
-        Flyway current = flyway("latest");
+        Flyway current = flyway(integrated, "latest");
         var result = current.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(7);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("13");
+        assertThat(result.migrationsExecuted).isEqualTo(10);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("16");
         assertThat(jdbc.queryForObject("SELECT checksum FROM flyway_schema_history WHERE version = '6'",
                 Integer.class)).isEqualTo(checksum);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id = 'existing-trip'",
@@ -75,8 +109,8 @@ class MigrationUpgradeIntegrationTest {
         assertThat(current.migrate().migrationsExecuted).isZero();
     }
     @Test
-    void actualizaLaBaseV12DeRenderSinPerderDestinosNiSolicitudes() {
-        flyway("12").migrate();
+    void actualizaV15AV16SinPerderDestinosNiSolicitudes() {
+        flyway("15").migrate();
         var jdbc = new JdbcTemplate(new DriverManagerDataSource(
                 mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
         jdbc.update("""
@@ -97,5 +131,39 @@ class MigrationUpgradeIntegrationTest {
                 .isEqualTo("token-previo");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM espacios_event_cursors WHERE entity_type='LOCK'", Integer.class)).isEqualTo(1);
         assertThat(flyway("latest").migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void actualizaMainConLoginV9SinModificarSusMigracionesNiDatos() {
+        flyway(integrated, "9").migrate();
+        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
+        var history = jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history ORDER BY installed_rank");
+        jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
+                + "VALUES (UUID(),'TRIP','previo-login','com.citypass.movilidad.ViajeIniciado','{}')");
+        var current = flyway(integrated, "latest");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(7);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("16");
+        assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 9 ORDER BY installed_rank"))
+                .isEqualTo(history);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='previo-login'", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_tokens", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM espacios_event_cursors WHERE entity_type='LOCK'", Integer.class)).isEqualTo(1);
+        current.validate();
+        assertThat(current.migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void rechazaElHistorialAntiguoDeRenderSinRepararloNiBorrarDatos() {
+        flyway(legacy, "13").migrate();
+        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
+        var history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+        jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
+                + "VALUES (UUID(),'TRIP','conservar','com.citypass.movilidad.ViajeIniciado','{}')");
+        assertThatThrownBy(() -> flyway(integrated, "latest").migrate())
+                .isInstanceOf(FlywayException.class).hasMessageContaining("Validate failed");
+        assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='conservar'", Integer.class)).isEqualTo(1);
     }
 }

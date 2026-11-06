@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -157,6 +159,104 @@ class AffectedStationsBiIntegrationTest {
         assertThat(payloads(RESTAURADA)).hasSize(1);
         assertThat(payloads(RESTAURADA).getFirst().path("afectacionId").asText())
                 .isEqualTo(data.path("afectacionId").asText());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "reclamos,ReclamoCreado,reclamoId,RECLAMOS",
+            "emergencias,EmergenciaCreada,emergenciaId,EMERGENCIAS"
+    })
+    void publicaReferenciaVialExplicitaEnOutboxSinCambiarElOrigen(String namespace, String event, String idField,
+                                                               String origin) throws Exception {
+        station("Activa", "ACTIVE", false, -34.6);
+        String payload = """
+                {"%s":"reporte-1","categoria":"TRANSITO","afectaCirculacion":true,
+                 "latitud":-34.6,"longitud":-58.4,"createdAt":"2026-11-02T15:00:00Z",
+                 "causaTipo":"INCIDENTE_VIAL","causaId":"vial-original","correlationId":"c-vial"}
+                """.formatted(idField);
+        handle("com.citypass." + namespace + "." + event, payload);
+        handle("com.citypass." + namespace + "." + event, payload);
+        publisher.refresh();
+        assertThat(payloads(AFECTADA)).hasSize(1);
+        var data = payloads(AFECTADA).getFirst();
+        assertThat(data.size()).isEqualTo(12);
+        assertThat(data.path("causaTipo").asText()).isEqualTo("INCIDENTE_VIAL");
+        assertThat(data.path("causaId").asText()).isEqualTo("vial-original");
+        assertThat(data.path("moduloOrigen").asText()).isEqualTo(origin);
+        assertThat(data.path("correlationId").asText()).isEqualTo("c-vial");
+        assertThat(data.path("tipoAfectacion").asText()).isEqualTo("RECOMENDACION_RESTRINGIDA");
+        var schema = avroSchema("EstacionUrbanaAfectada");
+        var decoded = new org.apache.avro.generic.GenericDatumReader<org.apache.avro.generic.GenericRecord>(schema)
+                .read(null, org.apache.avro.io.DecoderFactory.get().jsonDecoder(schema, data.toString()));
+        assertThat(decoded.get("causaTipo").toString()).isEqualTo("INCIDENTE_VIAL");
+        assertThat(decoded.get("moduloOrigen").toString()).isEqualTo(origin);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "reclamos,ReclamoCreado,reclamoId,RECLAMO,RECLAMOS",
+            "emergencias,EmergenciaCreada,emergenciaId,EMERGENCIA,EMERGENCIAS"
+    })
+    void noInfiereCausaVialPorCategoriaNiPorIdentificadorSuelto(String namespace, String event, String idField,
+                                                             String cause, String origin) throws Exception {
+        station("Activa", "ACTIVE", false, -34.6);
+        String payload = """
+                {"%s":"reporte-1","categoria":"INCIDENTE_VIAL","afectaCirculacion":true,
+                 "latitud":-34.6,"longitud":-58.4,"createdAt":"2026-11-02T15:00:00Z","causaId":"referencia-suelta"}
+                """.formatted(idField);
+        handle("com.citypass." + namespace + "." + event, payload);
+        assertThat(payloads(AFECTADA)).hasSize(1);
+        var data = payloads(AFECTADA).getFirst();
+        assertThat(data.path("causaTipo").asText()).isEqualTo(cause);
+        assertThat(data.path("causaId").asText()).isEqualTo("reporte-1");
+        assertThat(data.path("moduloOrigen").asText()).isEqualTo(origin);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"reclamos,ReclamoCreado,reclamoId", "emergencias,EmergenciaCreada,emergenciaId"})
+    void rechazaReferenciaVialSinIdSinPublicarNiPersistir(String namespace, String event, String idField) {
+        station("Activa", "ACTIVE", false, -34.6);
+        String payload = """
+                {"%s":"reporte-1","categoria":"TRANSITO","afectaCirculacion":true,
+                 "latitud":-34.6,"longitud":-58.4,"createdAt":"2026-11-02T15:00:00Z",
+                 "causaTipo":"INCIDENTE_VIAL","causaId":" "}
+                """.formatted(idField);
+        assertThatThrownBy(() -> handle("com.citypass." + namespace + "." + event, payload))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("causaId");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM city_incidents", Integer.class)).isZero();
+        assertThat(payloads(AFECTADA)).isEmpty();
+    }
+
+    @Test void contratoAvroAdmiteTodosLosSimbolosDeBiYConservaLosDoceCampos() throws Exception {
+        station("Activa", "ACTIVE", false, -34.6);
+        claim("r-1");
+        var schema = avroSchema("EstacionUrbanaAfectada");
+        assertThat(schema.getFields().stream().map(org.apache.avro.Schema.Field::name)).containsExactly(
+                "afectacionId", "estacionId", "latitud", "longitud", "tipoAfectacion", "afectacionDesde",
+                "afectacionHastaEstimada", "causaId", "causaTipo", "moduloOrigen", "correlationId", "occurredAt");
+        var types = List.of("BLOQUEADA", "CAPACIDAD_REDUCIDA", "FUERA_DE_SERVICIO");
+        var causes = List.of("EVENTO_CLIMATICO", "RECLAMO", "INCIDENTE_VIAL", "EVENTO_PUBLICO", "RESERVA");
+        assertThat(schema.getField("tipoAfectacion").schema().getEnumSymbols()).containsAll(types);
+        assertThat(schema.getField("causaTipo").schema().getEnumSymbols()).containsAll(causes);
+        var data = (com.fasterxml.jackson.databind.node.ObjectNode) payloads(AFECTADA).getFirst();
+        for (String type : types) {
+            for (String cause : causes) {
+                data.put("tipoAfectacion", type).put("causaTipo", cause);
+                var decoded = new org.apache.avro.generic.GenericDatumReader<org.apache.avro.generic.GenericRecord>(schema)
+                        .read(null, org.apache.avro.io.DecoderFactory.get().jsonDecoder(schema, data.toString()));
+                assertThat(decoded.get("tipoAfectacion").toString()).isEqualTo(type);
+                assertThat(decoded.get("causaTipo").toString()).isEqualTo(cause);
+            }
+        }
+    }
+
+    private org.apache.avro.Schema avroSchema(String name) throws Exception {
+        try (var stream = getClass().getResourceAsStream("/eventbus/event-types/" + name + ".json")) {
+            var definition = mapper.createObjectNode();
+            definition.put("type", "record").put("name", name).put("namespace", "com.citypass.movilidad");
+            definition.set("fields", mapper.readTree(stream).path("fields"));
+            return new org.apache.avro.Schema.Parser().parse(definition.toString());
+        }
     }
 
     @Test void noPublicaAlHacerRollbackYRecuperaCambiosDeCatalogo() throws Exception {
