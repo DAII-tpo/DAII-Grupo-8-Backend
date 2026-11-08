@@ -123,8 +123,10 @@ class RepositoryPersistenceTests {
     @Test
     void seedDeReferenciaEstaDisponible() {
         assertThat(roleRepository.findByName("ADMIN")).isPresent();
-        assertThat(roleRepository.findByName("OPERATOR")).isPresent();
         assertThat(roleRepository.findByName("USER")).isPresent();
+        // La V8 lo borra: era un rol que ningún @PreAuthorize chequeaba, así que no separaba
+        // permisos de nada. Esta aserción es la que verifica que la migración corrió.
+        assertThat(roleRepository.findByName("OPERATOR")).isEmpty();
         assertThat(incidentTypeRepository.findByCode("FLAT_TIRE")).isPresent();
     }
 

@@ -8,7 +8,7 @@ import com.citypass.movilidad.model.enums.EmergencyPriority;
  */
 public record EmergenciaBicicletaEvent(
         String emergenciaId,
-        // Identificador estable de la persona (convención del bus). Null hasta integrar el Login Federado.
+        // Identificador estable de la persona (convención del bus): el `sub` del token federado.
         String actorSub,
         long reportadaEn,
         Ubicacion ubicacion,
@@ -30,5 +30,17 @@ public record EmergenciaBicicletaEvent(
     }
 
     public record Usuario(long usuarioId, String nombre, String apellido, String email) {
+
+        /**
+         * Igual que en {@code ReporteBicicletaEvent}: el contrato los declara obligatorios y el
+         * access token no trae email ni apellido. Acá importa más todavía, porque este evento es
+         * el único canal por el que Emergencias se entera del pedido de ayuda: con un nulo el
+         * gateway lo rechaza y el aviso no llega a nadie.
+         */
+        public Usuario {
+            nombre = nombre == null ? "" : nombre;
+            apellido = apellido == null ? "" : apellido;
+            email = email == null ? "" : email;
+        }
     }
 }

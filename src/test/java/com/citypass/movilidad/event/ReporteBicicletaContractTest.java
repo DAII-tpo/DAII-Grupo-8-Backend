@@ -37,6 +37,23 @@ class ReporteBicicletaContractTest {
         assertThat(AvroContract.violations(SCHEMA, event)).containsExactly("data.bicicleta.bicicletaCodigo: se esperaba un texto");
     }
 
+    /**
+     * Un empleado dado de alta mientras el IdP no contestaba queda sin email ni apellido, y el
+     * contrato los declara obligatorios. El record los normaliza a vacío para que el evento salga
+     * igual, en lugar de quedar en FAILED en el outbox sin que nadie lo note.
+     */
+    @Test
+    void unUsuarioSinEmailNiApellidoIgualCumpleElContrato() {
+        ReporteBicicletaEvent event = new ReporteBicicletaEvent(142L, "U000042", 1793300000000L,
+                new ReporteBicicletaEvent.TipoIncidencia("FLAT_TIRE", "Pinchazo"),
+                "La rueda trasera está desinflada",
+                new ReporteBicicletaEvent.Bicicleta(5L, "BIKE-03520", 10L, "11 de Septiembre"),
+                null, null,
+                new ReporteBicicletaEvent.Usuario(1L, "jperez", null, null));
+
+        assertThat(AvroContract.violations(SCHEMA, event)).isEmpty();
+    }
+
     private static ReporteBicicletaEvent evento(ReporteBicicletaEvent.Bicicleta bicicleta,
                                                 ReporteBicicletaEvent.Viaje viaje,
                                                 ReporteBicicletaEvent.Ubicacion ubicacion, String actorSub) {

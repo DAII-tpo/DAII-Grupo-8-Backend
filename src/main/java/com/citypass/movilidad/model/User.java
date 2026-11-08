@@ -36,20 +36,33 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "external_user_id", length = 64)
+    /** `sub` del Login Federado (employeeNumber). Clave natural de la identidad federada. */
+    @Column(name = "external_user_id", length = 64, unique = true)
     private String externalUserId;
 
-    @Column(name = "first_name", nullable = false, length = 100)
+    @Column(name = "first_name", length = 100)
     private String firstName;
 
-    @Column(name = "last_name", nullable = false, length = 100)
+    @Column(name = "last_name", length = 100)
     private String lastName;
 
-    @Column(nullable = false, length = 255, unique = true)
+    @Column(length = 255, unique = true)
     private String email;
 
+    /** Solo para ciudadanos con cuenta local. Un empleado del IdP lo tiene en NULL. */
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
+
+    @Column(name = "failed_login_attempts", nullable = false)
+    @Builder.Default
+    private int failedLoginAttempts = 0;
+
+    /** Sin esta fecha el contador sería acumulativo de por vida y la ventana no significaría nada. */
+    @Column(name = "last_failed_login_at")
+    private Instant lastFailedLoginAt;
+
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "role_id", nullable = false)

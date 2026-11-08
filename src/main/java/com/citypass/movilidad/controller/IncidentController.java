@@ -1,17 +1,16 @@
 package com.citypass.movilidad.controller;
 
+import com.citypass.movilidad.config.CurrentUserId;
 import com.citypass.movilidad.dto.AdminIncidentResponse;
 import com.citypass.movilidad.dto.IncidentCreateRequest;
 import com.citypass.movilidad.dto.IncidentResponse;
 import com.citypass.movilidad.dto.IncidentStatusUpdateRequest;
 import com.citypass.movilidad.dto.IncidentTypeResponse;
 import com.citypass.movilidad.exception.ErrorResponse;
+import com.citypass.movilidad.model.enums.BikeIncidentStatus;
 import com.citypass.movilidad.service.IncidentService;
 import com.citypass.movilidad.validation.EntityId;
-import com.citypass.movilidad.model.enums.BikeIncidentStatus;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -24,7 +23,6 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,12 +34,12 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/incidents")
 @Tag(name = "Incidencias", description = "Consulta de tipos y reporte de incidencias de bicicletas")
+// El 401 vale para todos los endpoints de la clase: springdoc propaga un @ApiResponse
+// declarado a nivel de clase a cada operación.
+@ApiResponse(responseCode = "401", description = "Token ausente o inválido",
+        content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
 public class IncidentController {
 
-    // Identifica al usuario hasta que esté integrado el Login Federado.
-    static final String USER_HEADER = "X-User-Id";
-    private static final String USER_HEADER_DESCRIPTION =
-            "ID del usuario actual. Mecanismo temporal hasta integrar el login federado de Grupo 2";
 
     private final IncidentService incidentService;
 
@@ -65,15 +63,14 @@ public class IncidentController {
             description = "Registra una incidencia OPEN asociada al usuario y a la bicicleta")
     @ApiResponse(responseCode = "201", description = "Incidencia registrada",
             content = @Content(schema = @Schema(implementation = IncidentResponse.class)))
-    @ApiResponse(responseCode = "400", description = "Header o cuerpo inválido",
+    @ApiResponse(responseCode = "400", description = "Cuerpo inválido",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "Usuario, bicicleta o tipo inexistente/inactivo",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "409", description = "Usuario no habilitado",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<IncidentResponse> report(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) @EntityId Long userId,
+            @CurrentUserId Long userId,
             @Valid @RequestBody IncidentCreateRequest request) {
         IncidentResponse created = incidentService.report(userId, request);
         return ResponseEntity.created(URI.create("/api/v1/incidents/" + created.id())).body(created);
@@ -89,8 +86,7 @@ public class IncidentController {
     @ApiResponse(responseCode = "403", description = "El usuario no es ADMIN",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public List<AdminIncidentResponse> findAll(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) @EntityId Long adminId,
+            @CurrentUserId Long adminId,
             @RequestParam(required = false) BikeIncidentStatus status,
             @RequestParam(required = false) @EntityId Long bikeId,
             @RequestParam(required = false) @EntityId Long userId,
@@ -109,8 +105,7 @@ public class IncidentController {
     @ApiResponse(responseCode = "404", description = "La incidencia no existe",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public AdminIncidentResponse findById(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) @EntityId Long adminId,
+            @CurrentUserId Long adminId,
             @PathVariable @EntityId Long id) {
         return incidentService.findByIdForAdmin(adminId, id);
     }
@@ -128,8 +123,7 @@ public class IncidentController {
     @ApiResponse(responseCode = "409", description = "Transición de estado no permitida",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public AdminIncidentResponse changeStatus(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(USER_HEADER) @EntityId Long adminId,
+            @CurrentUserId Long adminId,
             @PathVariable @EntityId Long id,
             @Valid @RequestBody IncidentStatusUpdateRequest request) {
         return incidentService.changeStatus(adminId, id, request.status());

@@ -23,6 +23,25 @@ class EmergenciaBicicletaContractTest {
                 false, null, null, null, EmergencyPriority.P1), null, null))).isEmpty();
     }
 
+    /**
+     * Un empleado dado de alta mientras el IdP no contestaba queda sin email ni apellido, y el
+     * contrato los declara obligatorios. El record los normaliza a vacío para que el aviso salga
+     * igual: con un nulo el gateway rechazaría el evento y Emergencias nunca se enteraría del
+     * pedido de ayuda, sin que nadie vea un error.
+     */
+    @Test
+    void unUsuarioSinEmailNiApellidoIgualCumpleElContrato() {
+        EmergenciaBicicletaEvent event = new EmergenciaBicicletaEvent(
+                "EMG-20261029-0091", "U000042", 1793300000000L,
+                new EmergenciaBicicletaEvent.Ubicacion(-34.6037, -58.3816, 12.5),
+                new EmergenciaBicicletaEvent.Triage(true, false, false, false, EmergencyPriority.P2),
+                new EmergenciaBicicletaEvent.Viaje(450021L, 1793299280000L, 10L, "11 de Septiembre",
+                        5L, "BIKE-03520"),
+                new EmergenciaBicicletaEvent.Usuario(1L, "jperez", null, null));
+
+        assertThat(AvroContract.violations(SCHEMA, event)).isEmpty();
+    }
+
     @Test
     void todasLasPrioridadesExistenEnElContrato() {
         Schema prioridad = SCHEMA.getField("triage").schema().getField("prioridadSugerida").schema();

@@ -1,8 +1,8 @@
 package com.citypass.movilidad.service;
 
+import com.citypass.movilidad.dto.AdminIncidentResponse;
 import com.citypass.movilidad.dto.IncidentCreateRequest;
 import com.citypass.movilidad.dto.IncidentResponse;
-import com.citypass.movilidad.dto.AdminIncidentResponse;
 import com.citypass.movilidad.dto.IncidentTypeResponse;
 import com.citypass.movilidad.event.ReporteBicicletaEvent;
 import com.citypass.movilidad.eventbus.publish.EventPublisher;
@@ -13,17 +13,18 @@ import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeIncident;
 import com.citypass.movilidad.model.IncidentType;
 import com.citypass.movilidad.model.Station;
+import com.citypass.movilidad.model.Trip;
 import com.citypass.movilidad.model.User;
 import com.citypass.movilidad.model.enums.AggregateType;
 import com.citypass.movilidad.model.enums.BikeIncidentStatus;
+import com.citypass.movilidad.model.enums.TripStatus;
 import com.citypass.movilidad.model.enums.UserStatus;
 import com.citypass.movilidad.repository.BikeIncidentRepository;
 import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.IncidentTypeRepository;
-import com.citypass.movilidad.repository.UserRepository;
-import com.citypass.movilidad.model.Trip;
-import com.citypass.movilidad.model.enums.TripStatus;
 import com.citypass.movilidad.repository.TripRepository;
+import com.citypass.movilidad.repository.UserRepository;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -68,16 +69,18 @@ public class IncidentService {
     }
 
     /** Listado filtrable de incidencias (solo admin). */
+    @PreAuthorize("hasRole('ADMIN')")
     public List<AdminIncidentResponse> findAllForAdmin(Long adminId, BikeIncidentStatus status,
                                                         Long bikeId, Long userId, Long typeId) {
-        requireAdmin(adminId);
+        requireActiveUser(adminId);
         return incidentRepository.search(status, bikeId, userId, typeId).stream()
                 .map(this::toAdminResponse)
                 .toList();
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     public AdminIncidentResponse findByIdForAdmin(Long adminId, Long incidentId) {
-        requireAdmin(adminId);
+        requireActiveUser(adminId);
         return incidentRepository.findDetailedById(incidentId)
                 .map(this::toAdminResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Incidencia no encontrada: " + incidentId));
@@ -85,8 +88,9 @@ public class IncidentService {
 
     @Transactional
     /** Cambia el estado de una incidencia (solo admin). Al rechazarla puede liberar la bici. */
+    @PreAuthorize("hasRole('ADMIN')")
     public AdminIncidentResponse changeStatus(Long adminId, Long incidentId, BikeIncidentStatus newStatus) {
-        User admin = requireAdmin(adminId);
+        User admin = requireActiveUser(adminId);
         BikeIncident incident = incidentRepository.findByIdForUpdate(incidentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Incidencia no encontrada: " + incidentId));
         if (!isAllowedTransition(incident.getStatus(), newStatus)) {
@@ -177,12 +181,16 @@ public class IncidentService {
                 incident.getDescription(), incident.getStatus(), incident.getReportedAt());
     }
 
-    private User requireAdmin(Long userId) {
+    /**
+     * Trae al usuario y verifica que esté habilitado. El rol ya no se chequea acá: la
+     * autorización la decide {@code @PreAuthorize} con el grupo LDAP del token. Esto queda como
+     * kill-switch local, para poder suspender a alguien sin tocar el directorio del Grupo 2.
+     */
+    private User requireActiveUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado: " + userId));
-        if (user.getStatus() != UserStatus.ACTIVE || user.getRole() == null
-                || !"ADMIN".equals(user.getRole().getName())) {
-            throw new ForbiddenOperationException("El usuario no tiene permisos de administrador: " + userId);
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new ForbiddenOperationException("El usuario no está habilitado: " + userId);
         }
         return user;
     }
