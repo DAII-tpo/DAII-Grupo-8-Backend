@@ -6,6 +6,7 @@ import com.citypass.movilidad.config.AuthProperties;
 import com.citypass.movilidad.config.CitizenAuthProperties;
 import com.citypass.movilidad.config.FederatedRoleResolver;
 import com.citypass.movilidad.config.FederatedJwtClaims;
+import com.citypass.movilidad.dto.CurrentUserResponse;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.exception.UnauthorizedException;
 import com.citypass.movilidad.model.User;
@@ -19,6 +20,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -74,7 +76,38 @@ public class CurrentUserService {
     }
 
     /**
-     * Sin {@code @Transactional} a propósito: lo llaman los dos métodos públicos, que ya abren la
+     * La persona autenticada con su tipo y su rol efectivo, para {@code GET /api/v1/users/me}.
+     *
+     * <p>El rol sale del token y no de {@code users.role}: esa columna es un snapshot, y la
+     * autorización la decide el token en todo el resto del diseño. Para el personal municipal es
+     * el mismo cálculo que alimenta las authorities ({@link FederatedRoleResolver}), así que lo
+     * que ve el front coincide con lo que después aplica {@code @PreAuthorize}.
+     *
+     * <p>Sin token solo se llega acá en modo local, con el usuario demo de la V3, que es una
+     * cuenta sin identidad en el IdP: se describe como ciudadano. En modo seguro
+     * {@link #resolveCurrentUser()} ya cortó con 401.
+     */
+    @Transactional
+    public CurrentUserResponse describeCurrentUser() {
+        User user = resolveCurrentUser();
+        Optional<Jwt> jwt = currentJwt();
+        if (jwt.isEmpty() || isCitizenToken(jwt.get())) {
+            return describe(user, CurrentUserResponse.TYPE_CITIZEN, CurrentUserResponse.ROLE_CITIZEN,
+                    List.of());
+        }
+        Jwt token = jwt.get();
+        return describe(user, CurrentUserResponse.TYPE_STAFF, roleResolver.resolveRole(token),
+                roleResolver.groupsOf(token));
+    }
+
+    private static CurrentUserResponse describe(User user, String type, String role,
+                                                List<String> groups) {
+        return new CurrentUserResponse(user.getId(), type, role, user.getFirstName(),
+                user.getLastName(), user.getEmail(), groups);
+    }
+
+    /**
+     * Sin {@code @Transactional} a propósito: lo llaman los métodos públicos, que ya abren la
      * transacción. Llamar a uno público desde el otro por {@code this} saltearía el proxy.
      */
     private User resolveCurrentUser() {
@@ -83,12 +116,16 @@ public class CurrentUserService {
             return localFallbackUser();
         }
         Jwt token = jwt.get();
-        // Se discrimina por el claim iss, que es lo único que distingue con certeza y que el
-        // decoder ya validó antes de llegar acá. Ramificar por "el sub parsea como número" sería
-        // adivinar: un employeeNumber numérico del IdP apuntaría a la fila de otra persona.
-        return citizenProperties.issuer().equals(token.getClaimAsString(JwtClaimNames.ISS))
-                ? resolveCitizen(token)
-                : resolveFederatedUser(token);
+        return isCitizenToken(token) ? resolveCitizen(token) : resolveFederatedUser(token);
+    }
+
+    /**
+     * Se discrimina por el claim iss, que es lo único que distingue con certeza y que el decoder
+     * ya validó antes de llegar acá. Ramificar por "el sub parsea como número" sería adivinar: un
+     * employeeNumber numérico del IdP apuntaría a la fila de otra persona.
+     */
+    private boolean isCitizenToken(Jwt token) {
+        return citizenProperties.issuer().equals(token.getClaimAsString(JwtClaimNames.ISS));
     }
 
     /**

@@ -32,12 +32,12 @@ services:
         value: sslMode=VERIFY_IDENTITY&serverTimezone=UTC&createDatabaseIfNotExist=true
 
       # --- Seguridad: Login Federado (Grupo 2) ---
-      # true = todos los endpoints abiertos (incluidos POST y PATCH).
-      # Pasar a false en un deploy coordinado, recién cuando el frontend ya mande
-      # "Authorization: Bearer <access_token>": en cuanto esto es false, todo request sin
-      # token válido recibe 401.
+      # Producción ya corre en modo seguro: acepta los tokens de los dos emisores (IdP del
+      # Grupo 2 y login de ciudadanos) y aplica @PreAuthorize. Todo request sin token válido
+      # recibe 401, salvo los endpoints públicos. "true" (modo local) es solo para desarrollo:
+      # en ese modo los tokens del IdP se rechazan, así que no volver a ponerlo acá.
       - key: SECURITY_LOCAL_ENABLED
-        value: "true"
+        value: "false"
 
       # Ninguno es secreto, por eso van como value y no con sync: false.
       # El issuer es el string exacto que firma el IdP, no una URL alcanzable.
