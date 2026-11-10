@@ -5,6 +5,7 @@ import com.citypass.movilidad.client.FederatedUserInfoClient;
 import com.citypass.movilidad.config.AuthProperties;
 import com.citypass.movilidad.config.CitizenAuthProperties;
 import com.citypass.movilidad.config.FederatedRoleResolver;
+import com.citypass.movilidad.dto.CurrentUserResponse;
 import com.citypass.movilidad.exception.UnauthorizedException;
 import com.citypass.movilidad.exception.ForbiddenOperationException;
 import com.citypass.movilidad.model.Role;
@@ -358,5 +359,60 @@ class CurrentUserServiceTest {
 
         provisioner.warnAboutMissingRoles();
         verify(roleRepository).findByName("ADMIN");
+    }
+
+    // --- describeCurrentUser: lo que devuelve GET /api/v1/users/me ---
+
+    /** El rol sale del token y no del snapshot: la fila dice USER pero los grupos dicen admin. */
+    @Test
+    void describeAlEmpleadoConElRolDelTokenYNoElDeLaFila() {
+        autenticar(SUB, List.of(" Admin", "operadores"));
+        User existente = user(7L, "ADMIN", UserStatus.ACTIVE);
+        existente.setFirstName("Juan");
+        existente.setLastName("Pérez");
+        existente.setEmail("u000042@citypass.local");
+        when(userRepository.findByExternalUserId(SUB)).thenReturn(Optional.of(existente));
+
+        CurrentUserResponse yo = service.describeCurrentUser();
+
+        assertThat(yo.id()).isEqualTo(7L);
+        assertThat(yo.type()).isEqualTo("STAFF");
+        assertThat(yo.role()).isEqualTo("ADMIN");
+        assertThat(yo.groups()).containsExactly("admin", "operadores");
+        assertThat(yo.email()).isEqualTo("u000042@citypass.local");
+        assertThat(yo.lastName()).isEqualTo("Pérez");
+    }
+
+    @Test
+    void describeAlCiudadanoSinGruposYConRolCitizen() {
+        autenticarCiudadano("7");
+        User ciudadano = user(7L, "USER", UserStatus.ACTIVE);
+        ciudadano.setExternalUserId(null);
+        when(userRepository.findById(7L)).thenReturn(Optional.of(ciudadano));
+
+        CurrentUserResponse yo = enModoSeguro.describeCurrentUser();
+
+        assertThat(yo.id()).isEqualTo(7L);
+        assertThat(yo.type()).isEqualTo("CITIZEN");
+        assertThat(yo.role()).isEqualTo("CITIZEN");
+        assertThat(yo.groups()).isEmpty();
+    }
+
+    /** Modo local sin token: el usuario demo de la V3 no tiene identidad en el IdP. */
+    @Test
+    void enModoLocalSinTokenDescribeAlUsuarioDemoComoCiudadano() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user(1L, "USER", UserStatus.ACTIVE)));
+
+        CurrentUserResponse yo = service.describeCurrentUser();
+
+        assertThat(yo.id()).isEqualTo(1L);
+        assertThat(yo.type()).isEqualTo("CITIZEN");
+        assertThat(yo.role()).isEqualTo("CITIZEN");
+    }
+
+    @Test
+    void enModoSeguroSinTokenDescribirDa401() {
+        assertThatThrownBy(enModoSeguro::describeCurrentUser)
+                .isInstanceOf(UnauthorizedException.class);
     }
 }

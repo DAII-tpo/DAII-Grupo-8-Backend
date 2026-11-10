@@ -70,7 +70,28 @@ public class JwtAuthenticationConfig {
         // InvalidBearerTokenException -> 401. El iss se lee sin verificar la firma, que es
         // inevitable y correcto: es solo ruteo, y la firma la comprueba después el manager
         // elegido, que solo acepta su propia clave.
-        return new JwtIssuerAuthenticationManagerResolver(byIssuer::get);
+        return new JwtIssuerAuthenticationManagerResolver(iss -> managerFor(byIssuer, iss));
+    }
+
+    /**
+     * El manager de ese emisor, avisando en WARN si no hay ninguno: es la forma más rápida de
+     * detectar que el Grupo 2 cambió el issuer y todo el personal empezó a recibir 401.
+     *
+     * <p>Se loguea solo el {@code iss} recibido, nunca el token. Un token sin {@code iss} no llega
+     * acá: el resolver lo rechaza antes.
+     */
+    static AuthenticationManager managerFor(Map<String, AuthenticationManager> byIssuer, String iss) {
+        AuthenticationManager manager = byIssuer.get(iss);
+        if (manager == null && LOG.isWarnEnabled()) {
+            LOG.warn("Token con un issuer desconocido: '{}'. Aceptados: {}",
+                    sanitize(iss), byIssuer.keySet());
+        }
+        return manager;
+    }
+
+    /** El iss viene sin verificar: se recortan los saltos de línea para que no falsee el log. */
+    private static String sanitize(String iss) {
+        return iss == null ? null : iss.replaceAll("[\\r\\n\\t]", "_");
     }
 
     private static AuthenticationManager managerOf(
