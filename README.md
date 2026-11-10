@@ -234,6 +234,12 @@ está en Swagger UI. Resumen:
 | `POST` | `/auth/login` | Ingresar con email y contraseña |
 | `POST` | `/auth/refresh` | Renovar el par de tokens. El refresh **rota**: guardar siempre el último |
 
+### Usuarios (requiere token)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/users/me` | Usuario autenticado: `type` (`CITIZEN`/`STAFF`), `role` efectivo (`CITIZEN`/`ADMIN`/`USER`), perfil y grupos. Ver [Seguridad](#usuario-autenticado-y-rol-get-apiv1usersme) |
+
 ### Estaciones
 
 | Método | Ruta | Descripción |
@@ -458,8 +464,32 @@ Hay dos modos, controlados por `SECURITY_LOCAL_ENABLED`:
 
 | Modo | Valor | Comportamiento |
 |---|---|---|
-| Local / demo | `true` (default, y el que usa hoy producción) | Todos los endpoints abiertos |
-| Seguro | `false` | Exige JWT válido (validado contra el JWKS del IdP, ver abajo), salvo disponibilidad, estaciones cercanas, recomendación, health y Swagger, que quedan públicos |
+| Local (solo desarrollo) | `true` (default) | Todos los endpoints abiertos. El bearer se valida si viene, y solo se aceptan tokens de ciudadano |
+| Seguro (**producción**) | `false` | Exige un JWT válido de cualquiera de los dos emisores (IdP del Grupo 2 o login de ciudadanos), salvo login/registro/refresh, disponibilidad, estaciones cercanas, recomendación, health y Swagger, que quedan públicos. Aplica `@PreAuthorize` |
+
+Un token inválido en el header da `401` **incluso en los endpoints públicos**: el filtro del bearer corre antes
+del `permitAll()`.
+
+### Usuario autenticado y rol (`GET /api/v1/users/me`)
+
+Es la **fuente única del rol** para el frontend: en lugar de calcularlo por su cuenta a partir del token, el
+front se lo pregunta al back, así el mapeo grupo LDAP → rol vive solo en `application.properties`. Exige token
+(no está entre las rutas públicas) y responde:
+
+```json
+{ "id": 42, "type": "STAFF", "role": "ADMIN", "firstName": "Juan", "lastName": "Pérez",
+  "email": "u000042@citypass.local", "groups": ["admin"] }
+```
+
+| Campo | Ciudadano (login propio) | Personal municipal (IdP) |
+|---|---|---|
+| `type` | `CITIZEN` | `STAFF` (el `iss` no es el de ciudadanos) |
+| `role` | `CITIZEN` | `ADMIN` si algún grupo mapea a `ADMIN` (`admin`, `delegados`); si no, `USER` |
+| `groups` | `[]` | Grupos del token, normalizados (trim y minúsculas) |
+
+El rol sale del **token**, con el mismo cálculo que las authorities, así que coincide con lo que aplica
+`@PreAuthorize`. No se lee de `users.role`, que es un snapshot. En el primer request de un empleado, el endpoint
+da de alta su fila local, igual que cualquier otro endpoint autenticado. Sin token da `401`.
 
 ### Login Federado (Grupo 2)
 
@@ -512,10 +542,12 @@ queda como kill-switch local: una fila `BLOCKED` se rechaza con `403` aunque el 
 > delegado le cree una cuenta en `ou=Movilidad`. Para devolverles el acceso sin tocar código, hay que listar esas
 > rutas en `movilidad.auth.citizen-open-paths`.
 
-> Con `SECURITY_LOCAL_ENABLED=true` no hay token ni autenticación: cualquiera con la URL puede usar los endpoints
-> de escritura, y la identidad cae al usuario de `movilidad.auth.local-user-id`. Aceptable para la demo, no para
-> un entorno real. En ese modo `@PreAuthorize` queda inerte a propósito (ver `MethodSecurityConfig`), así que el
-> `403` de admin tampoco se aplica.
+> **Producción corre en modo seguro** (`SECURITY_LOCAL_ENABLED=false`), que es el único en el que funciona el
+> Login Federado. El modo local (`true`) es **solo para desarrollo**: deja todos los endpoints abiertos, valida el
+> bearer si viene pero **solo acepta tokens de ciudadano** (un token del IdP da `401`, porque en ese modo no se
+> carga el validador federado), y sin token la identidad cae al usuario de `movilidad.auth.local-user-id`. En ese
+> modo `@PreAuthorize` queda inerte a propósito (ver `MethodSecurityConfig`), así que el `403` de admin tampoco se
+> aplica.
 
 ### Login de ciudadanos
 
@@ -611,11 +643,10 @@ cada PR.
 
 ## Pendientes y dependencias externas
 
-- **Login Federado (Grupo 2)**: la validación del token y el mapeo de grupos ya están integrados. Queda pasar
-  producción a `SECURITY_LOCAL_ENABLED=false` en un deploy coordinado con el frontend (en cuanto es `false`, todo
-  request sin token válido recibe `401`) y pasarle al Grupo 2 la URL del frontend para su CORS.
-- **Login de ciudadanos**: implementado (ver la sección más abajo). Queda cargar `CITIZEN_AUTH_SECRET` en Render
-  antes de pasar a modo seguro: sin esa variable el backend no arranca, a propósito.
+- **Login Federado (Grupo 2)**: la validación del token y el mapeo de grupos ya están integrados, y producción
+  corre en modo seguro. Queda confirmar con un token LDAP real los valores de `iss`, `aud`, `token_use`, `alg`,
+  `typ` y el formato de `groups`, el campo `module` de su `/me`, el body de `POST /auth/refresh`, y que el CORS
+  del IdP habilite la URL del frontend.
 - **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publican
   `EmergenciaBicicleta` y `ReporteBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
   consumir los de otros grupos.
