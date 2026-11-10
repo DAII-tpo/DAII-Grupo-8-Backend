@@ -1,12 +1,13 @@
--- V17__seed_demo_bikes.sql
+-- Datos de demostración: ejecutar explícitamente solo en la base de pruebas elegida.
+-- Este script está fuera de las migraciones y no se ejecuta durante el arranque.
 -- Carga bicicletas disponibles (status = 'AVAILABLE') en las estaciones de la zona céntrica,
 -- Monserrat (cerca de UADE) y San Nicolás (Obelisco, Tribunales, Congreso, etc.),
 -- para que las consultas de retiro (/stations/recommendation?purpose=PICKUP) y /stations/nearby
--- devuelvan stock real y permitan planificar la ruta de retiro en el CU-INT-01.
+-- devuelvan stock de demostración y permitan probar la ruta de retiro en el CU-INT-01.
 
 INSERT INTO bikes (code, station_id, status, model, purchase_date, created_at, updated_at)
 SELECT 
-    CONCAT('ECO-', LPAD(s.id, 3, '0'), '-', LPAD(n.n, 2, '0')) AS code,
+    CONCAT('ECO-', CAST(s.id AS CHAR), '-', LPAD(n.n, 2, '0')) AS code,
     s.id AS station_id,
     'AVAILABLE' AS status,
     'Ecobici Classic' AS model,

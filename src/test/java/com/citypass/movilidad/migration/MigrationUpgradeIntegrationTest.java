@@ -7,9 +7,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -121,7 +124,8 @@ class MigrationUpgradeIntegrationTest {
                        ('cancelado','sp','C',NOW(),DATE_ADD(NOW(),INTERVAL 1 DAY),20,4,false,true,true,NOW())
                 """);
         jdbc.update("INSERT INTO destination_recommendation_jobs (event_id,request_token) VALUES ('activo','token-previo')");
-        assertThat(flyway("latest").migrate().migrationsExecuted).isEqualTo(1);
+        Flyway current = flyway("16");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForList("SELECT event_status FROM cultural_destinations ORDER BY event_id", String.class))
                 .containsExactly("UNKNOWN", "CANCELLED", "ACTIVE_FULL");
         assertThat(jdbc.queryForObject("SELECT request_token FROM destination_recommendation_jobs WHERE event_id='activo'", String.class))
@@ -130,7 +134,8 @@ class MigrationUpgradeIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT recommendation_token FROM cultural_destinations WHERE event_id='activo'", String.class))
                 .isEqualTo("token-previo");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM espacios_event_cursors WHERE entity_type='LOCK'", Integer.class)).isEqualTo(1);
-        assertThat(flyway("latest").migrate().migrationsExecuted).isZero();
+        current.validate();
+        assertThat(current.migrate().migrationsExecuted).isZero();
     }
 
     @Test
@@ -139,6 +144,13 @@ class MigrationUpgradeIntegrationTest {
         var jdbc = new JdbcTemplate(new DriverManagerDataSource(
                 mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
         var history = jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history ORDER BY installed_rank");
+        jdbc.update("""
+                INSERT INTO stations (id,name,latitude,longitude,capacity,status,source)
+                VALUES (1000,'OBELISCO',-34.6,-58.4,20,'ACTIVE','MANUAL'),
+                       (1001,'CONGRESO',-34.6,-58.4,20,'ACTIVE','MANUAL')
+                """);
+        jdbc.update("INSERT INTO bikes (code,station_id,status) VALUES ('STOCK-EXISTENTE',1000,'AVAILABLE')");
+        var inventory = jdbc.queryForList("SELECT id,code,station_id,status FROM bikes ORDER BY id");
         jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
                 + "VALUES (UUID(),'TRIP','previo-login','com.citypass.movilidad.ViajeIniciado','{}')");
         var current = flyway(integrated, "latest");
@@ -149,8 +161,56 @@ class MigrationUpgradeIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='previo-login'", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_tokens", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM espacios_event_cursors WHERE entity_type='LOCK'", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT id,code,station_id,status FROM bikes ORDER BY id")).isEqualTo(inventory);
         current.validate();
         assertThat(current.migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void cargaDemoExplicitaConIdsCompletosSinColisionesNiDuplicadosAlReintentar() {
+        flyway(integrated, "latest").migrate();
+        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
+        jdbc.update("""
+                INSERT INTO stations (id,name,latitude,longitude,capacity,status,source)
+                VALUES (1000,'OBELISCO',-34.6,-58.4,20,'ACTIVE','MANUAL'),
+                       (1001,'CONGRESO',-34.6,-58.4,20,'ACTIVE','MANUAL')
+                """);
+        seedDemoBikes(jdbc);
+        assertThat(jdbc.queryForList("SELECT code FROM bikes", String.class)).hasSize(20)
+                .contains("ECO-1000-01", "ECO-1001-01").doesNotHaveDuplicates();
+        var inventory = jdbc.queryForList("SELECT id,code,station_id,status FROM bikes ORDER BY id");
+        seedDemoBikes(jdbc);
+        assertThat(jdbc.queryForList("SELECT id,code,station_id,status FROM bikes ORDER BY id")).isEqualTo(inventory);
+    }
+
+    @Test
+    void cargaDemoConservaStockExistenteYRespetaLasEstacionesNoElegibles() {
+        flyway(integrated, "latest").migrate();
+        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
+        jdbc.update("""
+                INSERT INTO stations (id,name,latitude,longitude,capacity,status,source,deleted_at)
+                VALUES (42,'OBELISCO',-34.6,-58.4,20,'ACTIVE','MANUAL',NULL),
+                       (43,'MONSERRAT',-34.6,-58.4,20,'ACTIVE','MANUAL',NULL),
+                       (44,'CONGRESO',-34.6,-58.4,20,'INACTIVE','MANUAL',NULL),
+                       (45,'CONGRESO',-34.6,-58.4,20,'ACTIVE','MANUAL',NOW()),
+                       (46,'TRIBUNALES',-34.6,-58.4,9,'ACTIVE','MANUAL',NULL),
+                       (47,'PALERMO',-34.6,-58.4,20,'ACTIVE','MANUAL',NULL)
+                """);
+        jdbc.update("INSERT INTO bikes (code,station_id,status) VALUES ('STOCK-EXISTENTE',42,'AVAILABLE')");
+        seedDemoBikes(jdbc);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bikes", Integer.class)).isEqualTo(11);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bikes WHERE station_id=43 AND status='AVAILABLE'", Integer.class)).isEqualTo(10);
+        assertThat(jdbc.queryForList("SELECT code FROM bikes WHERE station_id=42", String.class)).containsExactly("STOCK-EXISTENTE");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bikes WHERE station_id IN (44,45,46,47)", Integer.class)).isZero();
+    }
+
+    private void seedDemoBikes(JdbcTemplate jdbc) {
+        jdbc.execute((ConnectionCallback<Void>) connection -> {
+            ScriptUtils.executeSqlScript(connection, new FileSystemResource("scripts/seed-demo-bikes.sql"));
+            return null;
+        });
     }
 
     @Test
