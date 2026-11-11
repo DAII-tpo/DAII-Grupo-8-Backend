@@ -657,3 +657,57 @@ cada PR.
   [recommendation-service/README.md](recommendation-service/README.md)).
 - **Historial de disponibilidad**: la tabla `station_availability_history` está creada pero todavía no se completa.
 .
+
+
+## Embed de Analítica (integración servidor a servidor)
+
+`GET /api/v1/admin/analytics/embed` exige un JWT humano federado válido con autoridad
+`ROLE_ADMIN`. Se comprueba también dentro del controlador: el modo local, el usuario demo,
+`X-User-Id` y un token de servicio no dan acceso. Ciudadanos y personal sin ADMIN reciben 403;
+sin identidad se responde 401. Se reutilizan los validadores de JWT y el proveedor OAuth existentes,
+con una instancia y caché propias para BI, independientes de EDA.
+
+Configurar manualmente en Render, cuando BI/Identidad entreguen los datos:
+
+| Variable | Uso |
+| --- | --- |
+| `ANALITICA_URL` | Base HTTPS real de BI, sin `/embed/movilidad`. No hay URL por defecto. |
+| `ANALITICA_TOKEN_URL` | Endpoint HTTPS de Identidad para `client_credentials` con Basic Auth. |
+| `ANALITICA_AUTH_ISSUER` | Valor exacto de `iss` del emisor del token de servicio. |
+| `ANALITICA_JWK_SET_URI` | JWKS HTTPS de ese emisor para verificar RS256. |
+| `ANALITICA_CLIENT_ID` | Cliente de Movilidad registrado en Identidad. |
+| `ANALITICA_CLIENT_SECRET` | Secreto: guardar solo como variable segura del backend. |
+| `ANALITICA_CONNECT_TIMEOUT_MS` | Conexión, 2000 ms por defecto. |
+| `ANALITICA_READ_TIMEOUT_MS` | Lectura, 5000 ms por defecto. |
+
+Las URLs HTTP se aceptan solo en loopback para pruebas locales. No se siguen redirecciones.
+Las credenciales deben emitir `aud` que incluya `citypass`, `token_use=service`, `ver=1`
+(entero) y `namespace=com.citypass.movilidad`, además de firma RS256 y vigencia correctas.
+No se copian automáticamente `EVENTBUS_*`: la documentación de EDA describe un emisor simulado,
+y no se ha verificado que sus credenciales sean compatibles con BI. Si Identidad confirma que el
+mismo cliente sirve para ambos, sus valores pueden configurarse explícitamente para BI.
+La caché OAuth se renueva antes del vencimiento y una vez ante 401 de BI.
+
+Sin configuración de BI, el módulo arranca normalmente y solo esta ruta responde 503
+`ANALYTICS_NOT_CONFIGURED`. Los 401/403 de BI se convierten en 502, para no tratar un problema
+entre servicios como vencimiento del JWT humano; un 404 remoto también da 502 y la indisponibilidad
+remota o timeout da 503. No se transmiten cuerpos de error de terceros ni sus tokens.
+
+La respuesta JSON `{"status":"ok"}` confirma conectividad/autorización y se normaliza a esos
+campos: no representa un tablero. Solo `text/html` con documento HTML se entrega como tablero.
+El límite de respuesta es 2 MiB. Las respuestas propias llevan `Cache-Control: private, no-store`.
+El navegador recibe únicamente el JSON normalizado o HTML, nunca las credenciales ni el token de servicio.
+
+El HTML recibe una CSP conservadora en una etiqueta meta anterior al documento, además de la
+cabecera HTTP propia. Si BI envía una CSP, se conserva también como meta: `srcDoc` no hereda
+las cabeceras de la respuesta obtenida por XHR. Solo se admiten scripts y estilos inline e imágenes
+/fuentes data; se bloquean conexiones, frames, workers, formularios y bases de URL. El iframe del
+frontend usa `sandbox="allow-scripts"` sin `allow-same-origin`: no comparte sesión ni almacenamiento.
+La CSP definitiva de BI todavía debe validarse; en meta no se aplica `frame-ancestors`. Un tablero
+que necesite CDNs, recursos relativos, workers o conexiones externas requiere un acuerdo explícito
+antes de ampliar esta política. BI debe entregar un HTML autocontenido completo.
+
+Pendiente externo: URL real, registro del cliente y validación de sus claims, prueba real de
+`status: ok`, HTML definitivo, tamaño y recursos/CSP. Hasta entonces los tests usan servidores/dobles
+locales; no se afirma conectividad real ni se generan métricas. Esta entrega no modifica variables
+reales de Render/Vercel, migraciones, contratos EDA, eventos CU-INT-01 ni el login.
