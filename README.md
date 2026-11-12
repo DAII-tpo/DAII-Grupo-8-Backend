@@ -428,6 +428,15 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | `V7__federated_identity.sql` | Identidad federada: `email`/`first_name`/`last_name` pasan a nullable y `external_user_id` a unico |
 | `V8__drop_operator_role.sql` | Baja del rol `OPERATOR`, que ningun `@PreAuthorize` chequeaba. Reasigna a `USER` antes de borrarlo |
 | `V9__local_citizen_auth.sql` | Login de ciudadanos: contador de intentos fallidos en `users` y tabla `refresh_tokens` |
+| `V10__cu_int_01_destinos_incidentes.sql` | Destinos culturales e incidentes urbanos para CU-INT-01 |
+| `V11__inbound_entity_states.sql` | Estado vigente e idempotencia de entidades recibidas |
+| `V12__outbox_cultural_event_aggregate.sql` | Agregado de outbox para eventos culturales |
+| `V13__destination_recommendation_jobs.sql` | Trabajos pendientes de recomendación de destinos |
+| `V14__cultural_destination_demand.sql` | Demanda y estado de destinos culturales |
+| `V15__station_affectations.sql` | Afectaciones y restauraciones de estaciones por incidentes |
+| `V16__espacios_snapshots_reservations.sql` | Snapshots de Espacios Públicos y reservas |
+| `V17__ciclovia_obstructions.sql` | Obstrucciones reportadas en ciclovías |
+| `V18__reclamo_classification_snapshot.sql` | Snapshot de clasificación del reclamo asociado a una obstrucción |
 
 La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 

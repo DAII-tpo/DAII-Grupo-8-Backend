@@ -96,8 +96,8 @@ class MigrationUpgradeIntegrationTest {
 
         Flyway current = flyway(integrated, "latest");
         var result = current.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(10);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("16");
+        assertThat(result.migrationsExecuted).isEqualTo(12);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("18");
         assertThat(jdbc.queryForObject("SELECT checksum FROM flyway_schema_history WHERE version = '6'",
                 Integer.class)).isEqualTo(checksum);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id = 'existing-trip'",
@@ -154,8 +154,8 @@ class MigrationUpgradeIntegrationTest {
         jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
                 + "VALUES (UUID(),'TRIP','previo-login','com.citypass.movilidad.ViajeIniciado','{}')");
         var current = flyway(integrated, "latest");
-        assertThat(current.migrate().migrationsExecuted).isEqualTo(7);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("16");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(9);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("18");
         assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 9 ORDER BY installed_rank"))
                 .isEqualTo(history);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='previo-login'", Integer.class)).isEqualTo(1);
