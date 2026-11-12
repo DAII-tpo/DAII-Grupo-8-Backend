@@ -9,14 +9,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Consumidor Kafka del evento com.citypass.reclamos.ReclamoCreado (Grupo 5 - Reclamos).
+ * Consumidor Kafka de la versión 3 del evento de Reclamos.
  * Suscripción automática a través del bus de eventos EDA.
  */
 @Component
 public class ReclamoCreadoHandler implements EventHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(ReclamoCreadoHandler.class);
-    private static final String TOPIC = "com.citypass.reclamos.ReclamoCreado";
+    private static final String TOPIC = "com.citypass.reclamos.ReclamoCreado.v3";
 
     private final CicloviaObstructionService obstructionService;
     private final ObjectMapper objectMapper;

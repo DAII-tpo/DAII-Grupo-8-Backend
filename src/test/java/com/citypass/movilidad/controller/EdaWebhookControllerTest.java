@@ -59,7 +59,7 @@ class EdaWebhookControllerTest {
                   "longitud": -58.4281
                 }
                 """;
-        EventMetadata metadata = new EventMetadata("evt-100", "com.citypass.reclamos.ReclamoCreado",
+        EventMetadata metadata = new EventMetadata("evt-100", "com.citypass.reclamos.ReclamoCreado.v3",
                 NOW, "grupo5", "tok-1", 1, "hash", "1.0", "gw-1");
         EdaWebhookEnvelope envelope = new EdaWebhookEnvelope(metadata, objectMapper.readTree(dataJson));
 
@@ -76,7 +76,7 @@ class EdaWebhookControllerTest {
     @Test
     @DisplayName("Webhook descarta duplicados si ya están PROCESSED en inbox")
     void receiveEvent_duplicado_retornaAlreadyProcessed() throws Exception {
-        EventMetadata metadata = new EventMetadata("evt-100", "com.citypass.reclamos.ReclamoCreado",
+        EventMetadata metadata = new EventMetadata("evt-100", "com.citypass.reclamos.ReclamoCreado.v3",
                 NOW, "grupo5", "tok-1", 1, "hash", "1.0", "gw-1");
         EdaWebhookEnvelope envelope = new EdaWebhookEnvelope(metadata, objectMapper.createObjectNode());
 

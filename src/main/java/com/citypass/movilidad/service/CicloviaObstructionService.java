@@ -4,6 +4,7 @@ import com.citypass.movilidad.dto.event.EmergenciaSolicitadaData;
 import com.citypass.movilidad.dto.event.MovilidadObstruccionEvaluadaData;
 import com.citypass.movilidad.dto.event.ReclamoActualizadoData;
 import com.citypass.movilidad.dto.event.ReclamoCreadoData;
+import com.citypass.movilidad.dto.event.ReclamoReclasificadoData;
 import com.citypass.movilidad.dto.response.CicloviaObstructionResponse;
 import com.citypass.movilidad.eventbus.publish.EventPublisher;
 import com.citypass.movilidad.model.CicloviaObstruction;
@@ -23,6 +24,8 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Collection;
+import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -31,7 +34,7 @@ import java.util.stream.Collectors;
 /**
  * Caso de uso: Evaluación y gestión de impacto ciclista por estacionamiento indebido / obstrucción en ciclovía.
  * <p>
- * Al recibir com.citypass.reclamos.ReclamoCreado:
+ * Al recibir com.citypass.reclamos.ReclamoCreado.v3:
  * 1. Determina estaciones de bicicletas cercanas potencialmente afectadas.
  * 2. Registra la obstrucción y genera sugerencias de desvío de bicisenda.
  * 3. Publica com.citypass.movilidad.MovilidadObstruccionEvaluada para EDA y Espacios Públicos (Grupo 7).
@@ -76,15 +79,24 @@ public class CicloviaObstructionService {
             return existing;
         }
 
-        // Validación de relevancia: afectaCirculacion o categorías/descripción relacionadas con tránsito o ciclovía
+        // El contrato de Reclamos identifica explícitamente la ciclovía, sin depender del texto libre.
         boolean relevanteParaCiclovia = esRelevanteParaCiclovia(data);
         if (!relevanteParaCiclovia) {
             LOG.debug("Reclamo {} no afecta circulación ni ciclovías. Se omite evaluación.", data.reclamoId());
             return Optional.empty();
         }
 
-        double lat = data.latitud() != null ? data.latitud() : 0.0;
-        double lon = data.longitud() != null ? data.longitud() : 0.0;
+        if (data.latitud() == null || data.longitud() == null
+                || !Double.isFinite(data.latitud()) || !Double.isFinite(data.longitud())
+                || data.latitud() < -90 || data.latitud() > 90
+                || data.longitud() < -180 || data.longitud() > 180) {
+            LOG.warn("Reclamo {} relevante para ciclovía sin coordenadas válidas; se omite evaluación",
+                    data.reclamoId());
+            return Optional.empty();
+        }
+
+        double lat = data.latitud();
+        double lon = data.longitud();
 
         // Búsqueda de estaciones cercanas en radio de influencia
         List<Long> affectedStationIds = findAffectedStations(lat, lon);
@@ -97,6 +109,7 @@ public class CicloviaObstructionService {
 
         // Evaluación de riesgo / emergencia inmediata
         boolean requiresEmergency = isCriticalEmergency(data);
+        boolean requiresTow = isTowRequired(data);
 
         // Persistencia de la obstrucción
         CicloviaObstruction obstruction = CicloviaObstruction.builder()
@@ -113,6 +126,11 @@ public class CicloviaObstructionService {
                 .affectedStationIds(joinIds(affectedStationIds))
                 .detourDescription(detour)
                 .emergencyDispatched(requiresEmergency)
+                .reclamoCategoria(data.categoria())
+                .reclamoPrioridad(data.prioridad())
+                .reclamoEstado(data.estado())
+                .objetoAfectado(data.objetoAfectado())
+                .afectaCirculacion(data.afectaCirculacion())
                 .build();
 
         obstruction = obstructionRepository.save(obstruction);
@@ -132,6 +150,7 @@ public class CicloviaObstructionService {
                 impactLevel.name(),
                 detour,
                 requiresEmergency,
+                requiresTow,
                 clock.millis()
         );
         eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, data.reclamoId(), evaluadaPayload);
@@ -163,18 +182,116 @@ public class CicloviaObstructionService {
             return Optional.empty();
         }
 
-        if ("RESUELTO".equalsIgnoreCase(data.estadoNuevo())) {
-            Optional<CicloviaObstruction> existing = obstructionRepository.findByReclamoId(data.reclamoId());
-            if (existing.isPresent()) {
-                CicloviaObstruction obstruction = existing.get();
+        Optional<CicloviaObstruction> existing = obstructionRepository.findByReclamoId(data.reclamoId());
+        if (existing.isPresent()) {
+            CicloviaObstruction obstruction = existing.get();
+            obstruction.setReclamoEstado(data.estadoNuevo());
+            if ("RESUELTO".equalsIgnoreCase(data.estadoNuevo())) {
                 obstruction.setStatus(ObstructionStatus.RESOLVED);
                 obstruction.setResolvedAt(clock.instant());
                 obstructionRepository.save(obstruction);
                 LOG.info("Obstrucción de ciclovía resuelta: reclamoId={}. Circulación ciclista normalizada.", data.reclamoId());
                 return Optional.of(obstruction);
             }
+            obstructionRepository.save(obstruction);
+            if ("RECIBIDO".equalsIgnoreCase(data.estadoNuevo())) {
+                solicitarEmergenciaSiCorresponde(obstruction, data.correlationId());
+            }
+            return Optional.of(obstruction);
         }
         return Optional.empty();
+    }
+
+    @Transactional
+    public Optional<CicloviaObstruction> procesarReclamoReclasificado(ReclamoReclasificadoData data) {
+        if (data == null || data.reclamoId() == null) {
+            LOG.warn("ReclamoReclasificado recibido nulo o sin reclamoId");
+            return Optional.empty();
+        }
+
+        Optional<CicloviaObstruction> existing = obstructionRepository.findByReclamoId(data.reclamoId());
+        if (existing.isEmpty()) {
+            // No conocemos el estado vigente porque ReclamoReclasificado no lo incluye.
+            // Se registra como pendiente; ReclamoActualizado con RECIBIDO habilitará el despacho.
+            ReclamoCreadoData reclamoActualizado = new ReclamoCreadoData(
+                    data.reclamoId(), data.ciudadanoId(), null, data.titulo(), data.descripcion(),
+                    data.categoriaNueva(), data.prioridadNueva(), "EN_REVISION", data.reclasificadoPor(), null,
+                    null, data.barrio(), data.latitud(), data.longitud(), data.objetoAfectadoNuevo(),
+                    data.afectaCirculacionNueva(), data.correlationId(), data.reclasificadoAt()
+            );
+            return procesarReclamoCreado(reclamoActualizado);
+        }
+
+        CicloviaObstruction obstruction = existing.get();
+        if (obstruction.getStatus() != ObstructionStatus.ACTIVE) {
+            LOG.info("Se ignora reclasificación de obstrucción no activa: reclamoId={}", data.reclamoId());
+            return Optional.of(obstruction);
+        }
+
+        double lat = data.latitud() != null ? data.latitud() : obstruction.getLatitude().doubleValue();
+        double lon = data.longitud() != null ? data.longitud() : obstruction.getLongitude().doubleValue();
+        if (!validCoordinates(lat, lon)) {
+            LOG.warn("Reclasificación de reclamo {} sin coordenadas válidas; no se reevalúa", data.reclamoId());
+            return Optional.of(obstruction);
+        }
+
+        ReclamoCreadoData reclamoActualizado = new ReclamoCreadoData(
+                data.reclamoId(), data.ciudadanoId(), null, data.titulo(), data.descripcion(),
+                data.categoriaNueva(), data.prioridadNueva(), safe(obstruction.getReclamoEstado()).isBlank()
+                        ? "EN_REVISION" : obstruction.getReclamoEstado(),
+                data.reclasificadoPor(), null, obstruction.getDireccion(), data.barrio(), lat, lon,
+                data.objetoAfectadoNuevo(), data.afectaCirculacionNueva(), data.correlationId(), data.reclasificadoAt()
+        );
+
+        obstruction.setCiudadanoId(data.ciudadanoId());
+        obstruction.setTitulo(data.titulo());
+        obstruction.setDescripcion(data.descripcion());
+        if (data.barrio() != null) obstruction.setBarrio(data.barrio());
+        obstruction.setLatitude(BigDecimal.valueOf(lat));
+        obstruction.setLongitude(BigDecimal.valueOf(lon));
+        obstruction.setReclamoCategoria(data.categoriaNueva());
+        obstruction.setReclamoPrioridad(data.prioridadNueva());
+        obstruction.setObjetoAfectado(data.objetoAfectadoNuevo());
+        obstruction.setAfectaCirculacion(data.afectaCirculacionNueva());
+
+        if (!esRelevanteParaCiclovia(reclamoActualizado)) {
+            obstruction.setStatus(ObstructionStatus.RESOLVED);
+            obstruction.setResolvedAt(clock.instant());
+            obstruction.setAffectedStationIds("");
+            obstruction.setImpactLevel(ObstructionImpactLevel.BAJO);
+            obstruction.setDetourDescription(null);
+            obstruction = obstructionRepository.save(obstruction);
+            eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, data.reclamoId(),
+                    new MovilidadObstruccionEvaluadaData(data.reclamoId(), data.correlationId(), lat, lon,
+                            obstruction.getDireccion(), obstruction.getBarrio(), false, List.of(), "BAJO", null,
+                            false, false, clock.millis()));
+            LOG.info("Reclasificación quitó el reclamo {} del alcance de Movilidad", data.reclamoId());
+            return Optional.of(obstruction);
+        }
+
+        List<Long> affectedStationIds = findAffectedStations(lat, lon);
+        ObstructionImpactLevel impactLevel = evaluateImpactLevel(reclamoActualizado, affectedStationIds.size());
+        String detour = buildDetourSuggestion(reclamoActualizado);
+        boolean requiresEmergency = isCriticalEmergency(reclamoActualizado);
+        boolean requiresTow = isTowRequired(reclamoActualizado);
+        boolean emergencyAlreadyDispatched = obstruction.isEmergencyDispatched();
+
+        obstruction.setImpactLevel(impactLevel);
+        obstruction.setAffectedStationIds(joinIds(affectedStationIds));
+        obstruction.setDetourDescription(detour);
+        obstruction.setEmergencyDispatched(emergencyAlreadyDispatched || requiresEmergency);
+        obstruction = obstructionRepository.save(obstruction);
+
+        eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, data.reclamoId(),
+                new MovilidadObstruccionEvaluadaData(data.reclamoId(), data.correlationId(), lat, lon,
+                        obstruction.getDireccion(), obstruction.getBarrio(), true, affectedStationIds,
+                        impactLevel.name(), detour, requiresEmergency, requiresTow, clock.millis()));
+
+        if (requiresEmergency && !emergencyAlreadyDispatched
+                && "RECIBIDO".equalsIgnoreCase(safe(obstruction.getReclamoEstado()))) {
+            publicarEmergencia(obstruction, data.correlationId(), data.prioridadNueva(), lat, lon);
+        }
+        return Optional.of(obstruction);
     }
 
     @Transactional(readOnly = true)
@@ -194,12 +311,18 @@ public class CicloviaObstructionService {
                 .anyMatch(obs -> parseIds(obs.getAffectedStationIds()).contains(stationId));
     }
 
+    @Transactional(readOnly = true)
+    public Set<Long> affectedStationIds(Collection<Long> stationIds) {
+        if (stationIds == null || stationIds.isEmpty()) return Set.of();
+        return obstructionRepository.findByStatus(ObstructionStatus.ACTIVE).stream()
+                .flatMap(obstruction -> parseIds(obstruction.getAffectedStationIds()).stream())
+                .filter(stationIds::contains)
+                .collect(Collectors.toSet());
+    }
+
     private boolean esRelevanteParaCiclovia(ReclamoCreadoData data) {
-        if (Boolean.TRUE.equals(data.afectaCirculacion())) {
-            return true;
-        }
-        String texto = (safe(data.titulo()) + " " + safe(data.descripcion()) + " " + safe(data.categoria())).toLowerCase(Locale.ROOT);
-        return texto.contains("ciclovia") || texto.contains("bicisenda") || texto.contains("bici") || texto.contains("transito");
+        return "CICLOVIA".equalsIgnoreCase(safe(data.objetoAfectado()).trim())
+                && Boolean.TRUE.equals(data.afectaCirculacion());
     }
 
     private List<Long> findAffectedStations(double lat, double lon) {
@@ -218,7 +341,8 @@ public class CicloviaObstructionService {
     }
 
     private ObstructionImpactLevel evaluateImpactLevel(ReclamoCreadoData data, int affectedStationsCount) {
-        String prioridad = safe(data.prioridad()).toUpperCase(Locale.ROOT);
+        String prioridad = "EN_REVISION".equalsIgnoreCase(safe(data.estado()).trim())
+                ? "" : safe(data.prioridad()).toUpperCase(Locale.ROOT);
         if ("ALTA".equals(prioridad) || "CRITICA".equals(prioridad) || affectedStationsCount >= 3) {
             return ObstructionImpactLevel.ALTO;
         }
@@ -229,12 +353,57 @@ public class CicloviaObstructionService {
     }
 
     private boolean isCriticalEmergency(ReclamoCreadoData data) {
-        String prioridad = safe(data.prioridad()).toUpperCase(Locale.ROOT);
-        if ("ALTA".equals(prioridad) || "CRITICA".equals(prioridad)) {
-            return true;
+        // Una prioridad de modelo en revisión humana no debe disparar despacho de emergencias.
+        if ("EN_REVISION".equalsIgnoreCase(safe(data.estado()).trim())) {
+            return false;
         }
-        String texto = (safe(data.titulo()) + " " + safe(data.descripcion())).toLowerCase(Locale.ROOT);
-        return texto.contains("peligro") || texto.contains("accidente") || texto.contains("choque") || texto.contains("riesgo");
+        String prioridad = safe(data.prioridad()).toUpperCase(Locale.ROOT);
+        return "ALTA".equals(prioridad) || "CRITICA".equals(prioridad);
+    }
+
+    private boolean isTowRequired(ReclamoCreadoData data) {
+        return "CICLOVIA".equalsIgnoreCase(safe(data.objetoAfectado()).trim())
+                && "TRANSITO".equalsIgnoreCase(safe(data.categoria()).trim())
+                && Boolean.TRUE.equals(data.afectaCirculacion());
+    }
+
+    private void solicitarEmergenciaSiCorresponde(CicloviaObstruction obstruction, String correlationId) {
+        String prioridad = safe(obstruction.getReclamoPrioridad()).toUpperCase(Locale.ROOT);
+        if (obstruction.getStatus() != ObstructionStatus.ACTIVE || obstruction.isEmergencyDispatched()
+                || !("ALTA".equals(prioridad) || "CRITICA".equals(prioridad))) {
+            return;
+        }
+        obstruction.setEmergencyDispatched(true);
+        obstructionRepository.save(obstruction);
+        List<Long> stations = parseIds(obstruction.getAffectedStationIds());
+        boolean requiresTow = "CICLOVIA".equalsIgnoreCase(safe(obstruction.getObjetoAfectado()).trim())
+                && "TRANSITO".equalsIgnoreCase(safe(obstruction.getReclamoCategoria()).trim())
+                && Boolean.TRUE.equals(obstruction.getAfectaCirculacion());
+        eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, obstruction.getReclamoId(),
+                new MovilidadObstruccionEvaluadaData(obstruction.getReclamoId(), correlationId,
+                        obstruction.getLatitude().doubleValue(), obstruction.getLongitude().doubleValue(),
+                        obstruction.getDireccion(), obstruction.getBarrio(), true, stations,
+                        obstruction.getImpactLevel().name(), obstruction.getDetourDescription(),
+                        true, requiresTow, clock.millis()));
+        publicarEmergencia(obstruction, correlationId, prioridad,
+                obstruction.getLatitude().doubleValue(), obstruction.getLongitude().doubleValue());
+    }
+
+    private void publicarEmergencia(CicloviaObstruction obstruction, String correlationId,
+                                    String prioridad, double lat, double lon) {
+        EmergenciaSolicitadaData payload = new EmergenciaSolicitadaData(
+                obstruction.getReclamoId(), correlationId, "com.citypass.movilidad",
+                "OBSTRUCCION_CICLOVIA_CRITICA", prioridad,
+                safe(obstruction.getTitulo()) + ". " + safe(obstruction.getDescripcion()),
+                obstruction.getDireccion(), lat, lon, clock.millis());
+        eventPublisher.publish("EmergenciaSolicitada", AggregateType.INCIDENT, obstruction.getReclamoId(), payload);
+        LOG.warn("Alerta de emergencia emitida para reclamoId={} con prioridad {}",
+                obstruction.getReclamoId(), prioridad);
+    }
+
+    private static boolean validCoordinates(double lat, double lon) {
+        return Double.isFinite(lat) && Double.isFinite(lon)
+                && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
     }
 
     private String buildDetourSuggestion(ReclamoCreadoData data) {

@@ -12,6 +12,7 @@
     { "name": "impactoCirculacion", "type": "string" },
     { "name": "desvioSugerido", "type": ["null", "string"], "default": null },
     { "name": "requiereIntervencionInmediata", "type": "boolean" },
+    { "name": "requiereGrua", "type": "boolean", "default": false },
     { "name": "evaluadoAt", "type": { "type": "long", "logicalType": "timestamp-millis" } }
   ]
 }

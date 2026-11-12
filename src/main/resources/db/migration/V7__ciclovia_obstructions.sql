@@ -1,4 +1,4 @@
--- V6__ciclovia_obstructions.sql
+-- V7__ciclovia_obstructions.sql
 -- Caso de uso: Detección y gestión de obstrucciones de ciclovías reportadas por ciudadanos.
 
 CREATE TABLE ciclovia_obstructions (

@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 
@@ -32,7 +33,7 @@ class ReclamoHandlersTest {
     @DisplayName("ReclamoCreadoHandler deserializa y deriva a CicloviaObstructionService")
     void reclamoCreadoHandler_invocaServicio() throws Exception {
         ReclamoCreadoHandler handler = new ReclamoCreadoHandler(obstructionService, objectMapper);
-        assertThat(handler.topic()).isEqualTo("com.citypass.reclamos.ReclamoCreado");
+        assertThat(handler.topic()).isEqualTo("com.citypass.reclamos.ReclamoCreado.v3");
 
         String json = """
                 {
@@ -43,23 +44,35 @@ class ReclamoHandlersTest {
                   "descripcion": "No deja pasar",
                   "categoria": "TRANSITO",
                   "prioridad": "ALTA",
+                  "estado": "RECIBIDO",
+                  "origenClasificacion": "CIUDADANO",
+                  "confianzaClasificacion": null,
                   "direccion": "Av. Cordoba 4800",
                   "barrio": "Palermo",
                   "latitud": -34.5955,
                   "longitud": -58.4281,
+                  "objetoAfectado": "CICLOVIA",
+                  "alertaId": null,
                   "afectaCirculacion": true,
                   "correlationId": "req-1",
-                  "createdAt": 1792345678901
+                  "createdAt": 1792345678901,
+                  "causaId": null,
+                  "causaTipo": null,
+                  "actividadId": null
                 }
                 """;
         JsonNode dataNode = objectMapper.readTree(json);
-        EventMetadata metadata = new EventMetadata("evt-1", "com.citypass.reclamos.ReclamoCreado",
+        EventMetadata metadata = new EventMetadata("evt-1", "com.citypass.reclamos.ReclamoCreado.v3",
                 Instant.now(), "grupo5", "tok-1", 1, "hash", "1.0", "gw-1");
-        IncomingEvent event = new IncomingEvent("com.citypass.reclamos.ReclamoCreado", metadata, dataNode);
+        IncomingEvent event = new IncomingEvent("com.citypass.reclamos.ReclamoCreado.v3", metadata, dataNode);
 
         handler.handle(event);
 
-        verify(obstructionService).procesarReclamoCreado(any(ReclamoCreadoData.class));
+        ArgumentCaptor<ReclamoCreadoData> captor = ArgumentCaptor.forClass(ReclamoCreadoData.class);
+        verify(obstructionService).procesarReclamoCreado(captor.capture());
+        assertThat(captor.getValue().categoria()).isEqualTo("TRANSITO");
+        assertThat(captor.getValue().objetoAfectado()).isEqualTo("CICLOVIA");
+        assertThat(captor.getValue().estado()).isEqualTo("RECIBIDO");
     }
 
     @Test

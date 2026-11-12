@@ -3,6 +3,7 @@ package com.citypass.movilidad.controller;
 import com.citypass.movilidad.dto.event.EdaWebhookEnvelope;
 import com.citypass.movilidad.dto.event.ReclamoActualizadoData;
 import com.citypass.movilidad.dto.event.ReclamoCreadoData;
+import com.citypass.movilidad.dto.event.ReclamoReclasificadoData;
 import com.citypass.movilidad.model.EventInbox;
 import com.citypass.movilidad.model.enums.EventInboxStatus;
 import com.citypass.movilidad.repository.EventInboxRepository;
@@ -71,13 +72,17 @@ public class EdaWebhookController {
 
         try {
             switch (eventType) {
-                case "com.citypass.reclamos.ReclamoCreado" -> {
+                case "com.citypass.reclamos.ReclamoCreado.v3" -> {
                     ReclamoCreadoData data = objectMapper.treeToValue(envelope.data(), ReclamoCreadoData.class);
                     obstructionService.procesarReclamoCreado(data);
                 }
                 case "com.citypass.reclamos.ReclamoActualizado" -> {
                     ReclamoActualizadoData data = objectMapper.treeToValue(envelope.data(), ReclamoActualizadoData.class);
                     obstructionService.procesarReclamoActualizado(data);
+                }
+                case "com.citypass.reclamos.ReclamoReclasificado" -> {
+                    ReclamoReclasificadoData data = objectMapper.treeToValue(envelope.data(), ReclamoReclasificadoData.class);
+                    obstructionService.procesarReclamoReclasificado(data);
                 }
                 default -> LOG.info("Evento {} ignorado (no requiere acción en Movilidad)", eventType);
             }

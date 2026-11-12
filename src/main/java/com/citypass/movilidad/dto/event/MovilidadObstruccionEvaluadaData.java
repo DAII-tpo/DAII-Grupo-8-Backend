@@ -18,6 +18,7 @@ public record MovilidadObstruccionEvaluadaData(
         String impactoCirculacion,
         String desvioSugerido,
         boolean requiereIntervencionInmediata,
+        boolean requiereGrua,
         long evaluadoAt
 ) {
 }

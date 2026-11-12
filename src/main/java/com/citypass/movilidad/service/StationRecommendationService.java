@@ -42,15 +42,18 @@ public class StationRecommendationService {
     private final RecommendationClient recommendationClient;
     private final RecommendationMessageComposer messageComposer;
     private final RecommendationProperties properties;
+    private final CicloviaObstructionService obstructionService;
 
     public StationRecommendationService(NearbyStationService nearbyStationService,
                                         RecommendationClient recommendationClient,
                                         RecommendationMessageComposer messageComposer,
-                                        RecommendationProperties properties) {
+                                        RecommendationProperties properties,
+                                        CicloviaObstructionService obstructionService) {
         this.nearbyStationService = nearbyStationService;
         this.recommendationClient = recommendationClient;
         this.messageComposer = messageComposer;
         this.properties = properties;
+        this.obstructionService = obstructionService;
     }
 
     /** Estación recomendada para retirar (PICKUP) o devolver (DROPOFF) cerca de la ubicación. */
@@ -60,6 +63,9 @@ public class StationRecommendationService {
 
         List<NearbyStationResponse> candidates = nearbyStationService.findNearby(
                 latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates());
+        var affectedIds = obstructionService.affectedStationIds(candidates.stream()
+                .map(NearbyStationResponse::stationId).toList());
+        candidates = candidates.stream().filter(station -> !affectedIds.contains(station.stationId())).toList();
 
         // Sin candidatas no hace falta consultar al modelo.
         if (candidates.isEmpty()) {

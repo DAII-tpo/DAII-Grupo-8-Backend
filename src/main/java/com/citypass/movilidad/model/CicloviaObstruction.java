@@ -77,6 +77,21 @@ public class CicloviaObstruction {
     @Builder.Default
     private boolean emergencyDispatched = false;
 
+    @Column(name = "reclamo_categoria", length = 100)
+    private String reclamoCategoria;
+
+    @Column(name = "reclamo_prioridad", length = 30)
+    private String reclamoPrioridad;
+
+    @Column(name = "reclamo_estado", length = 30)
+    private String reclamoEstado;
+
+    @Column(name = "objeto_afectado", length = 100)
+    private String objetoAfectado;
+
+    @Column(name = "afecta_circulacion")
+    private Boolean afectaCirculacion;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
