@@ -1,0 +1,85 @@
+{
+  "name": "EstacionUrbanaAfectada",
+  "fields": [
+    {
+      "name": "afectacionId",
+      "type": "string"
+    },
+    {
+      "name": "estacionId",
+      "type": "string"
+    },
+    {
+      "name": "latitud",
+      "type": "double"
+    },
+    {
+      "name": "longitud",
+      "type": "double"
+    },
+    {
+      "name": "tipoAfectacion",
+      "type": {
+        "type": "enum",
+        "name": "TipoAfectacionEstacion",
+        "symbols": [
+          "BLOQUEADA",
+          "CAPACIDAD_REDUCIDA",
+          "FUERA_DE_SERVICIO",
+          "RECOMENDACION_RESTRINGIDA"
+        ]
+      }
+    },
+    {
+      "name": "afectacionDesde",
+      "type": "string"
+    },
+    {
+      "name": "afectacionHastaEstimada",
+      "type": [
+        "null",
+        "string"
+      ],
+      "default": null
+    },
+    {
+      "name": "causaId",
+      "type": "string"
+    },
+    {
+      "name": "causaTipo",
+      "type": {
+        "type": "enum",
+        "name": "CausaAfectacionEstacion",
+        "symbols": [
+          "EVENTO_CLIMATICO",
+          "RECLAMO",
+          "INCIDENTE_VIAL",
+          "EVENTO_PUBLICO",
+          "RESERVA",
+          "EMERGENCIA"
+        ]
+      }
+    },
+    {
+      "name": "moduloOrigen",
+      "type": {
+        "type": "enum",
+        "name": "ModuloOrigenAfectacion",
+        "symbols": [
+          "RECLAMOS",
+          "EMERGENCIAS",
+          "MOVILIDAD"
+        ]
+      }
+    },
+    {
+      "name": "correlationId",
+      "type": "string"
+    },
+    {
+      "name": "occurredAt",
+      "type": "string"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import com.citypass.movilidad.model.enums.StationSource;
 import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.StationRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -38,12 +39,15 @@ public class StationService {
         return stationMapper.toStationDTOList(stationRepository.findAll());
     }
 
+    /** Solo administración: las consultas de arriba quedan abiertas a cualquier autenticado. */
+    @PreAuthorize("hasRole('ADMIN')")
     public StationDTO createStation(StationRequestDTO stationRequestDTO) {
         Station station = stationMapper.toStation(stationRequestDTO);
         applyDefaults(station);
         return stationMapper.toStationDTO(stationRepository.save(station));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     public StationDTO updateStation(Long id, StationRequestDTO stationRequestDTO) {
 
         Station station = stationRepository.findById(id).orElseThrow(

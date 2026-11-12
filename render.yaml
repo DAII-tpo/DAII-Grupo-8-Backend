@@ -31,11 +31,40 @@ services:
       - key: DB_PARAMS
         value: sslMode=VERIFY_IDENTITY&serverTimezone=UTC&createDatabaseIfNotExist=true
 
-      # --- Seguridad ---
-      # true = todos los endpoints abiertos (incluidos POST y PATCH).
-      # Pasar a false cuando el auth-simulator del Grupo 1 sea accesible.
+      # --- Seguridad: Login Federado (Grupo 2) ---
+      # Producción ya corre en modo seguro: acepta los tokens de los dos emisores (IdP del
+      # Grupo 2 y login de ciudadanos) y aplica @PreAuthorize. Todo request sin token válido
+      # recibe 401, salvo los endpoints públicos. "true" (modo local) es solo para desarrollo:
+      # en ese modo los tokens del IdP se rechazan, así que no volver a ponerlo acá.
       - key: SECURITY_LOCAL_ENABLED
+        value: "false"
+
+      # Ninguno es secreto, por eso van como value y no con sync: false.
+      # El issuer es el string exacto que firma el IdP, no una URL alcanzable.
+      - key: AUTH_JWK_SET_URI
+        value: https://api.citypass-login.pp.ua/.well-known/jwks.json
+      - key: AUTH_ISSUER
+        value: https://idp.citypass.local
+      - key: AUTH_AUDIENCE
+        value: citypass-movilidad-api
+      # El access token no trae email ni apellido, y el contrato de eventos del bus los exige:
+      # se consultan al IdP una vez, en el alta de cada persona. Si no contesta, el alta no se
+      # bloquea y la fila se completa en un request posterior.
+      - key: AUTH_USER_INFO_URI
+        value: https://api.citypass-login.pp.ua/me
+      - key: AUTH_USER_INFO_ENABLED
         value: "true"
+
+      # --- Login de ciudadanos ---
+      # Secreto HS256 en base64url, 32 bytes o mas. Es el unico secreto real que agrega
+      # este modulo, por eso va con sync: false. Generarlo con:
+      #   openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+      # Sin esta variable y con SECURITY_LOCAL_ENABLED=false el backend NO arranca, a
+      # proposito: es preferible a firmar tokens con una clave que nadie eligio.
+      - key: CITIZEN_AUTH_SECRET
+        sync: false
+      - key: CITIZEN_AUTH_ISSUER
+        value: https://movilidad.citypass.local
 
       # --- CORS: dominios del frontend, separados por coma ---
       - key: CORS_ALLOWED_ORIGINS

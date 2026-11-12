@@ -1,5 +1,6 @@
 package com.citypass.movilidad.controller;
 
+import com.citypass.movilidad.config.CurrentUserId;
 import com.citypass.movilidad.dto.EmergencyCreateRequest;
 import com.citypass.movilidad.dto.EmergencyResponse;
 import com.citypass.movilidad.dto.EmergencyTriageRequest;
@@ -7,8 +8,6 @@ import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.service.EmergencyService;
 import com.citypass.movilidad.validation.EntityId;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -20,7 +19,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,10 +30,11 @@ import java.net.URI;
 @Validated
 @Tag(name = "Emergencias",
         description = "Pedido de ayuda durante un viaje: SOS, cancelación por error y cuestionario de triage")
+// El 401 vale para todos los endpoints de la clase: springdoc propaga un @ApiResponse
+// declarado a nivel de clase a cada operación.
+@ApiResponse(responseCode = "401", description = "Token ausente o inválido",
+        content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
 public class EmergencyController {
-
-    private static final String USER_HEADER_DESCRIPTION =
-            "ID del usuario actual. Mecanismo temporal hasta integrar el login federado de Grupo 2";
 
     private final EmergencyService emergencyService;
 
@@ -51,15 +50,14 @@ public class EmergencyController {
                     + "su plazo, así que durante la ventana de cancelación un error no llega a nadie")
     @ApiResponse(responseCode = "201", description = "Pedido registrado",
             content = @Content(schema = @Schema(implementation = EmergencyResponse.class)))
-    @ApiResponse(responseCode = "400", description = "Falta el header de usuario o la ubicación es inválida",
+    @ApiResponse(responseCode = "400", description = "La ubicación es inválida",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "404", description = "El usuario o el viaje (o no pertenece al usuario) no existen",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     @ApiResponse(responseCode = "409", description = "El viaje no está activo o ya tiene una emergencia en curso",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<EmergencyResponse> report(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(TripController.USER_HEADER) @EntityId Long userId,
+            @CurrentUserId Long userId,
             @PathVariable @EntityId Long tripId,
             @Valid @RequestBody EmergencyCreateRequest request) {
         EmergencyResponse created = emergencyService.report(userId, tripId, request);
@@ -76,8 +74,7 @@ public class EmergencyController {
     @ApiResponse(responseCode = "404", description = "El usuario no existe",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public ResponseEntity<EmergencyResponse> findCurrent(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(TripController.USER_HEADER) @EntityId Long userId) {
+            @CurrentUserId Long userId) {
         return emergencyService.findCurrent(userId)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -95,8 +92,7 @@ public class EmergencyController {
     @ApiResponse(responseCode = "409", description = "Venció la ventana de cancelación o ya se resolvió",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public EmergencyResponse cancel(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(TripController.USER_HEADER) @EntityId Long userId,
+            @CurrentUserId Long userId,
             @PathVariable @EntityId Long id) {
         return emergencyService.cancel(userId, id);
     }
@@ -117,8 +113,7 @@ public class EmergencyController {
             description = "Todavía se puede cancelar, o la emergencia ya fue enviada o cancelada",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     public EmergencyResponse triage(
-            @Parameter(in = ParameterIn.HEADER, description = USER_HEADER_DESCRIPTION, required = true)
-            @RequestHeader(TripController.USER_HEADER) @EntityId Long userId,
+            @CurrentUserId Long userId,
             @PathVariable @EntityId Long id,
             @Valid @RequestBody EmergencyTriageRequest request) {
         return emergencyService.submitTriage(userId, id, request);

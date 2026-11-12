@@ -1,0 +1,21 @@
+{
+  "name": "EstacionUrbanaRestaurada",
+  "fields": [
+    {
+      "name": "afectacionId",
+      "type": "string"
+    },
+    {
+      "name": "estacionId",
+      "type": "string"
+    },
+    {
+      "name": "correlationId",
+      "type": "string"
+    },
+    {
+      "name": "restauradaAt",
+      "type": "string"
+    }
+  ]
+}
