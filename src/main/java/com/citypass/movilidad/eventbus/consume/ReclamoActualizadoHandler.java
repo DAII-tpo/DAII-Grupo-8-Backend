@@ -2,6 +2,7 @@ package com.citypass.movilidad.eventbus.consume;
 
 import com.citypass.movilidad.dto.event.ReclamoActualizadoData;
 import com.citypass.movilidad.service.CicloviaObstructionService;
+import com.citypass.movilidad.service.InboundEventService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -19,10 +20,14 @@ public class ReclamoActualizadoHandler implements EventHandler {
     private static final String TOPIC = "com.citypass.reclamos.ReclamoActualizado";
 
     private final CicloviaObstructionService obstructionService;
+    private final InboundEventService inboundEventService;
     private final ObjectMapper objectMapper;
 
-    public ReclamoActualizadoHandler(CicloviaObstructionService obstructionService, ObjectMapper objectMapper) {
+    public ReclamoActualizadoHandler(CicloviaObstructionService obstructionService,
+                                     InboundEventService inboundEventService,
+                                     ObjectMapper objectMapper) {
         this.obstructionService = obstructionService;
+        this.inboundEventService = inboundEventService;
         this.objectMapper = objectMapper;
     }
 
@@ -38,6 +43,7 @@ public class ReclamoActualizadoHandler implements EventHandler {
         try {
             ReclamoActualizadoData data = objectMapper.treeToValue(event.data(), ReclamoActualizadoData.class);
             obstructionService.procesarReclamoActualizado(data);
+            inboundEventService.handle(TOPIC, event.data(), event.metadata().receivedAt());
         } catch (JsonProcessingException ex) {
             throw new InvalidEventException("Error al deserializar payload de " + TOPIC, ex);
         }

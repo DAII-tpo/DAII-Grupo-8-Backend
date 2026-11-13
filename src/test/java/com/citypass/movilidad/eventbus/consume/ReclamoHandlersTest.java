@@ -78,7 +78,9 @@ class ReclamoHandlersTest {
     @Test
     @DisplayName("ReclamoActualizadoHandler deserializa y deriva a CicloviaObstructionService")
     void reclamoActualizadoHandler_invocaServicio() throws Exception {
-        ReclamoActualizadoHandler handler = new ReclamoActualizadoHandler(obstructionService, objectMapper);
+        var inboundEventService = mock(com.citypass.movilidad.service.InboundEventService.class);
+        ReclamoActualizadoHandler handler = new ReclamoActualizadoHandler(
+                obstructionService, inboundEventService, objectMapper);
         assertThat(handler.topic()).isEqualTo("com.citypass.reclamos.ReclamoActualizado");
 
         String json = """
@@ -102,6 +104,8 @@ class ReclamoHandlersTest {
         handler.handle(event);
 
         verify(obstructionService).procesarReclamoActualizado(any(ReclamoActualizadoData.class));
+        verify(inboundEventService).handle("com.citypass.reclamos.ReclamoActualizado",
+                dataNode, metadata.receivedAt());
     }
 }
 
