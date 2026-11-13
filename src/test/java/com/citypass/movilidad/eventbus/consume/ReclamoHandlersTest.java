@@ -138,8 +138,9 @@ class ReclamoHandlersTest {
         JsonNode dataNode = objectMapper.readTree("{\"reclasificadoAt\":\"no-es-un-long\"}");
         EventMetadata metadata = new EventMetadata("evt-invalid", handler.topic(), Instant.now(),
                 "grupo5", "tok-invalid", 4, "hash4", "1.0", "gw-1");
+        IncomingEvent event = new IncomingEvent(handler.topic(), metadata, dataNode);
 
-        assertThatThrownBy(() -> handler.handle(new IncomingEvent(handler.topic(), metadata, dataNode)))
+        assertThatThrownBy(() -> handler.handle(event))
                 .isInstanceOf(InvalidEventException.class)
                 .hasMessageContaining("Error al deserializar payload");
     }

@@ -32,7 +32,7 @@ class CuInt01HandlersTest {
             context.registerBean(InboundEventService.class, () -> mock(InboundEventService.class));
             context.registerBean(com.citypass.movilidad.service.CicloviaObstructionService.class,
                     () -> mock(com.citypass.movilidad.service.CicloviaObstructionService.class));
-            context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
+            context.registerBean(ObjectMapper.class);
             context.scan("com.citypass.movilidad.eventbus.consume");
             context.refresh();
 
