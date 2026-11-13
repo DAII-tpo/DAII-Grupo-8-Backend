@@ -79,7 +79,7 @@ public class InboundEventService {
             case ESPACIOS + "EventoCancelado" -> cancelDestination(data, receivedAt);
             case ESPACIOS + "EspacioEstadoCambiado" -> updateSpaceStatus(data, receivedAt);
             case ESPACIOS + "ReservaConfirmada" -> confirmReservation(data, receivedAt);
-            case RECLAMOS + "ReclamoCreado" ->
+            case RECLAMOS + "ReclamoCreado", RECLAMOS + "ReclamoCreado.v3" ->
                     openIncident(IncidentSource.RECLAMOS, text(data, "reclamoId"), data, epochMillis(data, "createdAt"));
             case RECLAMOS + "ReclamoActualizado" ->
                     closeIfFinal(IncidentSource.RECLAMOS, text(data, "reclamoId"), text(data, NEW_STATUS_FIELD), CLAIM_CLOSED);
