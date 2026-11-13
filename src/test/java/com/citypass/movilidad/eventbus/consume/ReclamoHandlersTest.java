@@ -34,7 +34,8 @@ class ReclamoHandlersTest {
     @Test
     @DisplayName("ReclamoCreadoHandler deserializa y deriva a CicloviaObstructionService")
     void reclamoCreadoHandler_invocaServicio() throws Exception {
-        ReclamoCreadoHandler handler = new ReclamoCreadoHandler(obstructionService, objectMapper);
+        var inboundEventService = mock(com.citypass.movilidad.service.InboundEventService.class);
+        ReclamoCreadoHandler handler = new ReclamoCreadoHandler(obstructionService, inboundEventService, objectMapper);
         assertThat(handler.topic()).isEqualTo("com.citypass.reclamos.ReclamoCreado.v3");
 
         String json = """
@@ -64,7 +65,7 @@ class ReclamoHandlersTest {
                 }
                 """;
         JsonNode dataNode = objectMapper.readTree(json);
-        EventMetadata metadata = new EventMetadata("evt-1", "com.citypass.reclamos.ReclamoCreado.v3",
+        EventMetadata metadata = new EventMetadata("evt-1", "com.citypass.reclamos.ReclamoCreado",
                 Instant.now(), "grupo5", "tok-1", 1, "hash", "1.0", "gw-1");
         IncomingEvent event = new IncomingEvent("com.citypass.reclamos.ReclamoCreado.v3", metadata, dataNode);
 
@@ -75,6 +76,8 @@ class ReclamoHandlersTest {
         assertThat(captor.getValue().categoria()).isEqualTo("TRANSITO");
         assertThat(captor.getValue().objetoAfectado()).isEqualTo("CICLOVIA");
         assertThat(captor.getValue().estado()).isEqualTo("RECIBIDO");
+        verify(inboundEventService).handle("com.citypass.reclamos.ReclamoCreado.v3",
+                dataNode, metadata.receivedAt());
     }
 
     @Test
@@ -135,8 +138,9 @@ class ReclamoHandlersTest {
         JsonNode dataNode = objectMapper.readTree("{\"reclasificadoAt\":\"no-es-un-long\"}");
         EventMetadata metadata = new EventMetadata("evt-invalid", handler.topic(), Instant.now(),
                 "grupo5", "tok-invalid", 4, "hash4", "1.0", "gw-1");
+        IncomingEvent event = new IncomingEvent(handler.topic(), metadata, dataNode);
 
-        assertThatThrownBy(() -> handler.handle(new IncomingEvent(handler.topic(), metadata, dataNode)))
+        assertThatThrownBy(() -> handler.handle(event))
                 .isInstanceOf(InvalidEventException.class)
                 .hasMessageContaining("Error al deserializar payload");
     }

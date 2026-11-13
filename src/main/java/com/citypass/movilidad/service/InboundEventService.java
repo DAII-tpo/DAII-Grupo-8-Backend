@@ -34,6 +34,8 @@ public class InboundEventService {
 
     private static final String CANCELLED_STATE = "CANCELLED";
     private static final String CULTURAL_EVENT_STATE_TYPE = "CULTURAL_EVENT";
+    private static final String SPACE_STATE_TYPE = "SPACE";
+    private static final String SPACE_ID_FIELD = "espacioId";
     private static final String LATITUDE_FIELD = "latitud";
     private static final String NEW_STATUS_FIELD = "estadoNuevo";
 
@@ -79,7 +81,7 @@ public class InboundEventService {
             case ESPACIOS + "EventoCancelado" -> cancelDestination(data, receivedAt);
             case ESPACIOS + "EspacioEstadoCambiado" -> updateSpaceStatus(data, receivedAt);
             case ESPACIOS + "ReservaConfirmada" -> confirmReservation(data, receivedAt);
-            case RECLAMOS + "ReclamoCreado" ->
+            case RECLAMOS + "ReclamoCreado", RECLAMOS + "ReclamoCreado.v3" ->
                     openIncident(IncidentSource.RECLAMOS, text(data, "reclamoId"), data, epochMillis(data, "createdAt"));
             case RECLAMOS + "ReclamoActualizado" ->
                     closeIfFinal(IncidentSource.RECLAMOS, text(data, "reclamoId"), text(data, NEW_STATUS_FIELD), CLAIM_CLOSED);
@@ -104,7 +106,7 @@ public class InboundEventService {
         CulturalDestination destination = existing
                 .orElseGet(() -> CulturalDestination.builder().eventId(eventId).build());
 
-        destination.setSpaceId(text(data, "espacioId"));
+        destination.setSpaceId(text(data, SPACE_ID_FIELD));
         destination.setTitle(text(data, "titulo"));
         destination.setZone(optionalText(data, "zona"));
         destination.setAddress(optionalText(data, "direccion"));
@@ -129,8 +131,9 @@ public class InboundEventService {
         // El total de inscriptos proviene únicamente de este snapshot, no de reservas.
         String state = optionalText(data, "estado");
         updateDemand(data, destination, state);
-        destination.setEventStatus(Set.of("ACTIVE", "ACTIVE_FULL", "SUSPENDED", CANCELLED_STATE).contains(
-                state == null ? "" : state) ? state : "UNKNOWN");
+        boolean knownState = state != null
+                && Set.of("ACTIVE", "ACTIVE_FULL", "SUSPENDED", CANCELLED_STATE).contains(state);
+        destination.setEventStatus(knownState ? state : "UNKNOWN");
         if (CANCELLED_STATE.equals(state)) {
             entityStates.remember(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE);
         }
@@ -138,7 +141,7 @@ public class InboundEventService {
                 || CANCELLED_STATE.equals(state)
                 || entityStates.hasState(CULTURAL_EVENT_STATE_TYPE, eventId, CANCELLED_STATE));
         if (destination.isCancelled()) destination.setEventStatus(CANCELLED_STATE);
-        destination.setSpaceEnabled(!entityStates.hasState("SPACE", destination.getSpaceId(), "DISABLED"));
+        destination.setSpaceEnabled(!entityStates.hasState(SPACE_STATE_TYPE, destination.getSpaceId(), "DISABLED"));
         destination.setUpdatedAt(Instant.now());
         destination.setRecommendationToken(jobs.request(eventId));
         destinationRepository.save(destination);
@@ -179,9 +182,9 @@ public class InboundEventService {
             throw new IllegalArgumentException("Estado de espacio desconocido: " + status);
         }
         boolean enabled = "ENABLED".equals(status);
-        String spaceId = text(data, "espacioId");
-        if (!cursors.accept("SPACE", spaceId, receivedAt)) return;
-        entityStates.remember("SPACE", spaceId, status);
+        String spaceId = text(data, SPACE_ID_FIELD);
+        if (!cursors.accept(SPACE_STATE_TYPE, spaceId, receivedAt)) return;
+        entityStates.remember(SPACE_STATE_TYPE, spaceId, status);
         for (CulturalDestination destination : destinationRepository.findBySpaceId(spaceId)) {
             destination.setSpaceEnabled(enabled);
             destination.setUpdatedAt(Instant.now());
@@ -198,7 +201,7 @@ public class InboundEventService {
             throw new IllegalArgumentException("tipoReserva debe ser EVENTO o ESPACIO");
         }
         String resourceId = text(data, "recursoId");
-        String spaceId = text(data, "espacioId");
+        String spaceId = text(data, SPACE_ID_FIELD);
         if ("ESPACIO".equals(type) && !resourceId.equals(spaceId)) {
             throw new IllegalArgumentException("recursoId debe identificar el espacio reservado");
         }
