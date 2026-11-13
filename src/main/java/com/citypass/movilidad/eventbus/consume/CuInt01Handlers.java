@@ -41,11 +41,6 @@ public class CuInt01Handlers {
     }
 
     @Bean
-    public EventHandler cuInt01Handler6(InboundEventService service) {
-        return handler("com.citypass.reclamos.ReclamoActualizado", service);
-    }
-
-    @Bean
     public EventHandler cuInt01Handler7(InboundEventService service) {
         return handler("com.citypass.emergencias.EmergenciaCreada", service);
     }

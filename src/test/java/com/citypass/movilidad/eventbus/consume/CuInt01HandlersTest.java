@@ -10,13 +10,12 @@ class CuInt01HandlersTest {
         var service = mock(InboundEventService.class);
         var config = new CuInt01Handlers();
         var handlers = List.of(config.cuInt01Handler1(service), config.cuInt01Handler2(service),
-                config.cuInt01Handler3(service), config.cuInt01Handler4(service), config.cuInt01Handler5(service), config.cuInt01Handler6(service),
+                config.cuInt01Handler3(service), config.cuInt01Handler4(service), config.cuInt01Handler5(service),
                 config.cuInt01Handler7(service), config.cuInt01Handler8(service));
         assertThat(handlers).extracting(EventHandler::topic).containsExactly(
                 "com.citypass.espacios.EventoComunitarioPublicado", "com.citypass.espacios.EventoCancelado",
                 "com.citypass.espacios.EspacioEstadoCambiado", "com.citypass.espacios.ReservaConfirmada",
-                "com.citypass.reclamos.ReclamoCreado",
-                "com.citypass.reclamos.ReclamoActualizado", "com.citypass.emergencias.EmergenciaCreada",
+                "com.citypass.reclamos.ReclamoCreado", "com.citypass.emergencias.EmergenciaCreada",
                 "com.citypass.emergencias.EmergenciaActualizada");
         var payload = new ObjectMapper().readTree("{\"eventoId\":\"ev-1\"}");
         var receivedAt = java.time.Instant.parse("2026-11-05T15:00:00.123456789Z");
