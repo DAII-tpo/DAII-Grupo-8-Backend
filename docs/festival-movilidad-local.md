@@ -66,7 +66,7 @@ diferente, revisar las versiones de Flyway antes de aplicarlo a una base compart
 
 ## Estados y prueba de stock
 
-Con la migración V18, el listado incluye el historial. Para cada estación activa dentro de 300 m,
+Con la migración V23, el listado incluye el historial. Para cada estación activa dentro de 300 m,
 el objetivo inicial es el 90 % de la capacidad, redondeado hacia arriba. Si al crear la tarea el
 stock ya alcanza el objetivo, queda realizada con motivo «Stock suficiente». El backend revisa
 las tareas abiertas cada cinco segundos: si detecta el objetivo alcanzado antes del límite,
