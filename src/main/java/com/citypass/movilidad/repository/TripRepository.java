@@ -12,8 +12,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
+import java.util.Collection;
 
 public interface TripRepository extends JpaRepository<Trip, Long> {
+
+    List<Trip> findByStatusAndOriginStation_IdIn(TripStatus status, Collection<Long> stationIds);
 
     /** Viaje de un usuario en un estado (con ACTIVE: su viaje activo). */
     @EntityGraph(attributePaths = {"bike", "originStation"})

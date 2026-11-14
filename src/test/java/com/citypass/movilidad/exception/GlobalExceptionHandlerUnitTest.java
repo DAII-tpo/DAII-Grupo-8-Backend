@@ -39,6 +39,28 @@ class GlobalExceptionHandlerUnitTest {
 
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler();
 
+    @Test
+    void conflictoClimaticoExponeLosDatosParaConfirmarElRiesgoSinPerderElCodigo() {
+        var alert = new com.citypass.movilidad.model.ClimateAlert();
+        alert.setExternalAlertId("clima-palermo");
+        alert.setSeverity(com.citypass.movilidad.model.ClimateAlert.Severity.MEDIA);
+        alert.setPhenomenon("VIENTO_FUERTE");
+        alert.setValidUntil(java.time.Instant.parse("2026-11-14T23:00:00Z"));
+        var error = new ClimateTripException("CLIMATE_RISK_CONFIRMATION_REQUIRED", "Confirmá el riesgo climático", alert);
+
+        var response = handler.handleClimateTrip(error, requestTo("/api/v1/trips"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).containsEntry("status", 409)
+                .containsEntry("code", "CLIMATE_RISK_CONFIRMATION_REQUIRED")
+                .containsEntry("message", "Confirmá el riesgo climático")
+                .containsEntry("path", "/api/v1/trips")
+                .containsEntry("alertaId", "clima-palermo")
+                .containsEntry("nivelCriticidad", "MEDIA")
+                .containsEntry("fenomeno", "VIENTO_FUERTE")
+                .containsEntry("vigenciaHasta", alert.getValidUntil());
+    }
+
     @AfterEach
     void restaurarNivelDeLog() {
         nivelDeLog(null);

@@ -31,6 +31,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /** Convierte cualquier excepción en una respuesta HTTP con el formato de ErrorResponse. */
@@ -46,6 +48,21 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Pattern CONTROL_CHARACTERS = Pattern.compile("[\\p{Cntrl}]");
     private static final int MAX_LOGGED_LENGTH = 200;
+
+    @ExceptionHandler(ClimateTripException.class)
+    public ResponseEntity<Map<String, Object>> handleClimateTrip(ClimateTripException ex, WebRequest request) {
+        var alert = ex.getAlert();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", 409);
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        body.put("path", pathOf(request));
+        body.put("alertaId", alert.getExternalAlertId());
+        body.put("nivelCriticidad", alert.getSeverity().name());
+        body.put("fenomeno", alert.getPhenomenon());
+        body.put("vigenciaHasta", alert.getValidUntil());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
 
     /** Excepciones de dominio: el estado y el código los define la propia excepción. */
     @ExceptionHandler(ApiException.class)
