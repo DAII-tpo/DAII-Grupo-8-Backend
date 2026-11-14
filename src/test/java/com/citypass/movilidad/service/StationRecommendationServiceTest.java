@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,17 +42,21 @@ class StationRecommendationServiceTest {
     private NearbyStationService nearbyStationService;
     private RecommendationClient recommendationClient;
     private IncidentProximityFilter incidentFilter;
+    private CicloviaObstructionService obstructionService;
     private StationRecommendationService service;
 
     @BeforeEach
     void setUp() {
         nearbyStationService = mock(NearbyStationService.class);
         recommendationClient = mock(RecommendationClient.class);
+        obstructionService = mock(CicloviaObstructionService.class);
+        when(obstructionService.affectedStationIds(any())).thenReturn(Set.of());
         incidentFilter = mock(IncidentProximityFilter.class);
         when(incidentFilter.apply(any())).thenAnswer(invocation -> invocation.getArgument(0));
         service = new StationRecommendationService(nearbyStationService, recommendationClient,
                 new RecommendationMessageComposer(),
-                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true), incidentFilter);
+                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true),
+                obstructionService, incidentFilter);
     }
 
     @Test
