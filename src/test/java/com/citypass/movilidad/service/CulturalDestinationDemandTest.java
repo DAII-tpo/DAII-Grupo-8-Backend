@@ -8,6 +8,7 @@ import com.citypass.movilidad.model.enums.RecommendationStatus;
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -16,8 +17,14 @@ class CulturalDestinationDemandTest {
     private final NearbyStationService nearby = mock(NearbyStationService.class);
     private final RecommendationClient client = mock(RecommendationClient.class);
     private final IncidentProximityFilter filter = mock(IncidentProximityFilter.class);
+    private final CicloviaObstructionService obstructions = mock(CicloviaObstructionService.class);
     private final StationRecommendationService service = new StationRecommendationService(nearby, client,
-            new RecommendationMessageComposer(), new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, false), filter);
+            new RecommendationMessageComposer(), new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, false),
+            obstructions, filter);
+
+    CulturalDestinationDemandTest() {
+        when(obstructions.affectedStationIds(any())).thenReturn(Set.of());
+    }
     private NearbyStationResponse station(long id, int distance, int slots) {
         return new NearbyStationResponse(id, "Estación " + id, "Calle", BigDecimal.valueOf(-34.6),
                 BigDecimal.valueOf(-58.4), distance, 30, 30 - slots, slots);

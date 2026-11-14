@@ -5,5 +5,6 @@ public enum AggregateType {
     TRIP,
     STATION,
     INCIDENT,
-    CULTURAL_EVENT
+    CULTURAL_EVENT,
+    CLIMATE_ALERT
 }

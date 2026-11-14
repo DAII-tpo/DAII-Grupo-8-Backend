@@ -6,6 +6,11 @@ public record EcobiciStationRow(
         String address,
         String latitude,
         String longitude,
-        String capacity
+        String capacity,
+        String neighborhood
 ) {
+    public EcobiciStationRow(String externalId, String name, String address,
+                             String latitude, String longitude, String capacity) {
+        this(externalId, name, address, latitude, longitude, capacity, null);
+    }
 }

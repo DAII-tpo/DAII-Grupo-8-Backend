@@ -42,16 +42,20 @@ public class StationRecommendationService {
     private final RecommendationClient recommendationClient;
     private final RecommendationMessageComposer messageComposer;
     private final RecommendationProperties properties;
+    private final CicloviaObstructionService obstructionService;
     private final IncidentProximityFilter incidentFilter;
 
     public StationRecommendationService(NearbyStationService nearbyStationService,
                                         RecommendationClient recommendationClient,
                                         RecommendationMessageComposer messageComposer,
-                                        RecommendationProperties properties, IncidentProximityFilter incidentFilter) {
+                                        RecommendationProperties properties,
+                                        CicloviaObstructionService obstructionService,
+                                        IncidentProximityFilter incidentFilter) {
         this.nearbyStationService = nearbyStationService;
         this.recommendationClient = recommendationClient;
         this.messageComposer = messageComposer;
         this.properties = properties;
+        this.obstructionService = obstructionService;
         this.incidentFilter = incidentFilter;
     }
 
@@ -62,6 +66,7 @@ public class StationRecommendationService {
 
         List<NearbyStationResponse> candidates = incidentFilter.apply(nearbyStationService.findNearby(
                 latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
+        candidates = withoutObstructedStations(candidates);
 
         return resolve(latitude, longitude, target, candidates);
     }
@@ -76,6 +81,7 @@ public class StationRecommendationService {
     /** Recibe el snapshot ya filtrado del publicador, para no consultar dos veces disponibilidad/incidentes. */
     public StationRecommendationResponse recommendDestinationFromCandidates(double latitude, double longitude,
                                                                             int demand, List<NearbyStationResponse> safe) {
+        safe = withoutObstructedStations(safe);
         List<NearbyStationResponse> viable = safe.stream().filter(station -> station.availableSlots() > 0).toList();
         StationRecommendationResponse result;
         if (viable.isEmpty()) {
@@ -90,6 +96,13 @@ public class StationRecommendationService {
                 + " asistentes. La disponibilidad es actual y no reserva anclajes.";
         return new StationRecommendationResponse(result.status(), result.source(), result.purpose(), result.reason(),
                 message, result.station(), result.alternatives(), result.explanation(), result.modelVersion(), result.generatedAt());
+    }
+
+    /** El publicador puede pasar candidatas ya filtradas por incidentes; siempre excluimos obstrucciones activas. */
+    private List<NearbyStationResponse> withoutObstructedStations(List<NearbyStationResponse> candidates) {
+        var affectedIds = obstructionService.affectedStationIds(candidates.stream()
+                .map(NearbyStationResponse::stationId).toList());
+        return candidates.stream().filter(station -> !affectedIds.contains(station.stationId())).toList();
     }
 
     private List<NearbyStationResponse> forDemand(List<NearbyStationResponse> safe, int demand) {
