@@ -5,5 +5,7 @@ import java.time.Instant;
 /** Tarea preventiva para que el operador evalúe el reabastecimiento de una estación. */
 public record FestivalRestockTaskResponse(
         long id, String activityId, String correlationId, String activityTitle,
-        long stationId, String stationName, int distanceMeters, Instant deadline) {
+        long stationId, String stationName, int distanceMeters, Instant deadline,
+        int capacity, int availableBikes, int availableSlots, int targetBikes,
+        String status, String resolution, Instant resolvedAt) {
 }

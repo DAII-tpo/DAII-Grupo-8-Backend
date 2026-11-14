@@ -63,3 +63,24 @@ Para la prueba automatizada se necesita Docker iniciado:
 
 Base del parche: `a37e35e` de Movilidad Backend. Si se integra más adelante sobre un `main`
 diferente, revisar las versiones de Flyway antes de aplicarlo a una base compartida.
+
+## Estados y prueba de stock
+
+Con la migración V18, el listado incluye el historial. Para cada estación activa dentro de 300 m,
+el objetivo inicial es el 90 % de la capacidad, redondeado hacia arriba. Si al crear la tarea el
+stock ya alcanza el objetivo, queda realizada con motivo «Stock suficiente». El backend revisa
+las tareas abiertas cada cinco segundos: si detecta el objetivo alcanzado antes del límite,
+registra «Reabastecida»; al vencer, la conserva como «Vencida».
+
+En Administración de Movilidad podés ajustar el objetivo de una pendiente o confirmarla
+manualmente. «Sugerir traslado» busca una estación activa a hasta 2 km con excedente, excluye
+estaciones con tareas de un evento vigente y conserva al menos el 50 % de la capacidad en el origen.
+Es una recomendación por reglas; no reserva ni mueve bicicletas.
+
+Para probarlo en Recoleta, cambiá en el ejemplo local las coordenadas a
+`-34.5862976, -58.3925127` y la capacidad del evento a 1100. Usá un fin suficientemente lejano
+para entrar al panel. Desde Reabastecimiento, elegí una estación pendiente con un anclaje libre y
+ajustá su objetivo a una bicicleta más que el stock disponible. En **Administración → Bicicletas**
+trasladá una bicicleta **Disponible** de otra estación a la elegida. Volvé a Reabastecimiento y
+verificá en **Realizadas** que diga «Reabastecida». Las demás estaciones del evento conservan
+su estado y una tarea completada sigue en el historial aunque baje el stock después.

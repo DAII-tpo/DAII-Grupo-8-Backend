@@ -1,5 +1,7 @@
 package com.citypass.movilidad;
 
+import com.citypass.movilidad.service.FestivalRestockService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
@@ -41,9 +43,17 @@ class FestivalRestockIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper json;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired FestivalRestockService restock;
 
     @Test
     void plansOnlyEligibleUpcomingActivitiesAndDoesNotDuplicateTasks() throws Exception {
+        Long stocked = stationId("HOSPITAL DE CLINICAS");
+        Long pending = stationId("PLAZA HOUSSAY");
+        Long expired = stationId("FACULTAD DE MEDICINA");
+        jdbc.update("UPDATE stations SET capacity = 10 WHERE id IN (?, ?)", stocked, pending);
+        for (int i = 0; i < 9; i++) addBike("FEST-STOCK-" + i, stocked);
+        for (int i = 0; i < 8; i++) addBike("FEST-PENDING-" + i, pending);
         var activity = festival("festival-houssay", 1000);
         send(activity).andExpect(status().isNoContent());
         send(activity).andExpect(status().isNoContent());
@@ -64,7 +74,29 @@ class FestivalRestockIntegrationTest {
                 .andExpect(jsonPath("$[0].correlationId").value("act-festival-houssay"))
                 .andExpect(jsonPath("$[0].stationName").value("HOSPITAL DE CLINICAS"))
                 .andExpect(jsonPath("$[1].stationName").value("PLAZA HOUSSAY"))
-                .andExpect(jsonPath("$[2].stationName").value("FACULTAD DE MEDICINA"));
+                .andExpect(jsonPath("$[2].stationName").value("FACULTAD DE MEDICINA"))
+                .andExpect(jsonPath("$[0].resolution").value("STOCK_SUFFICIENT"))
+                .andExpect(jsonPath("$[1].status").value("PENDING"))
+                .andExpect(jsonPath("$[1].targetBikes").value(9));
+
+        addBike("FEST-EXTRA", pending);
+        jdbc.update("UPDATE festival_restock_tasks SET deadline_epoch_ms = ? WHERE station_id = ?",
+                Instant.now().minusSeconds(30).toEpochMilli(), expired);
+        restock.reconcile();
+        mvc.perform(get("/api/v1/admin/festival-restock-tasks"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("EXPIRED"))
+                .andExpect(jsonPath("$[1].resolution").value("STOCK_SUFFICIENT"))
+                .andExpect(jsonPath("$[2].resolution").value("TARGET_REACHED"))
+                .andExpect(jsonPath("$[2].resolvedAt").isNotEmpty());
+    }
+
+    private Long stationId(String name) {
+        return jdbc.queryForObject("SELECT id FROM stations WHERE name = ?", Long.class, name);
+    }
+
+    private void addBike(String code, long station) {
+        jdbc.update("INSERT INTO bikes (code, station_id, status) VALUES (?, ?, 'AVAILABLE')", code, station);
     }
 
     private ObjectNode festival(String id, int capacity) {
