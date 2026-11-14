@@ -4,6 +4,7 @@ import com.citypass.movilidad.importer.EcobiciStationRow;
 import com.citypass.movilidad.importer.StationImportResult;
 import com.citypass.movilidad.mapper.EcobiciStationMapper;
 import com.citypass.movilidad.repository.StationRepository;
+import com.citypass.movilidad.repository.NeighborhoodRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -24,15 +25,18 @@ public class EcobiciStationImportService {
     private final StationRepository stationRepository;
     private final EcobiciStationMapper stationMapper;
     private final ObjectMapper objectMapper;
+    private final NeighborhoodRepository neighborhoods;
 
     public EcobiciStationImportService(
             StationRepository stationRepository,
             EcobiciStationMapper stationMapper,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            NeighborhoodRepository neighborhoods
     ) {
         this.stationRepository = stationRepository;
         this.stationMapper = stationMapper;
         this.objectMapper = objectMapper;
+        this.neighborhoods = neighborhoods;
     }
 
     public StationImportResult importStations(Resource dataset) throws IOException {
@@ -61,7 +65,10 @@ public class EcobiciStationImportService {
                     duplicates++;
                     continue;
                 }
-                stationRepository.saveAndFlush(stationMapper.toStation(row));
+                var station = stationMapper.toStation(row);
+                neighborhoods.findByNormalizedName(NeighborhoodNames.normalize(row.neighborhood()))
+                        .ifPresent(station::setNeighborhood);
+                stationRepository.saveAndFlush(station);
                 imported++;
             } catch (IllegalArgumentException | DataIntegrityViolationException exception) {
                 invalid++;
@@ -79,7 +86,8 @@ public class EcobiciStationImportService {
                 text(properties, "DIRECCION"),
                 text(properties, "Lat"),
                 text(properties, "Lon"),
-                text(properties, "ANCLAJES")
+                text(properties, "ANCLAJES"),
+                text(properties, "BARRIO")
         );
     }
 

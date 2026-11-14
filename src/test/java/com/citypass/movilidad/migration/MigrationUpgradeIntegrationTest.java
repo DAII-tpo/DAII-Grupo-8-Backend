@@ -96,8 +96,8 @@ class MigrationUpgradeIntegrationTest {
 
         Flyway current = flyway(integrated, "latest");
         var result = current.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(12);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("18");
+        assertThat(result.migrationsExecuted).isEqualTo(15);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("21");
         assertThat(jdbc.queryForObject("SELECT checksum FROM flyway_schema_history WHERE version = '6'",
                 Integer.class)).isEqualTo(checksum);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id = 'existing-trip'",
@@ -154,14 +154,39 @@ class MigrationUpgradeIntegrationTest {
         jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
                 + "VALUES (UUID(),'TRIP','previo-login','com.citypass.movilidad.ViajeIniciado','{}')");
         var current = flyway(integrated, "latest");
-        assertThat(current.migrate().migrationsExecuted).isEqualTo(9);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("18");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(12);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("21");
         assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 9 ORDER BY installed_rank"))
                 .isEqualTo(history);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='previo-login'", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_tokens", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM espacios_event_cursors WHERE entity_type='LOCK'", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForList("SELECT id,code,station_id,status FROM bikes ORDER BY id")).isEqualTo(inventory);
+        current.validate();
+        assertThat(current.migrate().migrationsExecuted).isZero();
+    }
+
+    @Test
+    void actualizaMainV18ConClimaSinPerderEstacionesNiHistorial() {
+        flyway("18").migrate();
+        var jdbc = new JdbcTemplate(new DriverManagerDataSource(
+                mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword()));
+        var history = jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history ORDER BY installed_rank");
+        jdbc.update("""
+                INSERT INTO stations (id,name,latitude,longitude,capacity,status,source,external_id)
+                VALUES (1000,'MADERO UCA',-34.6,-58.4,20,'ACTIVE','DATASET','ecobici-228-10')
+                """);
+
+        Flyway current = flyway("latest");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(3);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("21");
+        assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 18 ORDER BY installed_rank"))
+                .isEqualTo(history);
+        assertThat(jdbc.queryForObject("SELECT name FROM stations WHERE id=1000", String.class)).isEqualTo("MADERO UCA");
+        assertThat(jdbc.queryForObject("SELECT neighborhood_id FROM stations WHERE id=1000", String.class)).isEqualTo("AR-CABA-PUERTO-MADERO");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM neighborhoods", Integer.class)).isEqualTo(48);
+        jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
+                + "VALUES (UUID(),'CLIMATE_ALERT','prueba-clima','com.citypass.movilidad.AlertaClimaticaAplicada','{}')");
         current.validate();
         assertThat(current.migrate().migrationsExecuted).isZero();
     }

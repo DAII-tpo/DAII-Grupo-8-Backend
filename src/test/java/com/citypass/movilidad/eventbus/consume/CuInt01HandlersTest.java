@@ -30,6 +30,8 @@ class CuInt01HandlersTest {
     @Test void registroCompletoSuscribeV3UnaSolaVezSinElTopicoAnterior() {
         try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
             context.registerBean(InboundEventService.class, () -> mock(InboundEventService.class));
+            context.registerBean(com.citypass.movilidad.service.ClimateAlertService.class,
+                    () -> mock(com.citypass.movilidad.service.ClimateAlertService.class));
             context.registerBean(com.citypass.movilidad.service.CicloviaObstructionService.class,
                     () -> mock(com.citypass.movilidad.service.CicloviaObstructionService.class));
             context.registerBean(ObjectMapper.class);
@@ -39,7 +41,9 @@ class CuInt01HandlersTest {
             var handlers = List.copyOf(context.getBeansOfType(EventHandler.class).values());
             assertThat(handlers).extracting(EventHandler::topic).doesNotHaveDuplicates()
                     .contains("com.citypass.reclamos.ReclamoCreado.v3",
-                            "com.citypass.reclamos.ReclamoActualizado")
+                            "com.citypass.reclamos.ReclamoActualizado",
+                            "com.citypass.espacios.CriticidadClimaticaConfirmada",
+                            "com.citypass.espacios.CriticidadClimaticaFinalizada")
                     .doesNotContain("com.citypass.reclamos.ReclamoCreado");
             var dispatcher = new EventDispatcher(handlers, new EventEnvelopeMapper(new ObjectMapper()),
                     mock(com.citypass.movilidad.repository.EventInboxRepository.class), java.time.Clock.systemUTC());

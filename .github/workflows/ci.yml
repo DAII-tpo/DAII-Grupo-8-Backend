@@ -55,8 +55,7 @@ jobs:
       - name: Tests del servicio de recomendación
         run: >
           pytest recommendation-service
-          --cov=recommendation-service/app
-          --cov=recommendation-service/training
+          --cov=recommendation-service
           --cov-config=recommendation-service/.coveragerc
           --cov-report=xml:recommendation-service/coverage.xml
 
