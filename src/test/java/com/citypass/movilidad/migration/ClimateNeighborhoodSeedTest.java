@@ -11,7 +11,7 @@ class ClimateNeighborhoodSeedTest {
     @Test
     void seedUsesAllUniqueEcobiciIdsAndDatasetNeighborhoodInKnownConflicts() throws IOException {
         String sql;
-        try (var stream = getClass().getResourceAsStream("/db/migration/V18__seed_caba_neighborhoods.sql")) {
+        try (var stream = getClass().getResourceAsStream("/db/migration/V20__seed_caba_neighborhoods.sql")) {
             assertThat(stream).isNotNull();
             sql = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
