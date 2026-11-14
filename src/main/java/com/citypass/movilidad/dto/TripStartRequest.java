@@ -7,6 +7,11 @@ import jakarta.validation.constraints.NotNull;
 @Schema(description = "Inicio de viaje a partir de una bicicleta disponible")
 public record TripStartRequest(
         @Schema(description = "ID de la bicicleta a retirar; debe estar AVAILABLE", example = "1")
-        @NotNull @EntityId Long bikeId
+        @NotNull @EntityId Long bikeId,
+        @Schema(description = "Aceptación explícita del riesgo climático para estaciones con alerta MEDIA")
+        Boolean aceptaRiesgoClimatico
 ) {
+    public TripStartRequest(Long bikeId) {
+        this(bikeId, null);
+    }
 }
