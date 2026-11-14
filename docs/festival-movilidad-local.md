@@ -66,8 +66,9 @@ diferente, revisar las versiones de Flyway antes de aplicarlo a una base compart
 
 ## Estados y prueba de stock
 
-Con la migración V23, el listado incluye el historial. Para cada estación activa dentro de 300 m,
-el objetivo inicial es el 90 % de la capacidad, redondeado hacia arriba. Si al crear la tarea el
+El listado incluye el historial. Para cada estación activa dentro del radio de cobertura,
+el objetivo inicial es el 90 % de la capacidad, redondeado hacia arriba. El radio es de 300 m
+desde 1.000 personas, 500 m desde 2.500 y 750 m desde 5.000. Si al crear la tarea el
 stock ya alcanza el objetivo, queda realizada con motivo «Stock suficiente». El backend revisa
 las tareas abiertas cada cinco segundos: si detecta el objetivo alcanzado antes del límite,
 registra «Reabastecida»; al vencer, la conserva como «Vencida».
@@ -84,3 +85,13 @@ ajustá su objetivo a una bicicleta más que el stock disponible. En **Administr
 trasladá una bicicleta **Disponible** de otra estación a la elegida. Volvé a Reabastecimiento y
 verificá en **Realizadas** que diga «Reabastecida». Las demás estaciones del evento conservan
 su estado y una tarea completada sigue en el historial aunque baje el stock después.
+
+## Plan de traslados
+
+El panel consulta `GET /api/v1/admin/festival-restock-tasks/transfer-plan` con permisos de administración.
+El plan comparte el excedente entre eventos y protege los objetivos de reposición vigentes.
+`?useModel=true` permite evaluar los orígenes con el servicio de recomendación.
+En un entorno compartido, las migraciones V24 a V28 se ejecutan después del historial de V23.
+
+El evento `com.citypass.espacios.ActividadModificada` comunica cambios de estado. Los cambios de
+horario y ubicación con `/api/v1/dev/festival` son simulaciones del perfil `festival-local`.

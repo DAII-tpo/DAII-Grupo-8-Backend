@@ -33,6 +33,7 @@ import static com.citypass.movilidad.support.FederatedSecurityTestConfig.bearer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -179,6 +180,26 @@ class CitizenAuthFlowIntegrationTest {
 
         mockMvc.perform(get("/api/v1/maintenance").header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void elPlanYLaEdicionDeReabastecimientoExigenAdmin() throws Exception {
+        String token = registrar(emailNuevo()).get("accessToken").asText();
+        String path = "/api/v1/admin/festival-restock-tasks";
+
+        mockMvc.perform(get(path + "/transfer-plan").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(path + "/transfer-plan").param("useModel", "true")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch(path + "/0/target").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"targetBikes\":1}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get(path + "/transfer-plan").with(bearer("U000500", "admin")))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch(path + "/0/target").with(bearer("U000500", "admin"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"targetBikes\":1}"))
+                .andExpect(status().isNotFound());
     }
 
     /** La convivencia de los dos emisores, en el mismo contexto. */
