@@ -246,7 +246,8 @@ class MigrationUpgradeIntegrationTest {
         var history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
         jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
                 + "VALUES (UUID(),'TRIP','conservar','com.citypass.movilidad.ViajeIniciado','{}')");
-        assertThatThrownBy(() -> flyway(integrated, "latest").migrate())
+        Flyway current = flyway(integrated, "latest");
+        assertThatThrownBy(current::migrate)
                 .isInstanceOf(FlywayException.class).hasMessageContaining("Validate failed");
         assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(history);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='conservar'", Integer.class)).isEqualTo(1);

@@ -4,6 +4,7 @@ import com.citypass.movilidad.service.FestivalRestockService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -21,6 +22,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -30,6 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @SpringBootTest
 class FestivalRestockIntegrationTest {
+    private static final String TASKS = "/api/v1/admin/festival-restock-tasks";
+
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0")
             .withDatabaseName("movilidad").withUsername("test").withPassword("test");
@@ -45,6 +49,12 @@ class FestivalRestockIntegrationTest {
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
     @Autowired FestivalRestockService restock;
+
+    @AfterEach
+    void removeAdminTestTasks() {
+        jdbc.update("DELETE FROM festival_restock_tasks WHERE activity_id = ?", "festival-admin");
+        jdbc.update("DELETE FROM stations WHERE name = ?", "QA FESTIVAL ADMIN");
+    }
 
     @Test
     void plansOnlyEligibleUpcomingActivitiesAndDoesNotDuplicateTasks() throws Exception {
@@ -68,7 +78,7 @@ class FestivalRestockIntegrationTest {
         invalid.put("fechaHoraInicio", "2026-11-15T00:00:00Z");
         send(invalid).andExpect(status().isBadRequest());
 
-        mvc.perform(get("/api/v1/admin/festival-restock-tasks"))
+        mvc.perform(get(TASKS))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].correlationId").value("act-festival-houssay"))
@@ -83,12 +93,53 @@ class FestivalRestockIntegrationTest {
         jdbc.update("UPDATE festival_restock_tasks SET deadline_epoch_ms = ? WHERE station_id = ?",
                 Instant.now().minusSeconds(30).toEpochMilli(), expired);
         restock.reconcile();
-        mvc.perform(get("/api/v1/admin/festival-restock-tasks"))
+        mvc.perform(get(TASKS))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].status").value("EXPIRED"))
                 .andExpect(jsonPath("$[1].resolution").value("STOCK_SUFFICIENT"))
                 .andExpect(jsonPath("$[2].resolution").value("TARGET_REACHED"))
                 .andExpect(jsonPath("$[2].resolvedAt").isNotEmpty());
+        long expiredTaskId = jdbc.queryForObject("""
+                SELECT id FROM festival_restock_tasks WHERE activity_id = ? AND station_id = ?
+                """, Long.class, "festival-houssay", expired);
+        mvc.perform(patch(TASKS + "/" + expiredTaskId + "/complete")).andExpect(status().isConflict());
+    }
+
+    @Test
+    void editsTargetsAndCompletesTasksFromTheAdminApi() throws Exception {
+        jdbc.update("""
+                INSERT INTO stations (name, latitude, longitude, capacity, status, source)
+                VALUES ('QA FESTIVAL ADMIN', -32, -56, 10, 'ACTIVE', 'MANUAL')
+                """);
+        var activity = festival("festival-admin", 1000);
+        activity.putObject("ubicacion").put("lat", -32).put("lng", -56);
+        send(activity).andExpect(status().isNoContent());
+        long taskId = jdbc.queryForObject("""
+                SELECT id FROM festival_restock_tasks WHERE activity_id = ? AND station_id = ?
+                """, Long.class, "festival-admin", stationId("QA FESTIVAL ADMIN"));
+        String taskPath = TASKS + "/" + taskId;
+
+        mvc.perform(patch(taskPath + "/target").contentType(MediaType.APPLICATION_JSON).content("""
+                {"targetBikes": 0}
+                """)).andExpect(status().isBadRequest());
+        mvc.perform(patch(taskPath + "/target").contentType(MediaType.APPLICATION_JSON).content("""
+                {"targetBikes": 1000}
+                """)).andExpect(status().isConflict());
+
+        mvc.perform(patch(taskPath + "/target").contentType(MediaType.APPLICATION_JSON).content("""
+                {"targetBikes": 8}
+                """)).andExpect(status().isOk()).andExpect(jsonPath("$.targetBikes").value(8));
+
+        mvc.perform(patch(taskPath + "/complete"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution").value("MANUAL"));
+        mvc.perform(patch(taskPath + "/complete"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.resolution").value("MANUAL"));
+        mvc.perform(get(taskPath + "/suggestion"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(patch(taskPath + "/target").contentType(MediaType.APPLICATION_JSON).content("""
+                {"targetBikes": 1}
+                """)).andExpect(status().isConflict());
+        mvc.perform(patch(TASKS + "/-1/complete")).andExpect(status().isNotFound());
     }
 
     private Long stationId(String name) {

@@ -4,7 +4,9 @@ import com.citypass.movilidad.dto.FestivalRestockTaskResponse;
 import com.citypass.movilidad.eventbus.consume.InvalidEventException;
 import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
+import com.citypass.movilidad.model.enums.StationStatus;
 import com.citypass.movilidad.repository.FestivalRestockTaskRepository;
+import com.citypass.movilidad.repository.FestivalRestockTaskRepository.Activity;
 import com.citypass.movilidad.repository.StationRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -14,8 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class FestivalRestockService {
@@ -65,9 +67,10 @@ public class FestivalRestockService {
         double lat = requiredCoordinate(location, "lat", 90);
         double lng = requiredCoordinate(location, "lng", 180);
 
+        var activity = new Activity(activityId, correlationId, title, end);
         for (var station : stations.findAllWithin(lat, lng, RADIUS_METERS)) {
             int target = (int) ((9L * station.capacity() + 9) / 10);
-            tasks.createIfAbsent(activityId, correlationId, title, end, station.stationId(),
+            tasks.createIfAbsent(activity, station.stationId(),
                     station.distanceMeters(), target, station.availableBikes() >= target ? now : null);
         }
     }
@@ -121,11 +124,11 @@ public class FestivalRestockService {
         int needed = Math.min(task.targetBikes() - task.availableBikes(), task.availableSlots());
         if (!"PENDING".equals(task.status()) || needed <= 0) return List.of();
         var target = stationRepository.findByIdAndDeletedAtIsNull(task.stationId()).orElse(null);
-        if (target == null || !"ACTIVE".equals(target.getStatus().name())) return List.of();
-        var protectedStations = new HashSet<>(tasks.stationsWithUpcomingTasks(now));
-        protectedStations.add(task.stationId());
+        if (target == null || target.getStatus() != StationStatus.ACTIVE) return List.of();
+        var protectedStations = Set.copyOf(tasks.stationsWithUpcomingTasks(now));
         return stations.findAllWithin(target.getLatitude().doubleValue(), target.getLongitude().doubleValue(), 2000)
-                .stream().filter(station -> !protectedStations.contains(station.stationId()))
+                .stream().filter(station -> station.stationId() != task.stationId()
+                        && !protectedStations.contains(station.stationId()))
                 .map(station -> new TransferSuggestion(station.stationId(), station.stationName(),
                         Math.min(needed, station.availableBikes() - (station.capacity() + 1) / 2),
                         station.distanceMeters()))
