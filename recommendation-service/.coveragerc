@@ -1,11 +1,11 @@
 [run]
 # Rutas relativas en coverage.xml (sin esto quedan absolutas de la máquina que corrió los tests).
-# En CI se corre desde la raíz del repo con --cov=recommendation-service/... para que Sonar las resuelva;
+# En CI se corre desde la raíz del repo con --cov=recommendation-service para que Sonar las resuelva.
+# Una sola raíz conserva app/... y training/... en el XML, sin __init__.py ambiguos.
 # `source` de abajo aplica cuando se corre `pytest --cov` desde esta carpeta.
 relative_files = True
-source =
-    app
-    training
+source = .
+omit = */tests/*
 
 [report]
 exclude_lines =
