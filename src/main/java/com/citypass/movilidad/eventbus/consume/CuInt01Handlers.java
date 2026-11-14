@@ -36,14 +36,17 @@ public class CuInt01Handlers {
     }
 
     @Bean
-    public EventHandler cuInt01Handler5(InboundEventService service) {
-        return handler("com.citypass.reclamos.ReclamoCreado", service);
+    public EventHandler reservaCanceladaHandler(InboundEventService service) {
+        return handler("com.citypass.espacios.ReservaCancelada", service);
     }
 
     @Bean
-    public EventHandler cuInt01Handler6(InboundEventService service) {
-        return handler("com.citypass.reclamos.ReclamoActualizado", service);
+    public EventHandler eventoFinalizadoHandler(InboundEventService service) {
+        return handler("com.citypass.espacios.EventoFinalizado", service);
     }
+
+    // ReclamoCreado.v3 y ReclamoActualizado comparten los handlers de ciclovías y CU-INT-01.
+    // No registrar otro bean para esos tópicos: EventDispatcher exige un único handler por tópico.
 
     @Bean
     public EventHandler cuInt01Handler7(InboundEventService service) {

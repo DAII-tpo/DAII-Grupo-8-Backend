@@ -10,13 +10,14 @@ class CuInt01HandlersTest {
         var service = mock(InboundEventService.class);
         var config = new CuInt01Handlers();
         var handlers = List.of(config.cuInt01Handler1(service), config.cuInt01Handler2(service),
-                config.cuInt01Handler3(service), config.cuInt01Handler4(service), config.cuInt01Handler5(service), config.cuInt01Handler6(service),
+                config.cuInt01Handler3(service), config.cuInt01Handler4(service),
+                config.reservaCanceladaHandler(service), config.eventoFinalizadoHandler(service),
                 config.cuInt01Handler7(service), config.cuInt01Handler8(service));
         assertThat(handlers).extracting(EventHandler::topic).containsExactly(
                 "com.citypass.espacios.EventoComunitarioPublicado", "com.citypass.espacios.EventoCancelado",
                 "com.citypass.espacios.EspacioEstadoCambiado", "com.citypass.espacios.ReservaConfirmada",
-                "com.citypass.reclamos.ReclamoCreado",
-                "com.citypass.reclamos.ReclamoActualizado", "com.citypass.emergencias.EmergenciaCreada",
+                "com.citypass.espacios.ReservaCancelada", "com.citypass.espacios.EventoFinalizado",
+                "com.citypass.emergencias.EmergenciaCreada",
                 "com.citypass.emergencias.EmergenciaActualizada");
         var payload = new ObjectMapper().readTree("{\"eventoId\":\"ev-1\"}");
         var receivedAt = java.time.Instant.parse("2026-11-05T15:00:00.123456789Z");
@@ -25,6 +26,30 @@ class CuInt01HandlersTest {
         for (var handler : handlers) {
             handler.handle(new IncomingEvent(handler.topic(), metadata, payload));
             verify(service).handle(handler.topic(), payload, receivedAt);
+        }
+    }
+
+    @Test void registroCompletoSuscribeV3UnaSolaVezSinElTopicoAnterior() {
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.registerBean(InboundEventService.class, () -> mock(InboundEventService.class));
+            context.registerBean(com.citypass.movilidad.service.ClimateAlertService.class,
+                    () -> mock(com.citypass.movilidad.service.ClimateAlertService.class));
+            context.registerBean(com.citypass.movilidad.service.CicloviaObstructionService.class,
+                    () -> mock(com.citypass.movilidad.service.CicloviaObstructionService.class));
+            context.registerBean(ObjectMapper.class);
+            context.scan("com.citypass.movilidad.eventbus.consume");
+            context.refresh();
+
+            var handlers = List.copyOf(context.getBeansOfType(EventHandler.class).values());
+            assertThat(handlers).extracting(EventHandler::topic).doesNotHaveDuplicates()
+                    .contains("com.citypass.reclamos.ReclamoCreado.v3",
+                            "com.citypass.reclamos.ReclamoActualizado",
+                            "com.citypass.espacios.CriticidadClimaticaConfirmada",
+                            "com.citypass.espacios.CriticidadClimaticaFinalizada")
+                    .doesNotContain("com.citypass.reclamos.ReclamoCreado");
+            var dispatcher = new EventDispatcher(handlers, new EventEnvelopeMapper(new ObjectMapper()),
+                    mock(com.citypass.movilidad.repository.EventInboxRepository.class), java.time.Clock.systemUTC());
+            assertThat(dispatcher.topics()).contains("com.citypass.reclamos.ReclamoCreado.v3");
         }
     }
 }

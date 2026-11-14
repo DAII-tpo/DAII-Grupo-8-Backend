@@ -35,8 +35,7 @@ class InboundEventServiceTest {
         cursors = mock(com.citypass.movilidad.repository.EspaciosEventCursorRepository.class);
         when(cursors.accept(anyString(), anyString(), any())).thenReturn(true);
         service = new InboundEventService(destinations, incidentRepo, changes, entityStates,
-                mock(com.citypass.movilidad.repository.DestinationRecommendationJobRepository.class), cursors,
-                mock(com.citypass.movilidad.repository.SpaceReservationRepository.class));
+                mock(com.citypass.movilidad.repository.DestinationRecommendationJobRepository.class), cursors);
         when(destinations.findById("ev-42")).thenReturn(Optional.empty());
     }
 
@@ -53,6 +52,37 @@ class InboundEventServiceTest {
         verify(destinations).save(saved.capture());
         assertThat(saved.getValue().getMaxCapacity()).isEqualTo(300);
         verify(changes).publishEvent(new CulturalDestinationChanged("ev-42"));
+    }
+
+    @Test
+    void reservaConfirmadaUsaUbicacionAnidadaYTimestampsEnMilisegundos() throws Exception {
+        when(destinations.existsById("res-1001")).thenReturn(false);
+        service.handle("com.citypass.espacios.ReservaConfirmada", mapper.readTree("""
+                {"reservaId":"res-1001","ciudadanoId":"ciu-42","correlationId":"res-1001",
+                 "espacioId":"plaza-07","nombreEvento":"Feria de barrio","asistentesEstimados":300,
+                 "inicio":1786547143000,"fin":1786558000000,
+                 "ubicacion":{"lat":-34.6096,"lon":-58.3925}}
+                """));
+
+        ArgumentCaptor<CulturalDestination> saved = ArgumentCaptor.forClass(CulturalDestination.class);
+        verify(destinations).save(saved.capture());
+        assertThat(saved.getValue().getEventId()).isEqualTo("res-1001");
+        assertThat(saved.getValue().getCitizenId()).isEqualTo("ciu-42");
+        assertThat(saved.getValue().getLatitude()).isEqualByComparingTo("-34.6096");
+        assertThat(saved.getValue().getLongitude()).isEqualByComparingTo("-58.3925");
+        assertThat(saved.getValue().getStartsAt()).isEqualTo(java.time.Instant.ofEpochMilli(1786547143000L));
+    }
+
+    @Test
+    void reservaConfirmadaSinUbicacionNoSePersiste() throws Exception {
+        var payload = mapper.readTree("""
+                {"reservaId":"res-1","ciudadanoId":"ciu-1","correlationId":"res-1",
+                 "espacioId":"plaza-1","nombreEvento":"Feria","asistentesEstimados":10,
+                 "inicio":1786547143000,"fin":1786558000000}
+                """);
+        assertThatThrownBy(() -> service.handle("com.citypass.espacios.ReservaConfirmada", payload))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("ubicacion");
+        verify(destinations, never()).save(any());
     }
 
     @Test

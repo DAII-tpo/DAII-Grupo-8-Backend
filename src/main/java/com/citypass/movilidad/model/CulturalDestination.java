@@ -31,6 +31,12 @@ public class CulturalDestination {
     @Column(name = "event_id", length = 64)
     private String eventId;
 
+    @Column(name = "citizen_id", length = 64)
+    private String citizenId;
+
+    @Column(name = "correlation_id", length = 64)
+    private String correlationId;
+
     @Column(name = "space_id", nullable = false, length = 64)
     private String spaceId;
 
