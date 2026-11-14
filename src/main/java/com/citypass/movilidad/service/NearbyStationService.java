@@ -36,6 +36,15 @@ public class NearbyStationService {
         int radius = clamp(radiusMeters, properties.defaultRadiusMeters(), properties.maxRadiusMeters());
         int maxResults = clamp(limit, properties.defaultLimit(), properties.maxLimit());
 
+        return findWithin(latitude, longitude, radius, maxResults);
+    }
+
+    /** Búsqueda operativa: todas las estaciones en el radio, sin el tope de la vista ciudadana. */
+    public List<NearbyStationResponse> findAllWithin(double latitude, double longitude, int radiusMeters) {
+        return findWithin(latitude, longitude, radiusMeters, Integer.MAX_VALUE);
+    }
+
+    private List<NearbyStationResponse> findWithin(double latitude, double longitude, int radius, int maxResults) {
         GeoBoundingBox box = GeoBoundingBox.around(latitude, longitude, radius);
         List<NearbyStationProjection> nearby = stationRepository.findNearby(
                 latitude, longitude,
