@@ -1,6 +1,7 @@
 package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.eventbus.publish.EventPublisher;
+import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.model.CityIncident;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.enums.AggregateType;
@@ -24,6 +25,7 @@ import java.util.UUID;
 /** Reconcilia estación/causa y publica transiciones, nunca incrementos ni snapshots periódicos. */
 @Service
 public class AffectedStationsService {
+    private static final String EVENTO_PUBLICO = "EVENTO_PUBLICO";
     private final StationRepository stations;
     private final CityIncidentRepository incidents;
     private final StationAffectationRepository affectations;
@@ -58,10 +60,29 @@ public class AffectedStationsService {
             }
         }
         Instant now = Instant.now();
+        var openFestival = affectations.openFestivalAffectations(now.toEpochMilli());
         for (Affectation existing : affectations.findAll()) {
-            if (desired.remove(existing.key()) == null) restore(existing, now);
+            boolean keep = EVENTO_PUBLICO.equals(existing.causeType())
+                    ? openFestival.contains(existing.id()) : desired.remove(existing.key()) != null;
+            if (!keep) restore(existing, now);
         }
         desired.values().forEach(candidate -> affect(candidate, now));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void registerFestivalTransfer(long taskId, Station station) {
+        affectations.lock();
+        Instant now = Instant.now();
+        var task = affectations.findFestivalTransfer(taskId, station.getId(), now.toEpochMilli())
+                .orElseThrow(() -> new BusinessRuleException(
+                        "La tarea de reabastecimiento debe estar pendiente y corresponder a la estación de destino."));
+        if (affectations.hasFestivalAffectation(station.getId(), task.activityId())) return;
+
+        Instant start = task.startMillis() == null ? now : Instant.ofEpochMilli(task.startMillis());
+        Instant from = start.isAfter(now) ? start : now;
+        var affectation = new Affectation(UUID.randomUUID().toString(), station.getId(), task.activityId(),
+                EVENTO_PUBLICO, "MOVILIDAD", task.correlationId());
+        publishAffectation(affectation, station, from, Instant.ofEpochMilli(task.deadlineMillis()), now);
     }
 
     private void affect(Candidate candidate, Instant now) {
@@ -73,6 +94,10 @@ public class AffectedStationsService {
         }
         Affectation a = new Affectation(UUID.randomUUID().toString(), station.getId(),
                 candidate.causeId(), candidate.causeType(), incident.getSource().name(), correlation);
+        publishAffectation(a, station, now, null, now);
+    }
+
+    private void publishAffectation(Affectation a, Station station, Instant from, Instant until, Instant now) {
         affectations.save(a);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("afectacionId", a.id());
@@ -82,8 +107,8 @@ public class AffectedStationsService {
         // El CU restringe recomendaciones; no altera capacidad ni estado físico de la estación.
         // Extensión pendiente de aceptación de BI; no equivale funcionalmente a BLOQUEADA.
         data.put("tipoAfectacion", "RECOMENDACION_RESTRINGIDA");
-        data.put("afectacionDesde", now.toString());
-        data.put("afectacionHastaEstimada", null);
+        data.put("afectacionDesde", from.toString());
+        data.put("afectacionHastaEstimada", until == null ? null : until.toString());
         data.put("causaId", a.causeId());
         data.put("causaTipo", a.causeType());
         data.put("moduloOrigen", a.originModule());

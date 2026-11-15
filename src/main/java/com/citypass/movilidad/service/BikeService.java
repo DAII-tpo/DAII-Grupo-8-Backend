@@ -39,14 +39,16 @@ public class BikeService {
     private final StationRepository stationRepository;
     private final BikeStatusHistoryRepository historyRepository;
     private final MaintenanceRecordRepository maintenanceRepository;
+    private final AffectedStationsService affectedStations;
 
     public BikeService(BikeRepository bikeRepository, StationRepository stationRepository,
                        BikeStatusHistoryRepository historyRepository,
-                       MaintenanceRecordRepository maintenanceRepository) {
+                       MaintenanceRecordRepository maintenanceRepository, AffectedStationsService affectedStations) {
         this.bikeRepository = bikeRepository;
         this.stationRepository = stationRepository;
         this.historyRepository = historyRepository;
         this.maintenanceRepository = maintenanceRepository;
+        this.affectedStations = affectedStations;
     }
 
     /**
@@ -152,8 +154,8 @@ public class BikeService {
     /** Traslada la bici a otra estación activa con lugar. */
     @PreAuthorize("hasRole('ADMIN')")
     @Transactional
-    public BikeResponse transfer(Long id, Long stationId) {
-        Bike bike = activeBike(id);
+    public BikeResponse transfer(Long id, Long stationId, Long restockTaskId) {
+        Bike bike = lockActiveBike(id);
         if (bike.getStatus() == BikeStatus.IN_USE) {
             throw new BusinessRuleException("Una bicicleta IN_USE no puede trasladarse administrativamente");
         }
@@ -162,13 +164,20 @@ public class BikeService {
             throw new BusinessRuleException(
                     "Una bicicleta en mantenimiento no puede trasladarse: la estación se elige al finalizarlo");
         }
-        Station destination = activeStation(stationId);
+        if (restockTaskId != null && bike.getStatus() != BikeStatus.AVAILABLE) {
+            throw new BusinessRuleException("Solo se pueden reabastecer eventos con bicicletas disponibles.");
+        }
+        Station destination = lockActiveStation(stationId);
         if (bike.getStation() != null && bike.getStation().getId().equals(destination.getId())) {
             throw new BusinessRuleException("La bicicleta ya se encuentra en la estación indicada");
         }
         ensureCapacity(destination);
         bike.setStation(destination);
-        return toResponse(bikeRepository.save(bike));
+        Bike saved = bikeRepository.save(bike);
+        if (restockTaskId != null) {
+            affectedStations.registerFestivalTransfer(restockTaskId, destination);
+        }
+        return toResponse(saved);
     }
 
     /** Baja lógica: la bici queda OUT_OF_SERVICE con fecha de baja. */
@@ -368,6 +377,15 @@ public class BikeService {
     private Bike activeBike(Long id) {
         return bikeRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException(BIKE_NOT_FOUND + id));
+    }
+
+    private Station lockActiveStation(Long id) {
+        Station station = stationRepository.findByIdAndDeletedAtIsNullForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException(STATION_NOT_FOUND + id));
+        if (station.getStatus() != StationStatus.ACTIVE) {
+            throw new BusinessRuleException("La estación no está habilitada: " + id);
+        }
+        return station;
     }
 
     private Station activeStation(Long id) {

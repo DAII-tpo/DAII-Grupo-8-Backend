@@ -5,6 +5,7 @@ import com.citypass.movilidad.client.RecommendationUnavailableException;
 import com.citypass.movilidad.config.RecommendationProperties;
 import com.citypass.movilidad.dto.NearbyStationResponse;
 import com.citypass.movilidad.model.enums.RecommendationStatus;
+import com.citypass.movilidad.repository.StationAffectationRepository;
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.util.List;
@@ -20,7 +21,7 @@ class CulturalDestinationDemandTest {
     private final CicloviaObstructionService obstructions = mock(CicloviaObstructionService.class);
     private final StationRecommendationService service = new StationRecommendationService(nearby, client,
             new RecommendationMessageComposer(), new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, false),
-            obstructions, filter);
+            obstructions, filter, mock(StationAffectationRepository.class));
 
     CulturalDestinationDemandTest() {
         when(obstructions.affectedStationIds(any())).thenReturn(Set.of());
