@@ -13,5 +13,8 @@ public record EmergencyProperties(
         @DefaultValue("10s") Duration cancelWindow,
 
         /** Plazo para responder el cuestionario después de la ventana de cancelación. Vencido, se avisa igual. */
-        @DefaultValue("60s") Duration triageWindow) {
+        @DefaultValue("60s") Duration triageWindow,
+
+        /** Tópico donde Emergencias informa los cambios de estado (EmergenciaActualizada). */
+        @DefaultValue("com.citypass.emergencias.EmergenciaActualizada") String resolutionTopic) {
 }

@@ -92,6 +92,9 @@ public class BikeEmergency {
     @Column(name = "sent_at")
     private Instant sentAt;
 
+    @Column(name = "resolved_at")
+    private Instant resolvedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

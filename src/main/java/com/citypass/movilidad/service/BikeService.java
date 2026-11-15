@@ -18,6 +18,7 @@ import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
 import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
+import com.citypass.movilidad.repository.projection.NearbyStationProjection;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -36,6 +37,8 @@ public class BikeService {
 
     private static final String BIKE_NOT_FOUND = "Bicicleta no encontrada: ";
     private static final String STATION_NOT_FOUND = "Estación no encontrada: ";
+    // Si la más cercana se llena mientras tanto, se prueba con las siguientes.
+    private static final int EMERGENCY_PARKING_CANDIDATES = 5;
 
     private final BikeRepository bikeRepository;
     private final StationRepository stationRepository;
@@ -392,6 +395,35 @@ public class BikeService {
         bike.setStatus(BikeStatus.IN_USE);
         Bike saved = bikeRepository.save(bike);
         recordStatusChange(saved, BikeStatus.BLOCKED, BikeStatus.IN_USE, reason, user);
+    }
+
+    /**
+     * Deja fuera de servicio, en la estación activa más cercana con lugar, la bici de una emergencia resuelta.
+     * Queda para revisión después del accidente: ocupa el anclaje pero nadie la puede retirar. Si no hay ninguna
+     * estación con lugar, queda fuera de servicio sin estación. Devuelve la estación, o null.
+     */
+    @Transactional
+    public Station parkAfterEmergency(Bike bike, double latitude, double longitude, User user, String reason) {
+        if (bike.getStatus() != BikeStatus.BLOCKED) {
+            throw new BusinessRuleException(
+                    "La bicicleta no está bloqueada: " + bike.getId() + " (" + bike.getStatus() + ")");
+        }
+        Station destination = null;
+        for (NearbyStationProjection candidate : stationRepository.findNearestWithFreeDock(
+                latitude, longitude, StationStatus.ACTIVE.name(), EMERGENCY_PARKING_CANDIDATES)) {
+            // Con lock y volviendo a contar: otra devolución pudo ocupar el último lugar mientras tanto.
+            Station station = stationRepository.findByIdAndDeletedAtIsNullForUpdate(candidate.getId()).orElse(null);
+            if (station != null && station.getStatus() == StationStatus.ACTIVE
+                    && bikeRepository.countByStationIdAndDeletedAtIsNull(station.getId()) < station.getCapacity()) {
+                destination = station;
+                break;
+            }
+        }
+        bike.setStation(destination);
+        bike.setStatus(BikeStatus.OUT_OF_SERVICE);
+        Bike saved = bikeRepository.save(bike);
+        recordStatusChange(saved, BikeStatus.BLOCKED, BikeStatus.OUT_OF_SERVICE, reason, user);
+        return destination;
     }
 
     /** Historial de cambios de estado, del más reciente al más antiguo. */

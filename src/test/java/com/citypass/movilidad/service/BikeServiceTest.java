@@ -17,6 +17,7 @@ import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
 import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
+import com.citypass.movilidad.repository.projection.NearbyStationProjection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -672,6 +673,53 @@ class BikeServiceTest {
         assertThatThrownBy(() -> service.unblockAfterCancelledEmergency(available, null, "Cancelada"))
                 .isInstanceOf(BusinessRuleException.class);
         assertThat(available.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+    }
+
+    @Test
+    void trasUnaEmergenciaLaBiciQuedaFueraDeServicioEnLaEstacionMasCercanaConLugar() {
+        Bike bike = bike(BikeStatus.BLOCKED, null);
+        Station full = activeStation(10L, 1);
+        Station withRoom = activeStation(11L, 5);
+        List<NearbyStationProjection> candidates = List.of(candidate(10L), candidate(11L));
+        when(stationRepository.findNearestWithFreeDock(-34.6, -58.38, "ACTIVE", 5)).thenReturn(candidates);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(full));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(11L)).thenReturn(Optional.of(withRoom));
+        // La primera se llenó entre la consulta y el lock.
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(10L)).thenReturn(1L);
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(11L)).thenReturn(2L);
+
+        Station parked = service.parkAfterEmergency(bike, -34.6, -58.38, null, "Emergencia resuelta");
+
+        assertThat(parked).isSameAs(withRoom);
+        assertThat(bike.getStation()).isSameAs(withRoom);
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+        ArgumentCaptor<BikeStatusHistory> history = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getNewStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+    }
+
+    @Test
+    void sinEstacionesConLugarLaBiciQuedaFueraDeServicioSinEstacion() {
+        Bike bike = bike(BikeStatus.BLOCKED, null);
+        when(stationRepository.findNearestWithFreeDock(-34.6, -58.38, "ACTIVE", 5)).thenReturn(List.of());
+
+        assertThat(service.parkAfterEmergency(bike, -34.6, -58.38, null, "Emergencia resuelta")).isNull();
+        assertThat(bike.getStation()).isNull();
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+    }
+
+    @Test
+    void soloSeEstacionaUnaBiciBloqueadaPorEmergencia() {
+        Bike bike = bike(BikeStatus.IN_USE, null);
+
+        assertThatThrownBy(() -> service.parkAfterEmergency(bike, -34.6, -58.38, null, "Emergencia"))
+                .isInstanceOf(BusinessRuleException.class);
+    }
+
+    private static NearbyStationProjection candidate(Long id) {
+        NearbyStationProjection projection = mock(NearbyStationProjection.class);
+        when(projection.getId()).thenReturn(id);
+        return projection;
     }
 
     private BikeStatusHistory history(BikeStatus newStatus, String reason) {

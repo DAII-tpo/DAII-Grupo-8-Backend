@@ -214,6 +214,7 @@ Todas tienen un default pensado para desarrollo local.
 | `RECOMMENDATION_SERVICE_URL` | `http://localhost:8000` | URL del servicio de recomendación |
 | `ECOBICI_IMPORT_ENABLED` | `false` | `true` importa las estaciones Ecobici al arrancar (idempotente) |
 | `ECOBICI_DATASET_LOCATION` | `classpath:datasets/ecobici-stations.geojson` | Dataset a importar |
+| `TOPIC_EMERGENCIA_ESTADO_ACTUALIZADO` | `com.citypass.emergencias.EmergenciaActualizada` | Tópico del bus donde Emergencias informa los cambios de estado (cierre de viajes por emergencia) |
 | `EVENTBUS_PUBLISHER_ENABLED` / `EVENTBUS_CONSUMER_ENABLED` | `false` | Activan la publicación y el consumo en el bus de eventos |
 | `EVENTBUS_CLIENT_ID` / `EVENTBUS_CLIENT_SECRET` | — | Credenciales de servicio del bus. El resto de las variables `EVENTBUS_*` está en [docs/event-bus.md](docs/event-bus.md#configuración) |
 | `SPRING_PROFILES_ACTIVE` | `local` | Perfil de Spring |
@@ -384,7 +385,12 @@ que la estación esté activa y tenga capacidad.
    llega, al vencer su plazo (lo controla el servidor, así sale aunque se cierre la app), sin respuestas y con
    prioridad `P1`. El contrato está en
    [`EmergenciaBicicleta.json`](src/main/resources/eventbus/event-types/EmergenciaBicicleta.json).
-5. El viaje queda pausado hasta que Emergencias lo resuelva (ver [Pendientes](#pendientes-y-dependencias-externas)).
+5. **Resolución**: Movilidad consume `com.citypass.emergencias.EmergenciaActualizada` (configurable con
+   `TOPIC_EMERGENCIA_ESTADO_ACTUALIZADO`). Cuando llega `estadoNuevo: RESUELTA` con nuestro código `EMG-…` (en
+   `emergenciaId` o `correlationId`), el viaje pasa a `CLOSED_BY_EMERGENCY` (finalizado sin cargo, aparece en el
+   historial) y la bici queda `OUT_OF_SERVICE` en la estación activa más cercana al lugar del SOS que tenga lugar,
+   para revisarla. Los demás estados (incluido `CERRADA`) y las emergencias ajenas se ignoran; las reentregas se
+   descartan por `metadata.eventId` y una segunda `RESUELTA` no cambia nada.
 
 ### Incidencias
 
@@ -650,9 +656,6 @@ cada PR.
 - **Event bus (Grupo 1)**: la integración está hecha ([docs/event-bus.md](docs/event-bus.md)). Se publican
   `EmergenciaBicicleta` y `ReporteBicicleta`; faltan los eventos de viaje (hoy `TripEventPublisher` solo los registra en el log) y
   consumir los de otros grupos.
-- **Cierre de emergencias (Grupo 6)**: un viaje pausado por una emergencia queda en `EMERGENCY` con la bici
-  `BLOCKED` hasta que Emergencias lo resuelva. Falta consumir sus eventos para cerrar el viaje sin cargo y
-  ordenar la recuperación de la bici.
 - **Recomendación con datos reales**: el modelo está entrenado con datos sintéticos (ver sus limitaciones en
   [recommendation-service/README.md](recommendation-service/README.md)).
 - **Historial de disponibilidad**: la tabla `station_availability_history` está creada pero todavía no se completa.

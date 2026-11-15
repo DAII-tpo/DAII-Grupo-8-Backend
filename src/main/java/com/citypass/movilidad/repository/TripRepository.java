@@ -31,6 +31,11 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     Page<Trip> findByUserIdAndStatusOrderByStartedAtDescIdDesc(Long userId, TripStatus status,
                                                                Pageable pageable);
 
+    /** Igual que el anterior, para varios estados finales (completados y cerrados por una emergencia). */
+    @EntityGraph(attributePaths = {"bike", "originStation", "destinationStation"})
+    Page<Trip> findByUserIdAndStatusInOrderByStartedAtDescIdDesc(Long userId, Collection<TripStatus> statuses,
+                                                                 Pageable pageable);
+
     /** Viaje con lock pesimista, para que no se finalice dos veces. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Trip t where t.id = :id")

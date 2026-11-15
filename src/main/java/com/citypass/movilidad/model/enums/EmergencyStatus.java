@@ -5,5 +5,7 @@ public enum EmergencyStatus {
     PENDING,
     CANCELLED,
     // Se publicó el evento EmergenciaBicicleta.
-    REPORTED
+    REPORTED,
+    // Emergencias informó que la resolvió (EmergenciaActualizada con estadoNuevo RESUELTA).
+    RESOLVED
 }

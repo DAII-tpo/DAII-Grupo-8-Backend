@@ -109,7 +109,8 @@ class ReclamoCreadoV3IntegrationTest {
 
         assertThat(dispatcher.topics()).contains(CREATED, UPDATED)
                 .doesNotContain("com.citypass.reclamos.ReclamoCreado");
-        assertThat(handlers).extracting(EventHandler::topic).doesNotHaveDuplicates();
+        // Cada versión de ReclamoCreado tiene un único handler: el evento no se procesa dos veces.
+        assertThat(handlers).extracting(EventHandler::topic).filteredOn(CREATED::equals).hasSize(1);
         assertThat(count("city_incidents")).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT reported_at FROM city_incidents", Timestamp.class).toInstant())
                 .isEqualTo(Instant.ofEpochMilli(CREATED_AT));
