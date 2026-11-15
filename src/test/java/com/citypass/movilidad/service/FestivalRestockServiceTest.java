@@ -54,7 +54,7 @@ class FestivalRestockServiceTest {
         when(stations.findAllWithin(-34.6, -58.4, 300)).thenReturn(List.of(nearby(1L, 45, 8)));
         var handler = new FestivalActivityCreatedHandler(service);
 
-        assertThat(handler.topic()).isEqualTo("com.citypass.espacios.ActividadCreada.v2");
+        assertThat(handler.topic()).isEqualTo("com.citypass.espacios.ActividadCreada.v3");
         handler.handle(new IncomingEvent(handler.topic(), null, data));
 
         verify(tasks).createIfAbsent(new Activity("festival", "ensayo", "Festival",
