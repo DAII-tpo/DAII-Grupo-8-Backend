@@ -95,8 +95,9 @@ class FestivalRestockServiceTest {
                 Station.builder().latitude(LATITUDE).longitude(LONGITUDE).build()));
         when(tasks.findPending(NOW.toEpochMilli())).thenReturn(List.of(pending(4, 6)));
         when(tasks.highestUpcomingTargets(NOW.toEpochMilli())).thenReturn(Map.of(2L, 10));
+        var donorStocks = List.of(donorStock(4L), donorStock(5L));
         when(bikes.countBikesByStationIds(Set.of(4L, 5L), BikeStatus.AVAILABLE))
-                .thenReturn(List.of(donorStock(4L), donorStock(5L)));
+                .thenReturn(donorStocks);
         when(stations.findAllWithin(-34.6, -58.4, 2000)).thenReturn(List.of(
                 nearby(1L, 0, 10), nearby(2L, 10, 10), nearby(3L, 20, 5),
                 nearby(4L, 200, 9), nearby(5L, 100, 9)));
