@@ -13,7 +13,16 @@ import java.util.List;
 public record RecommendationApiResponse(RecommendationStatus status, NoRecommendationReason reason,
                                         RecommendationPurpose purpose, String modelVersion,
                                         ScoredStation recommendation, List<ScoredStation> alternatives,
-                                        Explanation explanation) {
+                                        Explanation explanation, List<RankedStation> ranking) {
+
+    public RecommendationApiResponse(RecommendationStatus status, NoRecommendationReason reason,
+                                     RecommendationPurpose purpose, String modelVersion, ScoredStation recommendation,
+                                     List<ScoredStation> alternatives, Explanation explanation) {
+        this(status, reason, purpose, modelVersion, recommendation, alternatives, explanation, List.of());
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RankedStation(long stationId, int rank) {}
 
     /** Estación candidata con el score que le dio el modelo (0-1). */
     @JsonIgnoreProperties(ignoreUnknown = true)
