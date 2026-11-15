@@ -1,4 +1,4 @@
--- V31__emergency_resolution.sql
+-- V32__emergency_resolution.sql
 -- Cierre de los viajes pausados por una emergencia cuando Emergencias la resuelve.
 --
 -- Movilidad consume com.citypass.emergencias.EmergenciaActualizada: con estadoNuevo RESUELTA, la emergencia
