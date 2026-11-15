@@ -1,5 +1,8 @@
 package com.citypass.movilidad;
 
+import com.citypass.movilidad.eventbus.EventMetadata;
+import com.citypass.movilidad.eventbus.consume.EmergenciaResueltaHandler;
+import com.citypass.movilidad.eventbus.consume.IncomingEvent;
 import com.citypass.movilidad.model.Bike;
 import com.citypass.movilidad.model.BikeStatusHistory;
 import com.citypass.movilidad.model.EventOutbox;
@@ -21,6 +24,7 @@ import com.citypass.movilidad.support.FederatedSecurityTestConfig;
 import com.citypass.movilidad.support.TestSecrets;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,6 +129,9 @@ class EmergencyFlowIntegrationTest {
 
     @Autowired
     private EventOutboxRepository outboxRepository;
+
+    @Autowired
+    private EmergenciaResueltaHandler resolutionHandler;
 
     @BeforeEach
     void setUp() {
@@ -277,6 +284,73 @@ class EmergencyFlowIntegrationTest {
         clock.advance(Duration.ofSeconds(11));
         mockMvc.perform(triage(fixture, emergencyId, "{\"canMove\": true}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void cuandoEmergenciasLaResuelveSeCierraElViajeYLaBiciQuedaEnLaEstacionMasCercanaConLugar() throws Exception {
+        Fixture fixture = fixture();
+        JsonNode emergency = report(fixture);
+        String code = emergency.get("code").asText();
+        clock.advance(Duration.ofSeconds(11));
+        mockMvc.perform(triage(fixture, emergency.get("id").asLong(), NO_PUEDE_MOVERSE)).andExpect(status().isOk());
+
+        // Junto al lugar del SOS: una estación llena y, a ~50 m, una con lugar. La del origen queda a ~1 km.
+        Station full = stationAt("-34.6037000", "-58.3816000", 1);
+        bike(full);
+        Station withRoom = stationAt("-34.6041000", "-58.3818000", 5);
+
+        // Otros estados, u otras emergencias, no cambian nada.
+        resolutionHandler.handle(emergenciaActualizada(code, "EN_CURSO"));
+        resolutionHandler.handle(emergenciaActualizada("EMG-20990101-9999", "RESUELTA"));
+        assertThat(tripRepository.findById(fixture.tripId).orElseThrow().getStatus()).isEqualTo(TripStatus.EMERGENCY);
+
+        resolutionHandler.handle(emergenciaActualizada(code, "RESUELTA"));
+
+        var trip = tripRepository.findById(fixture.tripId).orElseThrow();
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.CLOSED_BY_EMERGENCY);
+        assertThat(trip.getDestinationStation().getId()).isEqualTo(withRoom.getId());
+        assertThat(trip.getEndedAt()).isEqualTo(Instant.parse("2026-11-15T13:00:00Z"));
+        Bike bike = bikeRepository.findById(fixture.bike.getId()).orElseThrow();
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+        assertThat(bike.getStation().getId()).isEqualTo(withRoom.getId());
+
+        // El usuario ya no tiene nada en curso y el viaje aparece en su historial.
+        mockMvc.perform(get("/api/v1/trips/active").with(bearer(fixture.user))).andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/emergencies/current").with(bearer(fixture.user)))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/trips/history").with(bearer(fixture.user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(fixture.tripId))
+                .andExpect(jsonPath("$.content[0].status").value("CLOSED_BY_EMERGENCY"));
+
+        // Si Emergencias vuelve a informar RESUELTA, no se toca nada.
+        int historyBefore = historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId()).size();
+        resolutionHandler.handle(emergenciaActualizada(code, "RESUELTA"));
+        assertThat(historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId())).hasSize(historyBefore);
+    }
+
+    private IncomingEvent emergenciaActualizada(String code, String estadoNuevo) {
+        ObjectNode data = objectMapper.createObjectNode()
+                .put("emergenciaId", code)
+                .put("estadoAnterior", "EN_CURSO")
+                .put("estadoNuevo", estadoNuevo)
+                .put("updatedAt", "2026-11-15T13:00:05Z")
+                .put("resueltoAt", "2026-11-15T13:00:00Z")
+                .put("correlationId", UUID.randomUUID().toString());
+        EventMetadata metadata = new EventMetadata(UUID.randomUUID().toString(),
+                "com.citypass.emergencias.EmergenciaActualizada", Instant.now(), "grupo5", "token", 80, "hash",
+                "0.0.1", "gw-test");
+        return new IncomingEvent("com.citypass.emergencias.EmergenciaActualizada", metadata, data);
+    }
+
+    private Station stationAt(String latitude, String longitude, int capacity) {
+        Station station = new Station();
+        station.setName("Estación " + UUID.randomUUID());
+        station.setLatitude(new BigDecimal(latitude));
+        station.setLongitude(new BigDecimal(longitude));
+        station.setCapacity(capacity);
+        station.setSource(StationSource.MANUAL);
+        return stationRepository.save(station);
     }
 
     private JsonNode report(Fixture fixture) throws Exception {

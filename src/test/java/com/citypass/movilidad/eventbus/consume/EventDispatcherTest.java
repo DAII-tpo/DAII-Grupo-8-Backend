@@ -84,16 +84,31 @@ class EventDispatcherTest {
     }
 
     @Test
-    void dosHandlersParaElMismoTopicoEsUnErrorDeConfiguracion() {
+    void variosHandlersDelMismoTopicoRecibenElEventoUnaSolaVezSuscripto() {
         EventHandler otro = mock(EventHandler.class);
         when(otro.topic()).thenReturn(TOPIC);
-        List<EventHandler> handlers = List.of(handler, otro);
-        EventEnvelopeMapper envelopeMapper = new EventEnvelopeMapper(new ObjectMapper());
-        Clock clock = Clock.systemUTC();
+        EventDispatcher dispatcher = new EventDispatcher(List.of(handler, otro),
+                new EventEnvelopeMapper(new ObjectMapper()), inboxRepository, Clock.fixed(NOW, ZoneOffset.UTC));
 
-        assertThatThrownBy(() -> new EventDispatcher(handlers, envelopeMapper, inboxRepository, clock))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining(TOPIC);
+        dispatcher.dispatch(record("e-1"));
+
+        assertThat(dispatcher.topics()).containsExactly(TOPIC);
+        verify(handler).handle(any());
+        verify(otro).handle(any());
+        verify(inboxRepository).save(any());
+    }
+
+    @Test
+    void siFallaUnoDeLosHandlersDelTopicoElEventoNoQuedaProcesado() {
+        EventHandler otro = mock(EventHandler.class);
+        when(otro.topic()).thenReturn(TOPIC);
+        doThrow(new IllegalStateException("falló")).when(otro).handle(any());
+        EventDispatcher dispatcher = new EventDispatcher(List.of(handler, otro),
+                new EventEnvelopeMapper(new ObjectMapper()), inboxRepository, Clock.fixed(NOW, ZoneOffset.UTC));
+        ConsumerRecord<String, Object> consumerRecord = record("e-1");
+
+        assertThatThrownBy(() -> dispatcher.dispatch(consumerRecord)).isInstanceOf(IllegalStateException.class);
+        verify(inboxRepository, never()).save(any());
     }
 
     private static ConsumerRecord<String, Object> record(String eventId) {

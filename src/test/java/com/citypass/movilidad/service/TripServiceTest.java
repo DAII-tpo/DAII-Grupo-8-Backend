@@ -326,8 +326,8 @@ class TripServiceTest {
 
         // El aislamiento entre usuarios y la exclusión de los viajes en curso están en la consulta,
         // no en un filtrado posterior que se pueda olvidar.
-        verify(tripRepository).findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                eq(1L), eq(TripStatus.COMPLETED), any(Pageable.class));
+        verify(tripRepository).findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripService.FINISHED_STATUSES), any(Pageable.class));
     }
 
     @Test
@@ -337,8 +337,8 @@ class TripServiceTest {
         service.findTripHistory(1L, 2, 5);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(tripRepository).findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                eq(1L), eq(TripStatus.COMPLETED), pageable.capture());
+        verify(tripRepository).findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripService.FINISHED_STATUSES), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(5);
         // El orden lo define el nombre del método del repositorio: un Sort acá lo alteraría.
@@ -554,8 +554,8 @@ class TripServiceTest {
 
     private void givenHistoryPage(Page<Trip> page) {
         when(userRepository.existsById(1L)).thenReturn(true);
-        when(tripRepository.findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                eq(1L), eq(TripStatus.COMPLETED), any(Pageable.class))).thenReturn(page);
+        when(tripRepository.findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripService.FINISHED_STATUSES), any(Pageable.class))).thenReturn(page);
     }
 
     private Trip completedTrip(Long id, User user, Instant startedAt, int durationSeconds) {

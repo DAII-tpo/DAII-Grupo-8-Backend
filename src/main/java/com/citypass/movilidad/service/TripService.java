@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -34,6 +35,8 @@ import java.util.Optional;
 @Service
 @Transactional(readOnly = true)
 public class TripService {
+
+    static final List<TripStatus> FINISHED_STATUSES = List.of(TripStatus.COMPLETED, TripStatus.CLOSED_BY_EMERGENCY);
 
     private final TripRepository tripRepository;
     private final UserRepository userRepository;
@@ -101,12 +104,15 @@ public class TripService {
         return activeTripOf(userId).or(() -> emergencyTripOf(userId)).map(this::toResponse);
     }
 
-    /** Historial paginado de viajes finalizados del usuario, del más reciente al más antiguo. */
+    /**
+     * Historial paginado de viajes finalizados del usuario, del más reciente al más antiguo: los completados y
+     * los cerrados sin cargo por una emergencia.
+     */
     public PagedResponse<TripResponse> findTripHistory(Long userId, int page, int size) {
         existingUser(userId);
         Page<TripResponse> history = tripRepository
-                .findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                        userId, TripStatus.COMPLETED, PageRequest.of(page, size))
+                .findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                        userId, FINISHED_STATUSES, PageRequest.of(page, size))
                 .map(this::toResponse);
         return PagedResponse.of(history);
     }

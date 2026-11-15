@@ -37,11 +37,22 @@ class CuInt01HandlersTest {
             context.registerBean(com.citypass.movilidad.service.CicloviaObstructionService.class,
                     () -> mock(com.citypass.movilidad.service.CicloviaObstructionService.class));
             context.registerBean(ObjectMapper.class);
+            context.registerBean(com.citypass.movilidad.service.EmergencyService.class,
+                    () -> mock(com.citypass.movilidad.service.EmergencyService.class));
+            context.registerBean(com.citypass.movilidad.config.EmergencyProperties.class,
+                    () -> new com.citypass.movilidad.config.EmergencyProperties(java.time.Duration.ofSeconds(10),
+                            java.time.Duration.ofSeconds(60), "com.citypass.emergencias.EmergenciaActualizada"));
             context.scan("com.citypass.movilidad.eventbus.consume");
             context.refresh();
 
             var handlers = List.copyOf(context.getBeansOfType(EventHandler.class).values());
-            assertThat(handlers).extracting(EventHandler::topic).doesNotHaveDuplicates()
+            // ReclamoCreado.v3 se procesa una sola vez. Un tópico sí puede tener handlers de dominios distintos:
+            // EmergenciaActualizada lo atienden CU-INT-01 y el cierre de viajes por emergencia.
+            assertThat(handlers).extracting(EventHandler::topic)
+                    .filteredOn("com.citypass.reclamos.ReclamoCreado.v3"::equals).hasSize(1);
+            assertThat(handlers).extracting(EventHandler::topic)
+                    .filteredOn("com.citypass.emergencias.EmergenciaActualizada"::equals).hasSize(2);
+            assertThat(handlers).extracting(EventHandler::topic)
                     .contains("com.citypass.reclamos.ReclamoCreado.v3",
                             "com.citypass.reclamos.ReclamoActualizado",
                             "com.citypass.espacios.CriticidadClimaticaConfirmada",

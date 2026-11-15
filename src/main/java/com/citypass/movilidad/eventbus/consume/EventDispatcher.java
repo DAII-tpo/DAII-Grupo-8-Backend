@@ -10,13 +10,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Entrega cada evento recibido a su handler, una sola vez.
+ * Entrega cada evento recibido a sus handlers, una sola vez.
  * <p>
  * La entrega del bus es at-least-once: el mismo evento puede llegar dos veces (por ejemplo, si el proceso se
  * cae entre procesar y confirmar el offset). El inbox registra el eventId en la misma transacción que los
@@ -26,7 +26,7 @@ public class EventDispatcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(EventDispatcher.class);
 
-    private final Map<String, EventHandler> handlersByTopic;
+    private final Map<String, List<EventHandler>> handlersByTopic;
     private final EventEnvelopeMapper envelopeMapper;
     private final EventInboxRepository inboxRepository;
     private final Clock clock;
@@ -53,12 +53,15 @@ public class EventDispatcher {
             LOG.debug("Evento duplicado descartado: eventId={}, topic={}", eventId, event.topic());
             return;
         }
-        EventHandler handler = handlersByTopic.get(consumerRecord.topic());
-        if (handler == null) {
+        List<EventHandler> handlers = handlersByTopic.get(consumerRecord.topic());
+        if (handlers == null) {
             throw new InvalidEventException("No hay handler para el tópico " + consumerRecord.topic());
         }
 
-        handler.handle(event);
+        // Todos en la misma transacción: si uno falla, se deshace lo de los demás y el evento se reintenta entero.
+        for (EventHandler handler : handlers) {
+            handler.handle(event);
+        }
 
         // Si había quedado FAILED en una entrega anterior, se pisa: ahora sí se procesó.
         inboxRepository.save(EventInbox.builder()
@@ -77,12 +80,12 @@ public class EventDispatcher {
                 eventId, event.topic(), event.metadata().source());
     }
 
-    private static Map<String, EventHandler> indexByTopic(List<EventHandler> handlers) {
-        // Dos handlers para el mismo tópico es un error de configuración: no hay forma correcta de elegir uno.
-        return handlers.stream().collect(Collectors.toUnmodifiableMap(EventHandler::topic, Function.identity(),
-                (first, second) -> {
-                    throw new IllegalStateException("Hay más de un EventHandler para el tópico " + first.topic()
-                            + ": " + first.getClass().getName() + " y " + second.getClass().getName());
-                }));
+    /**
+     * Un tópico puede tener varios handlers, de dominios distintos (por ejemplo, EmergenciaActualizada cierra
+     * incidentes urbanos y también viajes pausados). Se ejecutan en el orden de los beans.
+     */
+    private static Map<String, List<EventHandler>> indexByTopic(List<EventHandler> handlers) {
+        return handlers.stream().collect(Collectors.groupingBy(EventHandler::topic, LinkedHashMap::new,
+                Collectors.collectingAndThen(Collectors.toList(), List::copyOf)));
     }
 }
