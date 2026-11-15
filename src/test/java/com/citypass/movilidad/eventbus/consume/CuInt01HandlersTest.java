@@ -11,10 +11,12 @@ class CuInt01HandlersTest {
         var config = new CuInt01Handlers();
         var handlers = List.of(config.cuInt01Handler1(service), config.cuInt01Handler2(service),
                 config.cuInt01Handler3(service), config.cuInt01Handler4(service),
+                config.reservaCanceladaHandler(service), config.eventoFinalizadoHandler(service),
                 config.cuInt01Handler7(service), config.cuInt01Handler8(service));
         assertThat(handlers).extracting(EventHandler::topic).containsExactly(
                 "com.citypass.espacios.EventoComunitarioPublicado", "com.citypass.espacios.EventoCancelado",
                 "com.citypass.espacios.EspacioEstadoCambiado", "com.citypass.espacios.ReservaConfirmada",
+                "com.citypass.espacios.ReservaCancelada", "com.citypass.espacios.EventoFinalizado",
                 "com.citypass.emergencias.EmergenciaCreada",
                 "com.citypass.emergencias.EmergenciaActualizada");
         var payload = new ObjectMapper().readTree("{\"eventoId\":\"ev-1\"}");

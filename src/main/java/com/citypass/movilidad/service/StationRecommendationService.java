@@ -6,6 +6,7 @@ import com.citypass.movilidad.client.dto.RecommendationApiRequest;
 import com.citypass.movilidad.client.dto.RecommendationApiResponse;
 import com.citypass.movilidad.config.RecommendationProperties;
 import com.citypass.movilidad.dto.NearbyStationResponse;
+import com.citypass.movilidad.dto.EventStationProjection;
 import com.citypass.movilidad.dto.StationRecommendationResponse;
 import com.citypass.movilidad.dto.StationRecommendationResponse.ComparedStation;
 import com.citypass.movilidad.dto.StationRecommendationResponse.Explanation;
@@ -37,6 +38,7 @@ public class StationRecommendationService {
     private static final Logger LOG = LoggerFactory.getLogger(StationRecommendationService.class);
 
     private static final int MAX_ALTERNATIVES = 2;
+    private static final int EVENT_EXCLUSION_RADIUS_METERS = 500;
 
     private final NearbyStationService nearbyStationService;
     private final RecommendationClient recommendationClient;
@@ -76,6 +78,47 @@ public class StationRecommendationService {
         List<NearbyStationResponse> safe = incidentFilter.apply(nearbyStationService.findNearby(
                 latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
         return recommendDestinationFromCandidates(latitude, longitude, demand, safe);
+    }
+
+    /** Recomienda una devolución fuera del entorno inmediato de un evento, sin inventar una ruta. */
+    public StationRecommendationResponse recommendAlternativeDropoff(double latitude, double longitude, int demand) {
+        List<NearbyStationResponse> safe = incidentFilter.apply(nearbyStationService.findNearby(
+                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates())).stream()
+                .filter(station -> station.distanceMeters() >= EVENT_EXCLUSION_RADIUS_METERS)
+                .toList();
+        return recommendDestinationFromCandidates(latitude, longitude, demand, safe);
+    }
+
+    /**
+     * Variante exclusiva de eventos: descuenta declaraciones futuras de los anclajes actuales
+     * para ordenar candidatas, sin cambiar ni reservar la disponibilidad física.
+     */
+    public EventRecommendationResult recommendEventDestination(double latitude, double longitude,
+                                                                Map<Long, Integer> projectedArrivals,
+                                                                boolean outsideEventZone) {
+        List<NearbyStationResponse> safe = incidentFilter.apply(nearbyStationService.findNearby(
+                latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
+        if (outsideEventZone) {
+            safe = safe.stream().filter(station -> station.distanceMeters() >= EVENT_EXCLUSION_RADIUS_METERS).toList();
+        }
+        safe = withoutObstructedStations(safe);
+        Map<Long, NearbyStationResponse> actualById = safe.stream()
+                .collect(Collectors.toMap(NearbyStationResponse::stationId, Function.identity()));
+        List<EventStationProjection> projections = safe.stream()
+                .map(station -> projection(station, projectedArrivals.getOrDefault(station.stationId(), 0)))
+                .toList();
+        Map<Long, EventStationProjection> projectionById = projections.stream()
+                .collect(Collectors.toMap(EventStationProjection::stationId, Function.identity()));
+        List<NearbyStationResponse> adjusted = safe.stream()
+                .map(station -> withProjectedSlots(station, projectionById.get(station.stationId()).projectedAvailableSlots()))
+                .filter(station -> station.availableSlots() > 0)
+                .toList();
+        StationRecommendationResponse recommendation = adjusted.isEmpty()
+                ? noRecommendation(RecommendationPurpose.DROPOFF,
+                        safe.isEmpty() ? NoRecommendationReason.NO_CANDIDATES : NoRecommendationReason.NO_VIABLE_STATION,
+                        RecommendationSource.FALLBACK)
+                : resolve(latitude, longitude, RecommendationPurpose.DROPOFF, adjusted);
+        return new EventRecommendationResult(restoreActualAvailability(recommendation, actualById), projections);
     }
 
     /** Recibe el snapshot ya filtrado del publicador, para no consultar dos veces disponibilidad/incidentes. */
@@ -266,5 +309,39 @@ public class StationRecommendationService {
 
     private int resourceUnits(RecommendationPurpose purpose, NearbyStationResponse station) {
         return purpose == RecommendationPurpose.PICKUP ? station.availableBikes() : station.availableSlots();
+    }
+
+    private static EventStationProjection projection(NearbyStationResponse station, int arrivals) {
+        int balance = station.availableSlots() - arrivals;
+        String risk = balance <= 0 ? "SATURATED" : arrivals * 5 >= station.availableSlots() * 4 ? "HIGH" : "LOW";
+        return new EventStationProjection(station.stationId(), station.availableSlots(), arrivals,
+                balance, Math.max(0, balance), risk);
+    }
+
+    private static NearbyStationResponse withProjectedSlots(NearbyStationResponse station, int slots) {
+        return new NearbyStationResponse(station.stationId(), station.stationName(), station.address(),
+                station.latitude(), station.longitude(), station.distanceMeters(), station.capacity(),
+                station.availableBikes(), slots);
+    }
+
+    private static StationRecommendationResponse restoreActualAvailability(
+            StationRecommendationResponse response, Map<Long, NearbyStationResponse> actualById) {
+        RecommendedStation station = restore(response.station(), actualById);
+        List<RecommendedStation> alternatives = response.alternatives().stream()
+                .map(item -> restore(item, actualById)).toList();
+        return new StationRecommendationResponse(response.status(), response.source(), response.purpose(),
+                response.reason(), response.message(), station, alternatives, response.explanation(),
+                response.modelVersion(), response.generatedAt());
+    }
+
+    private static RecommendedStation restore(RecommendedStation recommendation,
+                                              Map<Long, NearbyStationResponse> actualById) {
+        if (recommendation == null) return null;
+        NearbyStationResponse actual = actualById.get(recommendation.stationId());
+        if (actual == null) return recommendation;
+        return new RecommendedStation(recommendation.stationId(), recommendation.stationName(),
+                recommendation.address(), recommendation.latitude(), recommendation.longitude(),
+                recommendation.distanceMeters(), recommendation.capacity(), actual.availableBikes(),
+                actual.availableSlots(), recommendation.score());
     }
 }

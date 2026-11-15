@@ -109,4 +109,3 @@ class EdaWebhookControllerTest {
         verify(obstructionService).procesarReclamoActualizado(any(ReclamoActualizadoData.class));
     }
 }
-

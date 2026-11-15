@@ -428,30 +428,6 @@ El esquema lo administra **Flyway** ([`db/migration`](src/main/resources/db/migr
 | `V7__federated_identity.sql` | Identidad federada: `email`/`first_name`/`last_name` pasan a nullable y `external_user_id` a unico |
 | `V8__drop_operator_role.sql` | Baja del rol `OPERATOR`, que ningun `@PreAuthorize` chequeaba. Reasigna a `USER` antes de borrarlo |
 | `V9__local_citizen_auth.sql` | Login de ciudadanos: contador de intentos fallidos en `users` y tabla `refresh_tokens` |
-| `V10__cu_int_01_destinos_incidentes.sql` | Destinos culturales e incidentes urbanos para CU-INT-01 |
-| `V11__inbound_entity_states.sql` | Estado vigente e idempotencia de entidades recibidas |
-| `V12__outbox_cultural_event_aggregate.sql` | Agregado de outbox para eventos culturales |
-| `V13__destination_recommendation_jobs.sql` | Trabajos pendientes de recomendación de destinos |
-| `V14__cultural_destination_demand.sql` | Demanda y estado de destinos culturales |
-| `V15__station_affectations.sql` | Afectaciones y restauraciones de estaciones por incidentes |
-| `V16__espacios_snapshots_reservations.sql` | Snapshots de Espacios Públicos y reservas |
-| `V17__ciclovia_obstructions.sql` | Obstrucciones reportadas en ciclovías |
-| `V18__reclamo_classification_snapshot.sql` | Snapshot de clasificación del reclamo asociado a una obstrucción |
-| `V19__climate_alert_foundation.sql` | Catálogo de barrios, alertas climáticas y avisos de viajes |
-| `V20__seed_caba_neighborhoods.sql` | Barrios de CABA y relación oficial con estaciones Ecobici |
-| `V21__outbox_climate_alert_aggregate.sql` | Agregado climático del outbox |
-
-Las migraciones climáticas se numeran V19–V21 para conservar V17 y V18 de `main`.
-Producción reporta `8.0.11-TiDB-v8.5.3-serverless`: el motor es TiDB 8.5.3,
-no MySQL 8.0.11. No inferir sus capacidades a partir del prefijo de compatibilidad.
-`TiDbMigrationIntegrationTest` prueba las migraciones con TiDB 8.5.3 en un contenedor
-local; no replica la infraestructura ni la configuración particular de Serverless.
-
-Si una base local ya aplicó las versiones climáticas anteriores (V17–V19), no iniciar
-esta versión contra esa base: su historial es incompatible. Conservarla y usar una
-base local nueva con otro `DB_NAME` para validar desde cero, o preparar una migración
-de historial específica después de respaldar y verificar su esquema. No usar
-`flyway clean` ni `repair` automáticamente sobre una base con datos.
 
 La tabla `station_availability_history` ya existe en el esquema, pero todavía no se usa.
 

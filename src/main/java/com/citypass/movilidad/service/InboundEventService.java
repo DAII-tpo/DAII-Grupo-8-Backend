@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -34,6 +35,8 @@ public class InboundEventService {
 
     private static final String CANCELLED_STATE = "CANCELLED";
     private static final String CULTURAL_EVENT_STATE_TYPE = "CULTURAL_EVENT";
+    private static final String RESERVATION_STATE_TYPE = "SPACE_RESERVATION";
+    private static final String FINISHED_STATE = "FINISHED";
     private static final String SPACE_STATE_TYPE = "SPACE";
     private static final String SPACE_ID_FIELD = "espacioId";
     private static final String LATITUDE_FIELD = "latitud";
@@ -51,6 +54,7 @@ public class InboundEventService {
     private final EspaciosEventCursorRepository cursors;
     private final SpaceReservationRepository reservations;
 
+    @Autowired
     public InboundEventService(CulturalDestinationRepository destinationRepository,
                                CityIncidentRepository incidentRepository,
                                ApplicationEventPublisher domainEvents,
@@ -67,6 +71,15 @@ public class InboundEventService {
         this.reservations = reservations;
     }
 
+    public InboundEventService(CulturalDestinationRepository destinationRepository,
+                               CityIncidentRepository incidentRepository,
+                               ApplicationEventPublisher domainEvents,
+                               InboundEntityStateRepository entityStates,
+                               DestinationRecommendationJobRepository jobs,
+                               EspaciosEventCursorRepository cursors) {
+        this(destinationRepository, incidentRepository, domainEvents, entityStates, jobs, cursors, null);
+    }
+
     /** Entrada local para pruebas; el handler Kafka utiliza la sobrecarga con metadata.receivedAt. */
     public void handle(String eventType, JsonNode data) {
         handle(eventType, data, Instant.now());
@@ -81,6 +94,8 @@ public class InboundEventService {
             case ESPACIOS + "EventoCancelado" -> cancelDestination(data, receivedAt);
             case ESPACIOS + "EspacioEstadoCambiado" -> updateSpaceStatus(data, receivedAt);
             case ESPACIOS + "ReservaConfirmada" -> confirmReservation(data, receivedAt);
+            case ESPACIOS + "ReservaCancelada" -> cancelReservation(data, receivedAt);
+            case ESPACIOS + "EventoFinalizado" -> finishEvent(data, receivedAt);
             case RECLAMOS + "ReclamoCreado", RECLAMOS + "ReclamoCreado.v3" ->
                     openIncident(IncidentSource.RECLAMOS, text(data, "reclamoId"), data, epochMillis(data, "createdAt"));
             case RECLAMOS + "ReclamoActualizado" ->
@@ -195,6 +210,10 @@ public class InboundEventService {
     }
 
     private void confirmReservation(JsonNode data, Instant receivedAt) {
+        if (data.path("tipoReserva").isMissingNode() && data.path("asistentesEstimados").isIntegralNumber()) {
+            confirmLegacyEventReservation(data, receivedAt);
+            return;
+        }
         String id = text(data, "reservaId");
         String type = text(data, "tipoReserva");
         if (!"EVENTO".equals(type) && !"ESPACIO".equals(type)) {
@@ -215,7 +234,9 @@ public class InboundEventService {
             throw new IllegalArgumentException("inicio y fin deben definir un intervalo válido");
         }
         if (!cursors.accept("RESERVATION", id, receivedAt)) return;
-        reservations.save(new Reservation(id, type, resourceId, spaceId, people.intValue(), start, end));
+        if (reservations != null) {
+            reservations.save(new Reservation(id, type, resourceId, spaceId, people.intValue(), start, end));
+        }
         // ESPACIO aporta demanda por lugar/horario, pero no contiene coordenadas ni un evento cultural.
         // Se conserva sin inventar un destino; EVENTO reutiliza el snapshot conocido y nunca suma inscriptos.
         if ("EVENTO".equals(type)) {
@@ -228,6 +249,99 @@ public class InboundEventService {
                 domainEvents.publishEvent(new CulturalDestinationChanged(resourceId));
             });
         }
+    }
+
+    /**
+     * Compatibilidad del simulador local previo. El contrato EDA vigente continúa usando
+     * tipoReserva/recursoId; esta variante solo se reconoce por la ubicación embebida.
+     */
+    private void confirmLegacyEventReservation(JsonNode data, Instant receivedAt) {
+        String id = commonReservationFields(data);
+        if (entityStates.hasState(RESERVATION_STATE_TYPE, id, CANCELLED_STATE)
+                || entityStates.hasState(RESERVATION_STATE_TYPE, id, FINISHED_STATE)
+                || destinationRepository.existsById(id)) {
+            return;
+        }
+
+        JsonNode people = data.path("asistentesEstimados");
+        if (!people.isIntegralNumber() || !people.canConvertToInt() || people.intValue() < 0) {
+            throw new IllegalArgumentException("asistentesEstimados debe ser un entero no negativo");
+        }
+        Instant start = requiredEpochMillis(data, "inicio");
+        Instant end = requiredEpochMillis(data, "fin");
+        if (!end.isAfter(start)) {
+            throw new IllegalArgumentException("inicio y fin deben definir un intervalo válido");
+        }
+        JsonNode location = data.path("ubicacion");
+        if (!location.isObject()) throw new IllegalArgumentException("ubicacion debe ser un objeto");
+        BigDecimal latitude = requiredDecimal(location, "lat", 90);
+        BigDecimal longitude = requiredDecimal(location, "lon", 180);
+
+        if (!cursors.accept("RESERVATION", id, receivedAt)) return;
+        CulturalDestination destination = CulturalDestination.builder()
+                .eventId(id)
+                .citizenId(text(data, "ciudadanoId"))
+                .correlationId(id)
+                .spaceId(text(data, SPACE_ID_FIELD))
+                .title(text(data, "nombreEvento"))
+                .latitude(latitude)
+                .longitude(longitude)
+                .startsAt(start)
+                .endsAt(end)
+                .maxCapacity(people.intValue())
+                .registrations(people.intValue())
+                .eventStatus("ACTIVE")
+                .spaceEnabled(true)
+                .updatedAt(Instant.now())
+                .build();
+        destination.setRecommendationToken(jobs.request(id));
+        destinationRepository.save(destination);
+        domainEvents.publishEvent(new CulturalDestinationChanged(id));
+    }
+
+    private void cancelReservation(JsonNode data, Instant receivedAt) {
+        String id = commonReservationFields(data);
+        text(data, "motivo");
+        String origin = text(data, "origen");
+        if (!Set.of("CIUDADANO", "SISTEMA", "TIMEOUT").contains(origin)) {
+            throw new IllegalArgumentException("origen de cancelación desconocido");
+        }
+        cursors.accept("RESERVATION", id, receivedAt);
+        entityStates.remember(RESERVATION_STATE_TYPE, id, CANCELLED_STATE);
+        destinationRepository.findById(id).ifPresent(destination -> {
+            destination.setCancelled(true);
+            destination.setEventStatus(CANCELLED_STATE);
+            destination.setUpdatedAt(Instant.now());
+            destinationRepository.save(destination);
+            domainEvents.publishEvent(new CulturalDestinationChanged(id));
+        });
+    }
+
+    private void finishEvent(JsonNode data, Instant receivedAt) {
+        String id = commonReservationFields(data);
+        requiredEpochMillis(data, "fin");
+        JsonNode attendees = data.path("asistentesReales");
+        if (!attendees.isIntegralNumber() || !attendees.canConvertToInt() || attendees.intValue() < 0) {
+            throw new IllegalArgumentException("asistentesReales debe ser un entero no negativo");
+        }
+        cursors.accept("RESERVATION", id, receivedAt);
+        entityStates.remember(RESERVATION_STATE_TYPE, id, FINISHED_STATE);
+        destinationRepository.findById(id).ifPresent(destination -> {
+            destination.setEventStatus(FINISHED_STATE);
+            destination.setUpdatedAt(Instant.now());
+            destinationRepository.save(destination);
+            domainEvents.publishEvent(new CulturalDestinationChanged(id));
+        });
+    }
+
+    private static String commonReservationFields(JsonNode data) {
+        String id = text(data, "reservaId");
+        text(data, "ciudadanoId");
+        String correlationId = text(data, "correlationId");
+        if (!id.equals(correlationId)) {
+            throw new IllegalArgumentException("correlationId debe ser igual a reservaId");
+        }
+        return id;
     }
 
     // --- Incidentes (Reclamos y Emergencias) --------------------------------
@@ -310,5 +424,21 @@ public class InboundEventService {
     private static Instant epochMillis(JsonNode data, String field) {
         JsonNode node = data.path(field);
         return node.isNumber() ? Instant.ofEpochMilli(node.asLong()) : null;
+    }
+
+    private static Instant requiredEpochMillis(JsonNode data, String field) {
+        Instant value = epochMillis(data, field);
+        if (value == null) throw new IllegalArgumentException("El campo '" + field + "' debe ser epoch millis");
+        return value;
+    }
+
+    private static BigDecimal requiredDecimal(JsonNode data, String field, int limit) {
+        JsonNode node = data.path(field);
+        if (!node.isNumber()) throw new IllegalArgumentException("El campo '" + field + "' debe ser numérico");
+        BigDecimal value = node.decimalValue();
+        if (value.abs().compareTo(BigDecimal.valueOf(limit)) > 0) {
+            throw new IllegalArgumentException("Coordenada fuera de rango: " + field);
+        }
+        return value;
     }
 }
