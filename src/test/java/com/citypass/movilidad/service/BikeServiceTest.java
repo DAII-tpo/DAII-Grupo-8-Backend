@@ -40,6 +40,7 @@ class BikeServiceTest {
     private StationRepository stationRepository;
     private BikeStatusHistoryRepository historyRepository;
     private MaintenanceRecordRepository maintenanceRepository;
+    private AffectedStationsService affectedStations;
     private BikeService service;
 
     @BeforeEach
@@ -48,7 +49,8 @@ class BikeServiceTest {
         stationRepository = mock(StationRepository.class);
         historyRepository = mock(BikeStatusHistoryRepository.class);
         maintenanceRepository = mock(MaintenanceRecordRepository.class);
-        service = new BikeService(bikeRepository, stationRepository, historyRepository, maintenanceRepository);
+        affectedStations = mock(AffectedStationsService.class);
+        service = new BikeService(bikeRepository, stationRepository, historyRepository, maintenanceRepository, affectedStations);
         when(bikeRepository.save(any(Bike.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -88,12 +90,12 @@ class BikeServiceTest {
     @Test
     void rejectsTransferWhileBikeIsInUse() {
         Bike bike = bike(BikeStatus.IN_USE, null);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
 
-        assertThatThrownBy(() -> service.transfer(1L, 20L))
+        assertThatThrownBy(() -> service.transfer(1L, 20L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("IN_USE");
-        verify(stationRepository, never()).findByIdAndDeletedAtIsNull(any());
+        verify(stationRepository, never()).findByIdAndDeletedAtIsNullForUpdate(any());
     }
 
     @Test
@@ -203,28 +205,29 @@ class BikeServiceTest {
     void transfersBikeToActiveStation() {
         Station origin = activeStation(10L, 20);
         Station destination = activeStation(20L, 20);
-        Bike bike = bike(BikeStatus.MAINTENANCE, origin);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
-        when(stationRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(destination));
+        Bike bike = bike(BikeStatus.AVAILABLE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
 
-        assertThat(service.transfer(1L, 20L).stationId()).isEqualTo(20L);
+        assertThat(service.transfer(1L, 20L, 8L).stationId()).isEqualTo(20L);
+        verify(affectedStations).registerFestivalTransfer(8L, destination);
     }
 
     @Test
     void rejectsTransferToSameOrInactiveStation() {
         Station origin = activeStation(10L, 20);
         Bike bike = bike(BikeStatus.AVAILABLE, origin);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
-        when(stationRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(origin));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(origin));
 
-        assertThatThrownBy(() -> service.transfer(1L, 10L))
+        assertThatThrownBy(() -> service.transfer(1L, 10L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("ya se encuentra");
 
         Station inactive = activeStation(20L, 20);
         inactive.setStatus(StationStatus.INACTIVE);
-        when(stationRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(inactive));
-        assertThatThrownBy(() -> service.transfer(1L, 20L))
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(inactive));
+        assertThatThrownBy(() -> service.transfer(1L, 20L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("habilitada");
     }
@@ -468,10 +471,10 @@ class BikeServiceTest {
     @Test
     void rejectsTransferOfBikeWithMaintenanceInProgress() {
         Bike bike = bike(BikeStatus.MAINTENANCE, null);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
         when(maintenanceRepository.existsByBikeIdAndStatus(1L, MaintenanceStatus.IN_PROGRESS)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.transfer(1L, 20L))
+        assertThatThrownBy(() -> service.transfer(1L, 20L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("mantenimiento");
         verify(bikeRepository, never()).save(any());

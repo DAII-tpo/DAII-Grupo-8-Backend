@@ -13,6 +13,7 @@ import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import com.citypass.movilidad.model.enums.RecommendationSource;
 import com.citypass.movilidad.model.enums.RecommendationStatus;
 import org.junit.jupiter.api.BeforeEach;
+import com.citypass.movilidad.repository.StationAffectationRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -57,7 +58,7 @@ class StationRecommendationServiceTest {
         service = new StationRecommendationService(nearbyStationService, recommendationClient,
                 new RecommendationMessageComposer(),
                 new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true),
-                obstructionService, incidentFilter);
+                obstructionService, incidentFilter, mock(StationAffectationRepository.class));
     }
 
     @Test

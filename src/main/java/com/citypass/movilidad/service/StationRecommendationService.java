@@ -16,6 +16,7 @@ import com.citypass.movilidad.model.enums.NoRecommendationReason;
 import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import com.citypass.movilidad.model.enums.RecommendationSource;
 import com.citypass.movilidad.model.enums.RecommendationStatus;
+import com.citypass.movilidad.repository.StationAffectationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -46,19 +47,22 @@ public class StationRecommendationService {
     private final RecommendationProperties properties;
     private final CicloviaObstructionService obstructionService;
     private final IncidentProximityFilter incidentFilter;
+    private final StationAffectationRepository affectations;
 
     public StationRecommendationService(NearbyStationService nearbyStationService,
                                         RecommendationClient recommendationClient,
                                         RecommendationMessageComposer messageComposer,
                                         RecommendationProperties properties,
                                         CicloviaObstructionService obstructionService,
-                                        IncidentProximityFilter incidentFilter) {
+                                        IncidentProximityFilter incidentFilter,
+                                        StationAffectationRepository affectations) {
         this.nearbyStationService = nearbyStationService;
         this.recommendationClient = recommendationClient;
         this.messageComposer = messageComposer;
         this.properties = properties;
         this.obstructionService = obstructionService;
         this.incidentFilter = incidentFilter;
+        this.affectations = affectations;
     }
 
     /** Estación recomendada para retirar (PICKUP) o devolver (DROPOFF) cerca de la ubicación. */
@@ -69,6 +73,10 @@ public class StationRecommendationService {
         List<NearbyStationResponse> candidates = incidentFilter.apply(nearbyStationService.findNearby(
                 latitude, longitude, properties.candidateRadiusMeters(), properties.maxCandidates()));
         candidates = withoutObstructedStations(candidates);
+        if (target == RecommendationPurpose.PICKUP && !candidates.isEmpty()) {
+            var restricted = affectations.festivalPickupRestrictions(Instant.now().toEpochMilli());
+            candidates = candidates.stream().filter(station -> !restricted.contains(station.stationId())).toList();
+        }
 
         return resolve(latitude, longitude, target, candidates);
     }

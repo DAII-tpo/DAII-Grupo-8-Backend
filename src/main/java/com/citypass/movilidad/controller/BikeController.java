@@ -155,7 +155,7 @@ public class BikeController {
     public BikeResponse transfer(
             @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id,
             @Valid @RequestBody BikeTransferRequest request) {
-        return bikeService.transfer(id, request.stationId());
+        return bikeService.transfer(id, request.stationId(), request.restockTaskId());
     }
 
     /** GET /bikes/{id}/status-history: historial de estados. */

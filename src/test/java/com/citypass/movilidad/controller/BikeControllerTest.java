@@ -33,7 +33,7 @@ class BikeControllerTest {
         when(service.findByStation(10L)).thenReturn(List.of(bike));
         when(service.findAvailable(10L)).thenReturn(List.of(bike));
         when(service.changeStatus(1L, status)).thenReturn(bike);
-        when(service.transfer(1L, 20L)).thenReturn(bike);
+        when(service.transfer(1L, 20L, null)).thenReturn(bike);
         when(service.history(1L)).thenReturn(List.of());
 
         assertThat(controller.create(create).getStatusCode()).isEqualTo(HttpStatus.CREATED);
