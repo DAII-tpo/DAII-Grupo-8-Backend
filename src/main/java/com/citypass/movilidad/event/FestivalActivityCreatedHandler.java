@@ -15,7 +15,7 @@ public class FestivalActivityCreatedHandler implements EventHandler {
 
     @Override
     public String topic() {
-        return "com.citypass.espacios.ActividadCreada.v2";
+        return "com.citypass.espacios.ActividadCreada.v3";
     }
 
     @Override
