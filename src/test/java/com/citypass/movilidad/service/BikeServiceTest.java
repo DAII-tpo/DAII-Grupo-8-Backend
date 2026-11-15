@@ -3,6 +3,7 @@ package com.citypass.movilidad.service;
 import com.citypass.movilidad.dto.BikeCreateRequest;
 import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
+import com.citypass.movilidad.dto.RestockBikeTransferRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
@@ -23,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -211,6 +213,64 @@ class BikeServiceTest {
 
         assertThat(service.transfer(1L, 20L, 8L).stationId()).isEqualTo(20L);
         verify(affectedStations).registerFestivalTransfer(8L, destination);
+    }
+
+    @Test
+    void transfersOnlyConfirmedBikesAndRegistersOneAffectation() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 20);
+        Bike first = bike(BikeStatus.AVAILABLE, origin);
+        Bike second = bike(BikeStatus.AVAILABLE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(first));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(second));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(origin));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.saveAll(List.of(first, second))).thenReturn(List.of(first, second));
+
+        var moved = service.transferForRestock(new RestockBikeTransferRequest(10L, 20L, 8L, Set.of(2L, 1L)));
+
+        assertThat(moved).extracting(BikeResponse::stationId).containsExactly(20L, 20L);
+        verify(affectedStations).registerFestivalTransfer(8L, destination);
+    }
+
+    @Test
+    void rejectsTheWholeRestockTripWhenASelectedBikeHasMoved() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 20);
+        Bike first = bike(BikeStatus.AVAILABLE, origin);
+        Bike second = bike(BikeStatus.AVAILABLE, destination);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(first));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(second));
+        var request = new RestockBikeTransferRequest(10L, 20L, 8L, Set.of(1L, 2L));
+
+        assertThatThrownBy(() -> service.transferForRestock(request))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("ya no está disponible en la estación de origen");
+        assertThat(first.getStation()).isSameAs(origin);
+        verify(bikeRepository, never()).saveAll(any());
+        verifyNoInteractions(affectedStations);
+    }
+
+    @Test
+    void rejectsTheWholeRestockTripWhenTheDestinationCannotFitAllBikes() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 20);
+        Bike first = bike(BikeStatus.AVAILABLE, origin);
+        Bike second = bike(BikeStatus.AVAILABLE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(first));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(second));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(origin));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(19L);
+        var request = new RestockBikeTransferRequest(10L, 20L, 8L, Set.of(1L, 2L));
+
+        assertThatThrownBy(() -> service.transferForRestock(request))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("capacidad");
+        assertThat(first.getStation()).isSameAs(origin);
+        assertThat(second.getStation()).isSameAs(origin);
+        verify(bikeRepository, never()).saveAll(any());
+        verifyNoInteractions(affectedStations);
     }
 
     @Test

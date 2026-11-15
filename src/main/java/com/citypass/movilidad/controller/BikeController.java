@@ -5,6 +5,7 @@ import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.dto.BikeStatusHistoryResponse;
 import com.citypass.movilidad.dto.BikeTransferRequest;
+import com.citypass.movilidad.dto.RestockBikeTransferRequest;
 import com.citypass.movilidad.exception.ErrorResponse;
 import com.citypass.movilidad.model.enums.BikeStatus;
 import com.citypass.movilidad.service.BikeService;
@@ -156,6 +157,14 @@ public class BikeController {
             @Parameter(description = "ID de la bicicleta", example = "1") @PathVariable @EntityId Long id,
             @Valid @RequestBody BikeTransferRequest request) {
         return bikeService.transfer(id, request.stationId(), request.restockTaskId());
+    }
+
+    @PostMapping("/restock-transfers")
+    @Operation(summary = "Registrar las bicicletas trasladadas para una tarea de reabastecimiento")
+    @ApiResponse(responseCode = "200", description = "Bicicletas trasladadas")
+    @ApiResponse(responseCode = "409", description = "Las bicicletas, la estación o la tarea ya no permiten el traslado")
+    public List<BikeResponse> transferForRestock(@Valid @RequestBody RestockBikeTransferRequest request) {
+        return bikeService.transferForRestock(request);
     }
 
     /** GET /bikes/{id}/status-history: historial de estados. */

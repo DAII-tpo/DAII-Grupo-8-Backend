@@ -4,6 +4,7 @@ import com.citypass.movilidad.dto.BikeCreateRequest;
 import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
 import com.citypass.movilidad.dto.BikeStatusHistoryResponse;
+import com.citypass.movilidad.dto.RestockBikeTransferRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
@@ -19,6 +20,7 @@ import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -178,6 +180,36 @@ public class BikeService {
             affectedStations.registerFestivalTransfer(restockTaskId, destination);
         }
         return toResponse(saved);
+    }
+
+    /** Registra un tramo confirmado y su afectación EDA en una sola transacción. */
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public List<BikeResponse> transferForRestock(RestockBikeTransferRequest request) {
+        Long sourceId = request.sourceStationId();
+        Long destinationId = request.destinationStationId();
+        if (sourceId.equals(destinationId)) {
+            throw new BusinessRuleException("El origen y el destino deben ser estaciones distintas.");
+        }
+
+        List<Bike> confirmed = request.bikeIds().stream().sorted().map(this::lockActiveBike).toList();
+        for (Bike bike : confirmed) {
+            if (bike.getStatus() != BikeStatus.AVAILABLE || bike.getStation() == null
+                    || !sourceId.equals(bike.getStation().getId())) {
+                throw new BusinessRuleException(
+                        "La bicicleta " + bike.getCode() + " ya no está disponible en la estación de origen.");
+            }
+        }
+
+        // Tomar los locks de estaciones en el mismo orden para tramos en sentidos opuestos.
+        Station first = lockActiveStation(Math.min(sourceId, destinationId));
+        Station second = lockActiveStation(Math.max(sourceId, destinationId));
+        Station destination = destinationId.equals(first.getId()) ? first : second;
+        ensureCapacity(destination, confirmed.size());
+        affectedStations.registerFestivalTransfer(request.restockTaskId(), destination);
+
+        confirmed.forEach(bike -> bike.setStation(destination));
+        return bikeRepository.saveAll(confirmed).stream().map(this::toResponse).toList();
     }
 
     /** Baja lógica: la bici queda OUT_OF_SERVICE con fecha de baja. */
@@ -403,7 +435,12 @@ public class BikeService {
 
     // Todas las bicis presentes ocupan anclaje, sin importar su estado.
     private void ensureCapacity(Station station) {
-        if (bikeRepository.countByStationIdAndDeletedAtIsNull(station.getId()) >= station.getCapacity()) {
+        ensureCapacity(station, 1);
+    }
+
+    private void ensureCapacity(Station station, int incomingBikes) {
+        long occupied = bikeRepository.countByStationIdAndDeletedAtIsNull(station.getId());
+        if (occupied + incomingBikes > station.getCapacity()) {
             throw new BusinessRuleException("La estación no tiene capacidad disponible: " + station.getId());
         }
     }
