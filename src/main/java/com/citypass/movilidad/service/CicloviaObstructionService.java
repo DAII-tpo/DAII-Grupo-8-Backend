@@ -163,7 +163,7 @@ public class CicloviaObstructionService {
                     "com.citypass.movilidad",
                     "OBSTRUCCION_CICLOVIA_CRITICA",
                     data.prioridad() != null ? data.prioridad() : "ALTA",
-                    "Vehículo estacionado indebidamente bloqueando ciclovía en " + (data.direccion() != null ? data.direccion() : "zona reportada"),
+                    buildEmergencyDescription(data.titulo(), data.descripcion()),
                     data.direccion(),
                     lat,
                     lon,
@@ -394,7 +394,7 @@ public class CicloviaObstructionService {
         EmergenciaSolicitadaData payload = new EmergenciaSolicitadaData(
                 obstruction.getReclamoId(), correlationId, "com.citypass.movilidad",
                 "OBSTRUCCION_CICLOVIA_CRITICA", prioridad,
-                safe(obstruction.getTitulo()) + ". " + safe(obstruction.getDescripcion()),
+                buildEmergencyDescription(obstruction.getTitulo(), obstruction.getDescripcion()),
                 obstruction.getDireccion(), lat, lon, clock.millis());
         eventPublisher.publish("EmergenciaSolicitada", AggregateType.INCIDENT, obstruction.getReclamoId(), payload);
         LOG.warn("Alerta de emergencia emitida para reclamoId={} con prioridad {}",
@@ -404,6 +404,18 @@ public class CicloviaObstructionService {
     private static boolean validCoordinates(double lat, double lon) {
         return Double.isFinite(lat) && Double.isFinite(lon)
                 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    private static String buildEmergencyDescription(String title, String description) {
+        String cleanTitle = title == null ? "" : title.trim();
+        String cleanDescription = description == null ? "" : description.trim();
+        if (cleanTitle.isEmpty()) {
+            return cleanDescription.isEmpty() ? "Obstrucción de ciclovía reportada." : cleanDescription;
+        }
+        if (cleanDescription.isEmpty() || cleanTitle.equalsIgnoreCase(cleanDescription)) {
+            return cleanTitle;
+        }
+        return cleanTitle + ". " + cleanDescription;
     }
 
     private String buildDetourSuggestion(ReclamoCreadoData data) {
