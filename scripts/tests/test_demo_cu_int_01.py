@@ -566,14 +566,13 @@ class HttpTest(unittest.TestCase):
                 if interactive:
                     output, errors = io.StringIO(), io.StringIO()
                     with patch("sys.stdin.isatty", return_value=True), \
-                            patch("builtins.input", side_effect=["admin-demo", "9", "7", "evento-de-prueba",
-                                                                 "1", "3", "4", "2", "5", "6", "0"]), \
-                            patch.object(demo.getpass, "getpass", return_value="TEST-PASSWORD") as password_prompt, \
+                            patch("builtins.input", side_effect=["admin-demo", "TEST-PASSWORD", "9", "7", "evento-de-prueba",
+                                                                 "1", "3", "4", "2", "5", "6", "0"]) as prompts, \
                             redirect_stdout(output), redirect_stderr(errors):
                         exit_code = demo.main(["--state-file", state_path, "--base-url", root, "--auth-url", root])
                     self.assertEqual(errors.getvalue(), "")
                     self.assertEqual(exit_code, 0)
-                    password_prompt.assert_called_once()
+                    self.assertIn("Contraseña (visible en consola)", prompts.call_args_list[1].args[0])
                     self.assertEqual(auth_calls, [({"username": "admin-demo", "password": "TEST-PASSWORD",
                                                    "clientId": demo.DEFAULT_CLIENT_ID}, None)])
                     self.assertIn("Vista previa", output.getvalue())
@@ -631,6 +630,33 @@ class SessionTest(unittest.TestCase):
     @staticmethod
     def tokens(access="access-1", refresh="refresh-1"):
         return {"access_token": access, "refresh_token": refresh, "expires_in": 3600, "token_type": "Bearer"}
+
+    def test_login_explains_known_anomaly_block_without_exposing_remote_details(self):
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.opener = Mock()
+        body = json.dumps({"status": 403, "error": "Acceso bloqueado",
+                           "message": "Acceso bloqueado por actividad inusual",
+                           "password": "SECRET-PASSWORD", "token": "SECRET-TOKEN"}).encode()
+        session.opener.open.side_effect = HTTPError(session.url, 403, "Forbidden", {}, io.BytesIO(body))
+        with self.assertRaises(demo.ApiError) as caught:
+            session.login("admin-demo", "SECRET-PASSWORD")
+        self.assertEqual(caught.exception.reason, "anomaly")
+        self.assertIn("actividad inusual", str(caught.exception))
+        self.assertNotIn("SECRET", str(caught.exception))
+        self.assertEqual(session.opener.open.call_count, 1)
+        self.assertIsNone(session.access_token)
+
+    def test_unknown_login_403_does_not_invent_a_cause_or_expose_its_body(self):
+        for body in (b'<html>SECRET-RESPONSE</html>', b'{"message":"SECRET-RESPONSE"}'):
+            with self.subTest(body=body):
+                session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+                session.opener = Mock()
+                session.opener.open.side_effect = HTTPError(session.url, 403, "Forbidden", {}, io.BytesIO(body))
+                with self.assertRaises(demo.ApiError) as caught:
+                    session.login("admin-demo", "SECRET-PASSWORD")
+                self.assertIsNone(caught.exception.reason)
+                self.assertNotIn("actividad inusual", str(caught.exception))
+                self.assertNotIn("SECRET", str(caught.exception))
 
     def test_staff_login_contract_and_rotating_refresh_used_by_the_api(self):
         session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
@@ -695,8 +721,8 @@ class SessionTest(unittest.TestCase):
         api = FakeApi()
         api.profile = {"type": "CITIZEN", "role": "USER"}
         session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
-        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="ciudadano"), \
-                patch.object(demo.getpass, "getpass", return_value="TEST-PASSWORD"), \
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["ciudadano", "TEST-PASSWORD"]), \
                 patch.object(session, "login"), redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(demo.DemoError, "ADMIN"):
                 demo.prompt_login(api, session)
@@ -707,12 +733,10 @@ class SessionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state.json"
             state.write_text(json.dumps({"version": 1, "url": "https://another.example"}))
-            with patch("sys.stdin.isatty", return_value=True), patch("builtins.input") as username, \
-                    patch.object(demo.getpass, "getpass") as password, \
+            with patch("sys.stdin.isatty", return_value=True), patch("builtins.input") as prompts, \
                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 self.assertEqual(demo.main(["--state-file", str(state)]), 1)
-            username.assert_not_called()
-            password.assert_not_called()
+            prompts.assert_not_called()
 
     def test_non_interactive_menu_stops_without_prompting(self):
         with patch("sys.stdin.isatty", return_value=False), patch("builtins.input") as prompt, \

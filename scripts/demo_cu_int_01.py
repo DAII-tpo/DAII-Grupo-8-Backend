@@ -5,6 +5,7 @@ Python 3.10+, sin dependencias. Sin argumentos abre un menú y pide las credenci
 de personal ADMIN de Movilidad. Conserva y renueva el token solo en memoria hasta
 salir; no guarda la contraseña. Los comandos directos también aceptan
 MOVILIDAD_ADMIN_TOKEN y solo muestran un plan; --apply los ejecuta.
+La contraseña se ingresa visible en la consola para poder verificarla.
 No modifica estaciones, contratos, recomendaciones ni el gateway. La opción 1
 del menú (o preparar --trasladar-uade) permite trasladar temporalmente las bicis
 AVAILABLE originales de UADE.
@@ -39,7 +40,6 @@ publican EDA: coordinar una inscripción/baja de inscripción en Espacios.
 import argparse
 from collections import Counter
 from contextlib import contextmanager
-import getpass
 import json
 import math
 import os
@@ -69,10 +69,14 @@ class DemoError(Exception):
 
 
 class ApiError(DemoError):
-    def __init__(self, status, method, path):
+    def __init__(self, status, method, path, reason=None):
         self.status = status
-        super().__init__(f"API HTTP {status} en {method} {path.split('?')[0]}. "
-                         "Verificá permisos, vigencia de la sesión y disponibilidad del servicio.")
+        self.reason = reason
+        detail = ("El Login Federado bloqueó el intento por actividad inusual. "
+                  "Revisá el bloqueo en su panel o pedí al equipo de Login que lo revise antes de reintentar."
+                  if reason == "anomaly" else
+                  "Verificá permisos, vigencia de la sesión y disponibilidad del servicio.")
+        super().__init__(f"API HTTP {status} en {method} {path.split('?')[0]}. " + detail)
 
 
 def require(condition, message):
@@ -99,6 +103,20 @@ class NoRedirect(HTTPRedirectHandler):
         raise DemoError("El backend redirigió la petición. Revisá --base-url; no se reenvió el token.")
 
 
+def auth_error_reason(error, path):
+    """Reconoce solo una categoría pública del IdP; nunca muestra el cuerpo remoto."""
+    if error.code != 403 or path not in ("/auth/login", "/auth/refresh"):
+        return None
+    try:
+        payload = json.loads(error.read(8193))
+    except (OSError, ValueError, TypeError):
+        return None
+    if (isinstance(payload, dict) and payload.get("error") == "Acceso bloqueado"
+            and payload.get("message") == "Acceso bloqueado por actividad inusual"):
+        return "anomaly"
+    return None
+
+
 def json_request(opener, url, method, path, body=None, token=None, timeout=15):
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
     if token:
@@ -112,7 +130,9 @@ def json_request(opener, url, method, path, body=None, token=None, timeout=15):
             return json.loads(raw) if raw else None
     except HTTPError as error:
         # No imprimir cuerpos remotos, credenciales ni cabeceras.
-        raise ApiError(error.code, method, path) from None
+        reason = auth_error_reason(error, path)
+        error.close()
+        raise ApiError(error.code, method, path, reason) from None
     except (URLError, TimeoutError, OSError, ValueError):
         raise DemoError("No se obtuvo una respuesta JSON válida del servicio. "
                         "Revisá conexión/URL y despertá Render antes de la presentación.") from None
@@ -191,7 +211,7 @@ def prompt_login(api, session):
     require(sys.stdin.isatty(), "Ejecutá desde una terminal para ingresar tus credenciales, o definí MOVILIDAD_ADMIN_TOKEN.")
     print(f"Login de personal de Movilidad: {session.url}")
     username = input("Usuario: ").strip()
-    password = getpass.getpass("Contraseña (sin eco): ")
+    password = input("Contraseña (visible en consola): ")
     require(username and password, "El usuario y la contraseña no pueden estar vacíos.")
     api.token = None
     api.session = session
