@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ClimateAlertEffectsTest {
@@ -37,7 +38,7 @@ class ClimateAlertEffectsTest {
     private final EventPublisher events = mock(EventPublisher.class);
     private final StationAvailabilityService availability = mock(StationAvailabilityService.class);
     private final ClimateAlertEffects service = new ClimateAlertEffects(stations, trips, notifications,
-            policy, events, availability);
+            policy, events, availability, new ClimateAffectedStations(stations), new ClimatePolicyMatrix());
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
@@ -87,7 +88,8 @@ class ClimateAlertEffectsTest {
         Station station = station(1L, "ecobici-1-1", "AR-CABA-PALERMO", StationStatus.ACTIVE);
         ClimateAlert overlapping = alert(ClimateAlert.Severity.CRITICA);
         when(stations.findByNeighborhood_IdInAndDeletedAtIsNull(any())).thenReturn(List.of(station));
-        when(policy.effectiveAlert(station)).thenReturn(Optional.of(overlapping));
+        when(policy.effective(station)).thenReturn(Optional.of(
+                new ClimatePolicyService.EffectiveClimate(overlapping, ClimateResponse.BLOQUEO_Y_AVISO_VIAJES)));
 
         service.lifted(alert, Instant.now());
 
@@ -95,6 +97,72 @@ class ClimateAlertEffectsTest {
         verify(events).publish(eq("AlertaClimaticaLevantada"), eq(AggregateType.CLIMATE_ALERT), eq(7L),
                 payload.capture());
         assertThat(mapper.valueToTree(payload.getValue()).path("estacionesRestablecidas").size()).isZero();
+    }
+
+    @Test
+    void liftingRestoresStationWhenTheRemainingAlertOnlyWarns() {
+        ClimateAlert alert = alert(ClimateAlert.Severity.ALTA);
+        Station station = station(1L, "ecobici-1-1", "AR-CABA-PALERMO", StationStatus.ACTIVE);
+        ClimateAlert rain = alert(ClimateAlert.Severity.ALTA);
+        rain.setPhenomenon("LLUVIA_INTENSA");
+        when(stations.findByNeighborhood_IdInAndDeletedAtIsNull(any())).thenReturn(List.of(station));
+        when(policy.effective(station)).thenReturn(Optional.of(
+                new ClimatePolicyService.EffectiveClimate(rain, ClimateResponse.CONFIRMACION)));
+
+        service.lifted(alert, Instant.now());
+
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(events).publish(eq("AlertaClimaticaLevantada"), eq(AggregateType.CLIMATE_ALERT), eq(7L),
+                payload.capture());
+        assertThat(mapper.valueToTree(payload.getValue()).path("estacionesRestablecidas").size()).isEqualTo(1);
+    }
+
+    @Test
+    void matrixDecidesBlockingAndActionsInsteadOfTheSeverity() {
+        // Tormenta eléctrica MEDIA bloquea; lluvia intensa ALTA solo pide confirmación.
+        ClimateAlert storm = alert(ClimateAlert.Severity.MEDIA);
+        storm.setPhenomenon("TORMENTA_ELECTRICA");
+        Station active = station(1L, "ecobici-1-1", "AR-CABA-PALERMO", StationStatus.ACTIVE);
+        when(stations.findByNeighborhood_IdInAndDeletedAtIsNull(any())).thenReturn(List.of(active));
+
+        service.applied(storm, Instant.now());
+        ClimateAlert rain = alert(ClimateAlert.Severity.ALTA);
+        rain.setPhenomenon("LLUVIA_INTENSA");
+        service.applied(rain, Instant.now());
+
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(events, org.mockito.Mockito.times(2)).publish(eq("AlertaClimaticaAplicada"),
+                eq(AggregateType.CLIMATE_ALERT), eq(7L), payload.capture());
+        var stormJson = mapper.valueToTree(payload.getAllValues().get(0));
+        assertThat(stormJson.path("cantidadEstacionesBloqueadas").asInt()).isEqualTo(1);
+        assertThat(stormJson.path("accionesAplicadas").toString())
+                .isEqualTo("[\"AVISO_USUARIOS\",\"BLOQUEO_ALQUILER\"]");
+        var rainJson = mapper.valueToTree(payload.getAllValues().get(1));
+        assertThat(rainJson.path("cantidadEstacionesBloqueadas").asInt()).isZero();
+        assertThat(rainJson.path("accionesAplicadas").toString())
+                .isEqualTo("[\"AVISO_USUARIOS\",\"CONFIRMACION_RIESGO_AL_ALQUILAR\"]");
+        verifyNoInteractions(trips, notifications);
+    }
+
+    @Test
+    void criticalAlertDoesNotSuggestAnAffectedStationWhenNoSafeOneHasRoom() {
+        ClimateAlert alert = alert(ClimateAlert.Severity.CRITICA);
+        Station origin = station(1L, "ecobici-1-1", "AR-CABA-PALERMO", StationStatus.ACTIVE);
+        Station sameArea = station(2L, "ecobici-2-2", "AR-CABA-PALERMO", StationStatus.ACTIVE);
+        Trip trip = new Trip();
+        trip.setId(9L);
+        trip.setOriginStation(origin);
+        when(stations.findByNeighborhood_IdInAndDeletedAtIsNull(any())).thenReturn(List.of(origin, sameArea));
+        when(stations.findByStatusAndDeletedAtIsNull(StationStatus.ACTIVE)).thenReturn(List.of(origin, sameArea));
+        when(availability.availabilityFor(Map.of(1L, 20, 2L, 20)))
+                .thenReturn(Map.of(1L, new StationAvailability(0, 20), 2L, new StationAvailability(5, 15)));
+        when(trips.findByStatusAndOriginStation_IdIn(TripStatus.ACTIVE, List.of(1L, 2L))).thenReturn(List.of(trip));
+
+        service.applied(alert, Instant.now());
+
+        ArgumentCaptor<ClimateTripNotification> saved = ArgumentCaptor.forClass(ClimateTripNotification.class);
+        verify(notifications).save(saved.capture());
+        assertThat(saved.getValue().getSuggestedStation()).isNull();
     }
 
     @Test
@@ -118,6 +186,7 @@ class ClimateAlertEffectsTest {
         ClimateAlert alert = new ClimateAlert();
         alert.setId(7L);
         alert.setExternalAlertId("weather-7");
+        alert.setPhenomenon("TORMENTA_FUERTE");
         alert.setSeverity(severity);
         alert.getNeighborhoods().add(neighborhood);
         return alert;

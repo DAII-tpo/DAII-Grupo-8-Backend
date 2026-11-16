@@ -61,7 +61,7 @@ class TripServiceTest {
         climatePolicy = mock(ClimatePolicyService.class);
         service = new TripService(tripRepository, userRepository, bikeService, eventPublisher,
                 incidentRepository, climatePolicy);
-        when(climatePolicy.effectiveAlert(any(Station.class))).thenReturn(Optional.empty());
+        when(climatePolicy.effective(any(Station.class))).thenReturn(Optional.empty());
         when(tripRepository.save(any(Trip.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -97,18 +97,20 @@ class TripServiceTest {
     }
 
     @Test
-    void mediumClimateRequiresExplicitRiskAcceptance() {
+    void confirmationResponseRequiresExplicitRiskAcceptance() {
         User user = user(1L, UserStatus.ACTIVE);
         Station origin = station(10L, "Centro");
         Bike bike = bike(5L, BikeStatus.AVAILABLE, origin);
-        ClimateAlert alert = new ClimateAlert();
-        alert.setSeverity(ClimateAlert.Severity.MEDIA);
+        // Lluvia intensa ALTA: la matriz pide confirmación, no bloqueo.
+        ClimateAlert alert = climateAlert("LLUVIA_INTENSA", ClimateAlert.Severity.ALTA);
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
         when(bikeService.lockActiveBike(5L)).thenReturn(bike);
-        when(climatePolicy.effectiveAlert(origin)).thenReturn(Optional.of(alert));
+        when(climatePolicy.effective(origin)).thenReturn(Optional.of(
+                new ClimatePolicyService.EffectiveClimate(alert, ClimateResponse.CONFIRMACION)));
 
         assertThatThrownBy(() -> service.startTrip(1L, new TripStartRequest(5L)))
                 .isInstanceOf(ClimateTripException.class)
+                .hasMessageContaining("calzada resbaladiza")
                 .extracting("code").isEqualTo("CONFIRMACION_RIESGO_CLIMATICO_REQUERIDA");
         verify(bikeService, never()).checkOutForTrip(any(), any());
         verify(tripRepository, never()).save(any());
@@ -119,20 +121,46 @@ class TripServiceTest {
     }
 
     @Test
-    void highClimateBlocksPickupEvenWhenRiskAccepted() {
+    void blockingResponseBlocksPickupEvenWhenRiskAccepted() {
         User user = user(1L, UserStatus.ACTIVE);
         Station origin = station(10L, "Centro");
         Bike bike = bike(5L, BikeStatus.AVAILABLE, origin);
-        ClimateAlert alert = new ClimateAlert();
-        alert.setSeverity(ClimateAlert.Severity.ALTA);
+        // Tormenta eléctrica MEDIA ya bloquea, aunque el nivel no sea ALTA.
+        ClimateAlert alert = climateAlert("TORMENTA_ELECTRICA", ClimateAlert.Severity.MEDIA);
         when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
         when(bikeService.lockActiveBike(5L)).thenReturn(bike);
-        when(climatePolicy.effectiveAlert(origin)).thenReturn(Optional.of(alert));
+        when(climatePolicy.effective(origin)).thenReturn(Optional.of(
+                new ClimatePolicyService.EffectiveClimate(alert, ClimateResponse.BLOQUEO)));
 
         assertThatThrownBy(() -> service.startTrip(1L, new TripStartRequest(5L, true)))
                 .isInstanceOf(ClimateTripException.class)
+                .hasMessageContaining("riesgo de rayos")
+                .satisfies(error -> assertThat(((ClimateTripException) error).getResponse())
+                        .isEqualTo(ClimateResponse.BLOQUEO))
                 .extracting("code").isEqualTo("ALQUILER_BLOQUEADO_POR_CLIMA");
         verify(bikeService, never()).checkOutForTrip(any(), any());
+    }
+
+    @Test
+    void warningOnlyResponseLetsTheTripStartWithoutConfirmation() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Station origin = station(10L, "Centro");
+        Bike bike = bike(5L, BikeStatus.AVAILABLE, origin);
+        ClimateAlert alert = climateAlert("OLA_DE_FRIO", ClimateAlert.Severity.ALTA);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        when(bikeService.checkOutForTrip(bike, user)).thenReturn(origin);
+        when(climatePolicy.effective(origin)).thenReturn(Optional.of(
+                new ClimatePolicyService.EffectiveClimate(alert, ClimateResponse.AVISO)));
+
+        assertThat(service.startTrip(1L, new TripStartRequest(5L)).status()).isEqualTo(TripStatus.ACTIVE);
+    }
+
+    private static ClimateAlert climateAlert(String phenomenon, ClimateAlert.Severity severity) {
+        ClimateAlert alert = new ClimateAlert();
+        alert.setPhenomenon(phenomenon);
+        alert.setSeverity(severity);
+        return alert;
     }
 
     @Test
@@ -422,6 +450,23 @@ class TripServiceTest {
         when(bikeService.checkInFromTrip(bike, 20L, user)).thenReturn(station(20L, "Retiro"));
 
         assertThat(service.endTrip(1L, 7L, new TripEndRequest(20L)).status()).isEqualTo(TripStatus.COMPLETED);
+    }
+
+    @Test
+    void returningToAClimateBlockedStationIsAlwaysAllowed() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Bike bike = bike(5L, BikeStatus.IN_USE, null);
+        Trip trip = activeTrip(7L, user, bike);
+        Station blocked = station(20L, "Palermo");
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(trip));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        when(bikeService.checkInFromTrip(bike, 20L, user)).thenReturn(blocked);
+        when(climatePolicy.effective(any(Station.class))).thenReturn(Optional.of(new ClimatePolicyService.EffectiveClimate(
+                climateAlert("TORMENTA_ELECTRICA", ClimateAlert.Severity.CRITICA), ClimateResponse.BLOQUEO_Y_AVISO_VIAJES)));
+
+        assertThat(service.endTrip(1L, 7L, new TripEndRequest(20L)).status()).isEqualTo(TripStatus.COMPLETED);
+        verify(climatePolicy, never()).effective(any());
     }
 
     @Test

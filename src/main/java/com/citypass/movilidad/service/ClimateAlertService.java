@@ -16,7 +16,12 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 
-/** Proyección de las alertas de Espacios; la idempotencia por eventId la aplica EventDispatcher. */
+/**
+ * Proyección de las alertas de Espacios; la idempotencia por eventId la aplica EventDispatcher.
+ *
+ * <p>Si la matriz indica bloqueo, al recibir la alerta (aunque quede PROGRAMADA) se abre una afectación
+ * preventiva por estación para BI (EstacionUrbanaAfectada) y al finalizarla se restauran todas.
+ */
 @Service
 @Slf4j
 public class ClimateAlertService {
@@ -24,13 +29,21 @@ public class ClimateAlertService {
     private final NeighborhoodRepository neighborhoods;
     private final ClimateAlertEffects effects;
     private final ClimateTripNotificationRepository notifications;
+    private final AffectedStationsService affectedStations;
+    private final ClimateAffectedStations stationsInArea;
+    private final ClimatePolicyMatrix matrix;
 
     public ClimateAlertService(ClimateAlertRepository alerts, NeighborhoodRepository neighborhoods,
-                               ClimateAlertEffects effects, ClimateTripNotificationRepository notifications) {
+                               ClimateAlertEffects effects, ClimateTripNotificationRepository notifications,
+                               AffectedStationsService affectedStations, ClimateAffectedStations stationsInArea,
+                               ClimatePolicyMatrix matrix) {
         this.alerts = alerts;
         this.neighborhoods = neighborhoods;
         this.effects = effects;
         this.notifications = notifications;
+        this.affectedStations = affectedStations;
+        this.stationsInArea = stationsInArea;
+        this.matrix = matrix;
     }
 
     @Transactional
@@ -73,6 +86,7 @@ public class ClimateAlertService {
                     () -> log.warn("Barrio de alerta climática sin correspondencia: {}", normalized));
         }
         alerts.saveAndFlush(alert);
+        blockStationsIfRequired(alert, now);
         if (alert.getStatus() == ClimateAlert.Status.ACTIVA) {
             effects.applied(alert, now);
         }
@@ -89,6 +103,8 @@ public class ClimateAlertService {
             alert.setStatus(ClimateAlert.Status.FINALIZADA);
             alert.setFinalizedAt(epochMillis(data, "finalizadaEn"));
             alerts.save(alert);
+            // Siempre: también una alerta PROGRAMADA pudo haber abierto afectaciones preventivas.
+            affectedStations.restoreClimateAlert(externalId, alert.getFinalizedAt());
             if (wasActive) {
                 effects.lifted(alert, alert.getFinalizedAt());
             }
@@ -106,6 +122,8 @@ public class ClimateAlertService {
         alert.setStatus(ClimateAlert.Status.ACTIVA);
         alert.setActivatedAt(now);
         alerts.save(alert);
+        // Idempotente: solo agrega estaciones que pasaron a ACTIVE desde que se recibió la alerta.
+        blockStationsIfRequired(alert, now);
         effects.applied(alert, now);
     }
 
@@ -113,9 +131,10 @@ public class ClimateAlertService {
     public List<ClimateAlertResponse> visibleAlerts() {
         return alerts.findByStatusIn(Arrays.asList(ClimateAlert.Status.PROGRAMADA, ClimateAlert.Status.ACTIVA))
                 .stream()
+                // Las ACTIVA se muestran todas; las PROGRAMADA, solo si su respuesta amerita aviso anticipado.
                 .filter(alert -> alert.getStatus() == ClimateAlert.Status.ACTIVA
-                        || alert.getSeverity() != ClimateAlert.Severity.BAJA)
-                .map(ClimateAlertResponse::from)
+                        || matrix.responseFor(alert).showsEarlyWarning())
+                .map(alert -> ClimateAlertResponse.from(alert, matrix.responseFor(alert)))
                 .toList();
     }
 
@@ -123,7 +142,15 @@ public class ClimateAlertService {
     public List<ClimateTripNotificationResponse> tripNotifications(Long userId) {
         return notifications.findByTrip_User_IdAndTrip_StatusAndAlert_StatusOrderByNotifiedAtDesc(
                         userId, TripStatus.ACTIVE, ClimateAlert.Status.ACTIVA)
-                .stream().map(ClimateTripNotificationResponse::from).toList();
+                .stream()
+                .map(notice -> ClimateTripNotificationResponse.from(notice, matrix.responseFor(notice.getAlert())))
+                .toList();
+    }
+
+    private void blockStationsIfRequired(ClimateAlert alert, Instant now) {
+        if (matrix.responseFor(alert).blocksRental()) {
+            affectedStations.blockForClimateAlert(alert, stationsInArea.of(alert), now);
+        }
     }
 
     private static ClimateAlert.Severity parseSeverity(String severity) {

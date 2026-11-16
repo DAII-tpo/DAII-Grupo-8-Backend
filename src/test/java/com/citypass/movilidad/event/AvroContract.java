@@ -17,7 +17,7 @@ import java.util.List;
  * Valida el JSON que publica el backend contra el contrato registrado en el bus, como hace el gateway: si no
  * cumple, el gateway lo rechaza con 400 y el evento queda FAILED en el outbox.
  */
-final class AvroContract {
+public final class AvroContract {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -25,7 +25,7 @@ final class AvroContract {
     }
 
     /** Schema Avro de data a partir del mismo archivo que se registra en el bus. */
-    static Schema load(String eventName) {
+    public static Schema load(String eventName) {
         try (InputStream definition = AvroContract.class
                 .getResourceAsStream("/eventbus/event-types/" + eventName + ".json")) {
             ObjectNode json = (ObjectNode) MAPPER.readTree(definition);
@@ -41,7 +41,7 @@ final class AvroContract {
     }
 
     /** Errores de conversión del evento contra el schema; vacío si lo cumple. */
-    static List<String> violations(Schema schema, Object event) {
+    public static List<String> violations(Schema schema, Object event) {
         JsonNode payload = MAPPER.valueToTree(event);
         List<String> errors = new ArrayList<>();
         Object converted = convert(schema, payload, "data", errors);
@@ -79,11 +79,26 @@ final class AvroContract {
                         .filter(type -> type.getType() != Schema.Type.NULL).findFirst().orElseThrow();
                 return convert(nonNull, value, path, errors);
             }
+            case ARRAY -> {
+                if (value == null || !value.isArray()) {
+                    errors.add(path + ": se esperaba una lista");
+                    return null;
+                }
+                List<Object> items = new ArrayList<>();
+                for (int i = 0; i < value.size(); i++) {
+                    items.add(convert(schema.getElementType(), value.get(i), path + "[" + i + "]", errors));
+                }
+                return new GenericData.Array<>(schema, items);
+            }
             case ENUM -> {
                 return new GenericData.EnumSymbol(schema, value.asText());
             }
             case STRING -> {
                 return expect(value != null && value.isTextual(), "un texto", path, errors) ? value.asText() : null;
+            }
+            case INT -> {
+                return expect(value != null && value.canConvertToInt() && value.isIntegralNumber(), "un entero",
+                        path, errors) ? value.asInt() : null;
             }
             case LONG -> {
                 return expect(value != null && value.isNumber(), "un número", path, errors) ? value.asLong() : null;

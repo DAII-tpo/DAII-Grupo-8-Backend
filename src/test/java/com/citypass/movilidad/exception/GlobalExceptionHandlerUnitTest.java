@@ -46,7 +46,8 @@ class GlobalExceptionHandlerUnitTest {
         alert.setSeverity(com.citypass.movilidad.model.ClimateAlert.Severity.MEDIA);
         alert.setPhenomenon("VIENTO_FUERTE");
         alert.setValidUntil(java.time.Instant.parse("2026-11-14T23:00:00Z"));
-        var error = new ClimateTripException("CLIMATE_RISK_CONFIRMATION_REQUIRED", "Confirmá el riesgo climático", alert);
+        var error = new ClimateTripException("CLIMATE_RISK_CONFIRMATION_REQUIRED", "Confirmá el riesgo climático",
+                alert, com.citypass.movilidad.service.ClimateResponse.CONFIRMACION);
 
         var response = handler.handleClimateTrip(error, requestTo("/api/v1/trips"));
 
@@ -58,7 +59,8 @@ class GlobalExceptionHandlerUnitTest {
                 .containsEntry("alertaId", "clima-palermo")
                 .containsEntry("nivelCriticidad", "MEDIA")
                 .containsEntry("fenomeno", "VIENTO_FUERTE")
-                .containsEntry("vigenciaHasta", alert.getValidUntil());
+                .containsEntry("vigenciaHasta", alert.getValidUntil())
+                .containsEntry("accion", "CONFIRMACION");
     }
 
     @AfterEach
