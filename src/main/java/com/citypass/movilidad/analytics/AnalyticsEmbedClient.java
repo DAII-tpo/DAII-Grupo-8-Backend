@@ -11,7 +11,9 @@ import org.springframework.web.client.RestClientResponseException;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /** Proxy del embed de Movilidad: reenvía el token humano autenticado, sin credenciales de servicio. */
 @Service
@@ -88,7 +90,36 @@ public class AnalyticsEmbedClient {
                 "La URL de Analítica debe ser HTTPS (HTTP solo en loopback) y no incluir credenciales ni parámetros.");
     }
 
-    public record Embed(MediaType type, byte[] body, HttpHeaders headers) { }
+    public record Embed(MediaType type, byte[] body, HttpHeaders headers) {
+        public Embed {
+            body = body.clone();
+        }
+
+        @Override
+        public byte[] body() {
+            return body.clone();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof Embed embed)) return false;
+            return Objects.equals(type, embed.type)
+                    && Arrays.equals(body, embed.body)
+                    && Objects.equals(headers, embed.headers);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Objects.hash(type, headers) + Arrays.hashCode(body);
+        }
+
+        @Override
+        public String toString() {
+            return "Embed[type=" + type + ", bodyLength=" + body.length
+                    + ", bodyHash=" + Arrays.hashCode(body) + ", headers=" + headers + "]";
+        }
+    }
 
     private static final class NoRedirectRequestFactory extends SimpleClientHttpRequestFactory {
         @Override
