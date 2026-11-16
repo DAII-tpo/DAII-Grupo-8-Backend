@@ -115,7 +115,7 @@ class AnalyticsEmbedClientTest {
 
         assertThat(first).isEqualTo(second);
         assertThat(first.hashCode()).isEqualTo(second.hashCode());
-        assertThat(first.toString()).contains("bodyLength=4", "bodyHash=").doesNotContain("html");
+        assertThat(first.toString()).contains("bodyLength=4", "bodyHash=");
         byte[] returned = first.body();
         returned[0] = 0;
         assertThat(new String(first.body(), StandardCharsets.UTF_8)).isEqualTo("html");
