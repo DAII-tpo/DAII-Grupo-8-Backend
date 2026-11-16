@@ -520,7 +520,10 @@ class HttpTest(unittest.TestCase):
     def test_interactive_login_menu_and_reset_over_http(self):
         self.cli_cycle(relocate_uade=True, interactive=True)
 
-    def cli_cycle(self, relocate_uade, interactive=False):
+    def test_menu_with_web_token_uses_backend_role_and_never_calls_idp(self):
+        self.cli_cycle(relocate_uade=True, interactive=True, token_login=True)
+
+    def cli_cycle(self, relocate_uade, interactive=False, token_login=False):
         backend = FakeApi()
         auth_calls = []
         if relocate_uade:
@@ -539,6 +542,9 @@ class HttpTest(unittest.TestCase):
                 body = json.loads(self.rfile.read(length)) if length else None
                 if self.path == "/auth/login":
                     auth_calls.append((body, self.headers.get("Authorization")))
+                    if token_login:
+                        self.send_error(403)
+                        return
                     result = {"access_token": "TEST-HTTP-TOKEN", "refresh_token": "TEST-REFRESH-TOKEN",
                               "expires_in": 3600, "token_type": "Bearer"}
                 else:
@@ -565,16 +571,27 @@ class HttpTest(unittest.TestCase):
                 root = f"http://127.0.0.1:{server.server_port}"
                 if interactive:
                     output, errors = io.StringIO(), io.StringIO()
+                    inputs = ([] if token_login else ["admin-demo", "TEST-PASSWORD"])
+                    inputs += ["9", "7", "evento-de-prueba", "1", "3"]
+                    inputs += ["8"] if token_login else []
+                    inputs += ["4", "2", "5", "6", "0"]
                     with patch("sys.stdin.isatty", return_value=True), \
-                            patch("builtins.input", side_effect=["admin-demo", "TEST-PASSWORD", "9", "7", "evento-de-prueba",
-                                                                 "1", "3", "4", "2", "5", "6", "0"]) as prompts, \
+                            patch("builtins.input", side_effect=inputs) as prompts, \
+                            patch.object(demo.getpass, "getpass", return_value="TEST-HTTP-TOKEN") as token_prompt, \
                             redirect_stdout(output), redirect_stderr(errors):
-                        exit_code = demo.main(["--state-file", state_path, "--base-url", root, "--auth-url", root])
+                        flags = ["--usar-token"] if token_login else []
+                        exit_code = demo.main(["--state-file", state_path, "--base-url", root, "--auth-url", root, *flags])
                     self.assertEqual(errors.getvalue(), "")
                     self.assertEqual(exit_code, 0)
-                    self.assertIn("Contraseña (visible en consola)", prompts.call_args_list[1].args[0])
-                    self.assertEqual(auth_calls, [({"username": "admin-demo", "password": "TEST-PASSWORD",
-                                                   "clientId": demo.DEFAULT_CLIENT_ID}, None)])
+                    if token_login:
+                        self.assertEqual(auth_calls, [])
+                        self.assertEqual(token_prompt.call_count, 2)
+                        self.assertIn("Sesión web ADMIN validada", output.getvalue())
+                    else:
+                        self.assertIn("Contraseña (visible en consola)", prompts.call_args_list[1].args[0])
+                        self.assertEqual(auth_calls, [({"username": "admin-demo", "password": "TEST-PASSWORD",
+                                                       "clientId": demo.DEFAULT_CLIENT_ID}, None)])
+                        token_prompt.assert_not_called()
                     self.assertIn("Vista previa", output.getvalue())
                     self.assertIn("PLANETARIO", output.getvalue())
                     for secret in ("TEST-PASSWORD", "TEST-HTTP-TOKEN", "TEST-REFRESH-TOKEN"):
@@ -647,16 +664,81 @@ class SessionTest(unittest.TestCase):
         self.assertIsNone(session.access_token)
 
     def test_unknown_login_403_does_not_invent_a_cause_or_expose_its_body(self):
-        for body in (b'<html>SECRET-RESPONSE</html>', b'{"message":"SECRET-RESPONSE"}'):
+        for body, reason in ((b'<html>SECRET-RESPONSE</html>', "html"),
+                             (b'{"message":"SECRET-RESPONSE"}', "json")):
             with self.subTest(body=body):
                 session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
                 session.opener = Mock()
                 session.opener.open.side_effect = HTTPError(session.url, 403, "Forbidden", {}, io.BytesIO(body))
                 with self.assertRaises(demo.ApiError) as caught:
                     session.login("admin-demo", "SECRET-PASSWORD")
-                self.assertIsNone(caught.exception.reason)
+                self.assertEqual(caught.exception.reason, reason)
                 self.assertNotIn("actividad inusual", str(caught.exception))
                 self.assertNotIn("SECRET", str(caught.exception))
+
+    def test_cloudflare_rejection_recognized_only_with_known_evidence(self):
+        for headers, body, reason in (({"cf-mitigated": "challenge"}, b"SECRET", "cloudflare_challenge"),
+                                      ({"Server": "cloudflare"}, b"error code: 1010", "cloudflare_1010"),
+                                      ({"cf-ray": "SECRET-RAY"}, b"error code: 1020", "cloudflare_1020"),
+                                      ({"Server": "cloudflare"}, b"SECRET", "text"),
+                                      ({}, b"error code: 1010", "text")):
+            with self.subTest(reason=reason):
+                session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+                session.opener = Mock()
+                session.opener.open.side_effect = HTTPError(session.url, 403, "Forbidden", headers, io.BytesIO(body))
+                with self.assertRaises(demo.ApiError) as caught:
+                    session.login("admin-demo", "SECRET-PASSWORD")
+                self.assertEqual(caught.exception.reason, reason)
+                self.assertNotIn("SECRET", str(caught.exception))
+
+    def test_plain_cloudflare_header_does_not_override_idp_anomaly_category(self):
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.opener = Mock()
+        body = b'{"error":"Acceso bloqueado","message":"Acceso bloqueado por actividad inusual"}'
+        session.opener.open.side_effect = HTTPError(session.url, 403, "Forbidden", {"Server": "cloudflare"}, io.BytesIO(body))
+        with self.assertRaises(demo.ApiError) as caught:
+            session.login("admin-demo", "SECRET-PASSWORD")
+        self.assertEqual(caught.exception.reason, "anomaly")
+
+    def test_imported_web_token_validates_role_without_login_or_refresh(self):
+        api = FakeApi()
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.accept_tokens(self.tokens())
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input") as prompt, \
+                patch.object(demo.getpass, "getpass", return_value="Bearer WEB-ACCESS-TOKEN"), \
+                patch.object(session, "login") as login, patch.object(session.opener, "open") as refresh, \
+                redirect_stdout(io.StringIO()) as output:
+            demo.prompt_token(api, session)
+        self.assertEqual(api.calls, [("GET", "/api/v1/users/me", None)])
+        self.assertEqual(api.token, "WEB-ACCESS-TOKEN")
+        self.assertIsNone(api.session)
+        self.assertIsNone(session.refresh_token)
+        self.assertNotIn("WEB-ACCESS-TOKEN", output.getvalue())
+        prompt.assert_not_called()
+        login.assert_not_called()
+        refresh.assert_not_called()
+
+    def test_citizen_web_token_is_rejected_before_inventory_access(self):
+        api = FakeApi()
+        api.profile = {"type": "CITIZEN", "role": "USER"}
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch.object(demo.getpass, "getpass", return_value="CITIZEN-TOKEN"), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(demo.DemoError, "ADMIN"):
+                demo.prompt_token(api, session)
+        self.assertIsNone(api.token)
+        self.assertEqual(api.calls, [("GET", "/api/v1/users/me", None)])
+
+    def test_expired_web_token_cannot_start_inventory_work(self):
+        api = FakeApi()
+        api.request = Mock(side_effect=demo.ApiError(401, "GET", "/api/v1/users/me"))
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch.object(demo.getpass, "getpass", return_value="EXPIRED-TOKEN"), redirect_stdout(io.StringIO()):
+            with self.assertRaises(demo.ApiError):
+                demo.prompt_token(api, session)
+        self.assertIsNone(api.token)
+        api.request.assert_called_once_with("GET", "/api/v1/users/me")
 
     def test_staff_login_contract_and_rotating_refresh_used_by_the_api(self):
         session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
@@ -668,6 +750,7 @@ class SessionTest(unittest.TestCase):
         login = session.opener.open.call_args_list[0].args[0]
         self.assertEqual(login.full_url, demo.DEFAULT_AUTH_URL + "/auth/login")
         self.assertIsNone(login.get_header("Authorization"))
+        self.assertEqual(login.get_header("User-agent"), demo.USER_AGENT)
         self.assertEqual(json.loads(login.data), {"username": "admin-demo", "password": "PASSWORD-NOT-STORED",
                                                  "clientId": demo.DEFAULT_CLIENT_ID})
         self.assertNotIn("password", vars(session))

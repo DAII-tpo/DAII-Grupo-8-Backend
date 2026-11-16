@@ -6,12 +6,16 @@ de personal ADMIN de Movilidad. Conserva y renueva el token solo en memoria hast
 salir; no guarda la contraseña. Los comandos directos también aceptan
 MOVILIDAD_ADMIN_TOKEN y solo muestran un plan; --apply los ejecuta.
 La contraseña se ingresa visible en la consola para poder verificarla.
+Si el proveedor rechaza el login desde consola, --usar-token permite pegar el
+accessToken de la sesión web de Movilidad. No pide ni reutiliza su refreshToken;
+al vencer, pegar uno vigente con la opción 8. Tampoco lo guarda en archivos.
 No modifica estaciones, contratos, recomendaciones ni el gateway. La opción 1
 del menú (o preparar --trasladar-uade) permite trasladar temporalmente las bicis
 AVAILABLE originales de UADE.
 
 Ejemplos (desde la raíz del backend):
   python scripts/demo_cu_int_01.py
+  python scripts/demo_cu_int_01.py --usar-token
   python scripts/demo_cu_int_01.py preparar
   python scripts/demo_cu_int_01.py preparar --apply
   python scripts/demo_cu_int_01.py preparar --trasladar-uade
@@ -40,6 +44,7 @@ publican EDA: coordinar una inscripción/baja de inscripción en Espacios.
 import argparse
 from collections import Counter
 from contextlib import contextmanager
+import getpass
 import json
 import math
 import os
@@ -60,6 +65,7 @@ SCENARIOS = ("exito", "sin-anclajes", "sin-bicis")
 DEFAULT_URL = "https://movilidad-backend.onrender.com"
 DEFAULT_AUTH_URL = "https://api.citypass-login.pp.ua"
 DEFAULT_CLIENT_ID = "citypass-movilidad-web"
+USER_AGENT = "CityPass-Movilidad-Demo/1.0"
 STATE_PATH = Path(__file__).resolve().parents[1] / ".demo-cu-int-01" / "state.json"
 MAX_BIKES = 200
 
@@ -72,10 +78,19 @@ class ApiError(DemoError):
     def __init__(self, status, method, path, reason=None):
         self.status = status
         self.reason = reason
-        detail = ("El Login Federado bloqueó el intento por actividad inusual. "
-                  "Revisá el bloqueo en su panel o pedí al equipo de Login que lo revise antes de reintentar."
-                  if reason == "anomaly" else
-                  "Verificá permisos, vigencia de la sesión y disponibilidad del servicio.")
+        details = {
+            "anomaly": "El Login Federado bloqueó el intento por actividad inusual. "
+                       "Revisá el bloqueo en su panel o pedí al equipo de Login que lo revise antes de reintentar.",
+            "cloudflare_challenge": "Cloudflare exige una comprobación desde el navegador para esta solicitud.",
+            "cloudflare_1010": "Cloudflare rechazó la solicitud con el código 1010.",
+            "cloudflare_1020": "Cloudflare rechazó la solicitud con el código 1020.",
+            "html": "El login devolvió HTML en lugar del JSON esperado. No se pudo confirmar el motivo del rechazo.",
+            "json": "El login devolvió un rechazo JSON sin una categoría reconocida. No se pudo confirmar la causa.",
+            "text": "El login devolvió texto en lugar del JSON esperado. No se pudo confirmar el motivo del rechazo.",
+        }
+        detail = details.get(reason, "Verificá permisos, vigencia de la sesión y disponibilidad del servicio.")
+        if status == 403 and path in ("/auth/login", "/auth/refresh"):
+            detail += " Podés abrir el menú con --usar-token y validar tu sesión web ADMIN de Movilidad."
         super().__init__(f"API HTTP {status} en {method} {path.split('?')[0]}. " + detail)
 
 
@@ -104,21 +119,41 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def auth_error_reason(error, path):
-    """Reconoce solo una categoría pública del IdP; nunca muestra el cuerpo remoto."""
+    """Categorías conocidas y formato de la respuesta; nunca muestra el cuerpo remoto."""
     if error.code != 403 or path not in ("/auth/login", "/auth/refresh"):
         return None
+    headers = error.headers or {}
+    if headers.get("cf-mitigated", "").lower() == "challenge":
+        return "cloudflare_challenge"
     try:
-        payload = json.loads(error.read(8193))
-    except (OSError, ValueError, TypeError):
+        raw = error.read(8193)
+    except OSError:
         return None
+    try:
+        payload = json.loads(raw) if len(raw) <= 8192 else None
+    except (ValueError, TypeError):
+        payload = None
     if (isinstance(payload, dict) and payload.get("error") == "Acceso bloqueado"
             and payload.get("message") == "Acceso bloqueado por actividad inusual"):
         return "anomaly"
+    # El header por sí solo no prueba un bloqueo de Cloudflare: también puede
+    # transportar errores del origen. Requerir además un código de rechazo conocido.
+    if headers.get("Server", "").lower() == "cloudflare" or headers.get("cf-ray"):
+        for code in ("1010", "1020"):
+            if ("error code: " + code).encode() in raw.lower():
+                return "cloudflare_" + code
+    if payload is not None:
+        return "json"
+    if (headers.get("Content-Type", "").split(";")[0].strip().lower() == "text/html"
+            or raw.lstrip().lower().startswith((b"<!doctype html", b"<html"))):
+        return "html"
+    if raw:
+        return "text"
     return None
 
 
 def json_request(opener, url, method, path, body=None, token=None, timeout=15):
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": USER_AGENT}
     if token:
         headers["Authorization"] = "Bearer " + token
     request = Request(url + path, method=method,
@@ -222,6 +257,26 @@ def prompt_login(api, session):
         session.clear()
         raise
     print("Sesión ADMIN iniciada. El token se conserva solo mientras el script está abierto.")
+
+
+def prompt_token(api, session):
+    require(sys.stdin.isatty(), "Ejecutá desde una terminal para pegar el token de tu sesión web.")
+    print(f"Validar sesión web ADMIN en Movilidad: {api.url}")
+    print("Pegá solo el accessToken vigente de tu sesión de Personal en la web, sin compartirlo por chat.")
+    token = getpass.getpass("Access token (sin eco): ").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    require(token and len(token) <= 16384 and not any(c.isspace() for c in token),
+            "Pegá únicamente el accessToken, sin JSON ni el refreshToken.")
+    session.clear()
+    api.session = None  # El refresh token sigue perteneciendo al navegador.
+    api.token = token
+    try:
+        require_admin(api.request("GET", "/api/v1/users/me"))
+    except DemoError:
+        api.token = None
+        raise
+    print("Sesión web ADMIN validada. El token queda solo en memoria; al vencer, actualizalo con la opción 8.")
 
 
 def fingerprint(bike):
@@ -723,7 +778,7 @@ def interactive_menu(api, store, session, args, overrides, origin):
             applied = choice in ("1", "2", "3", "4", "6")
             try:
                 if choice == "8":
-                    prompt_login(api, session)
+                    (prompt_token if args.usar_token else prompt_login)(api, session)
                     continue
                 command = choices[choice]
                 options = dict(overrides=overrides, minimum=args.min_bikes, event_id=event_id, origin=origin,
@@ -755,6 +810,8 @@ def main(argv=None):
     parser.add_argument("--auth-url", default=os.environ.get("MOVILIDAD_AUTH_URL", DEFAULT_AUTH_URL),
                         help="URL raíz del login de personal, igual a la del frontend.")
     parser.add_argument("--client-id", default=os.environ.get("MOVILIDAD_CLIENT_ID", DEFAULT_CLIENT_ID))
+    parser.add_argument("--usar-token", action="store_true",
+                        help="Pegar el accessToken de tu sesión web STAFF/ADMIN, sin hacer login ni renovar su refresh token.")
     parser.add_argument("--state-file", type=Path, default=STATE_PATH)
     parser.add_argument("--apply", action="store_true", help="Ejecutar un comando directo. En el menú se ejecuta la opción elegida.")
     parser.add_argument("--station", action="append", default=[], metavar="ALIAS=ID_INTERNO",
@@ -800,7 +857,9 @@ def main(argv=None):
         session = StaffSession(auth_url, args.client_id)
         token = os.environ.get("MOVILIDAD_ADMIN_TOKEN", "").strip()
         api = Api(url, token)
-        if token and args.command != "menu":
+        if args.usar_token:
+            prompt_token(api, session)
+        elif token and args.command != "menu":
             require_admin(api.request("GET", "/api/v1/users/me"))
         else:
             prompt_login(api, session)
