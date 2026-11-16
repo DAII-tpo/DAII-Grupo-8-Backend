@@ -16,7 +16,11 @@
       "name": "causaTipo",
       "type": [
         "null",
-        { "type": "enum", "name": "CausaViajeFinalizado", "symbols": ["INCIDENTE_VIAL"] }
+        {
+          "type": "enum",
+          "name": "CausaFinalizacionViaje",
+          "symbols": ["EVENTO_CLIMATICO", "RECLAMO", "INCIDENTE_VIAL", "EVENTO_PUBLICO", "RESERVA", "EMERGENCIA"]
+        }
       ],
       "default": null
     },
