@@ -389,7 +389,8 @@ que la estación esté activa y tenga capacidad.
    `TOPIC_EMERGENCIA_ESTADO_ACTUALIZADO`). Cuando llega `estadoNuevo: RESUELTA` con nuestro código `EMG-…` (en
    `emergenciaId` o `correlationId`), el viaje pasa a `CLOSED_BY_EMERGENCY` (finalizado sin cargo, aparece en el
    historial) y la bici queda `OUT_OF_SERVICE` en la estación activa más cercana al lugar del SOS que tenga lugar,
-   para revisarla. Los demás estados (incluido `CERRADA`) y las emergencias ajenas se ignoran; las reentregas se
+   para revisarla. Se publica `ViajeFinalizado` con `causaTipo: EMERGENCIA` y el código como `causaId`, para que
+   Analítica cuente los viajes interrumpidos; sus coordenadas finales son las del SOS. Los demás estados (incluido `CERRADA`) y las emergencias ajenas se ignoran; las reentregas se
    descartan por `metadata.eventId` y una segunda `RESUELTA` no cambia nada.
 
 ### Incidencias

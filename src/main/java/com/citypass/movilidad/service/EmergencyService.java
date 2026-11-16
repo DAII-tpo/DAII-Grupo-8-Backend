@@ -63,17 +63,19 @@ public class EmergencyService {
     private final UserRepository userRepository;
     private final BikeService bikeService;
     private final EventPublisher eventPublisher;
+    private final TripEventPublisher tripEvents;
     private final EmergencyProperties properties;
     private final Clock clock;
 
     public EmergencyService(BikeEmergencyRepository emergencyRepository, TripRepository tripRepository,
                             UserRepository userRepository, BikeService bikeService, EventPublisher eventPublisher,
-                            EmergencyProperties properties, Clock clock) {
+                            TripEventPublisher tripEvents, EmergencyProperties properties, Clock clock) {
         this.emergencyRepository = emergencyRepository;
         this.tripRepository = tripRepository;
         this.userRepository = userRepository;
         this.bikeService = bikeService;
         this.eventPublisher = eventPublisher;
+        this.tripEvents = tripEvents;
         this.properties = properties;
         this.clock = clock;
     }
@@ -183,7 +185,8 @@ public class EmergencyService {
 
     /**
      * Emergencias informó que resolvió el pedido de ayuda con este código: el viaje se cierra sin cargo y la bici
-     * queda fuera de servicio en la estación activa más cercana con lugar, para revisarla.
+     * queda fuera de servicio en la estación activa más cercana con lugar, para revisarla. Se publica
+     * ViajeFinalizado con causaTipo EMERGENCIA y el código como causaId.
      * <p>
      * Idempotente: un código que no es nuestro, una emergencia cancelada o una ya resuelta no hacen nada (las
      * reentregas del mismo evento ya las descarta el inbox, pero Emergencias puede publicar RESUELTA más de una
@@ -208,15 +211,18 @@ public class EmergencyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Viaje no encontrado: " + tripId));
         Station destination = null;
         if (trip.getStatus() == TripStatus.EMERGENCY) {
+            double latitude = emergency.getLatitude().doubleValue();
+            double longitude = emergency.getLongitude().doubleValue();
             Bike bike = bikeService.lockActiveBike(emergency.getBike().getId());
-            destination = bikeService.parkAfterEmergency(bike, emergency.getLatitude().doubleValue(),
-                    emergency.getLongitude().doubleValue(), emergency.getUser(),
+            destination = bikeService.parkAfterEmergency(bike, latitude, longitude, emergency.getUser(),
                     "Emergencia " + code + " resuelta: queda para revisión");
             trip.setStatus(TripStatus.CLOSED_BY_EMERGENCY);
             trip.setDestinationStation(destination);
             trip.setEndedAt(resolvedAt);
             trip.setDurationSeconds((int) Math.max(0, Duration.between(trip.getStartedAt(), resolvedAt).toSeconds()));
             tripRepository.save(trip);
+            // Analítica cuenta los viajes interrumpidos con este evento: va en la misma transacción (outbox).
+            tripEvents.tripClosedByEmergency(trip, code, latitude, longitude);
         }
         emergency.setStatus(EmergencyStatus.RESOLVED);
         emergency.setResolvedAt(resolvedAt);

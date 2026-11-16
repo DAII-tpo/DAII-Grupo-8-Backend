@@ -1,6 +1,7 @@
 package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.eventbus.publish.EventPublisher;
+import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.Trip;
 import com.citypass.movilidad.model.enums.AggregateType;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,11 @@ import java.util.Map;
 @Component
 @Slf4j
 public class TripEventPublisher {
+
+    static final String EVENT_NAME = "ViajeFinalizado";
+    /** Símbolo del enum CausaFinalizacionViaje del contrato para los viajes que cierra Emergencias. */
+    static final String EMERGENCY_CAUSE = "EMERGENCIA";
+
     private final EventPublisher events;
 
     public TripEventPublisher(EventPublisher events) {
@@ -25,8 +31,36 @@ public class TripEventPublisher {
     }
 
     public void tripEnded(Trip trip) {
+        Station destination = trip.getDestinationStation();
+        // Una incidencia de bicicleta o un aviso SOS no identifican por sí solos un incidente vial.
+        publish(trip, destination.getId().toString(), destination.getLatitude().doubleValue(),
+                destination.getLongitude().doubleValue(), null, null);
+
+        log.info("Viaje finalizado: tripId={}, userId={}, bikeId={}, destinationStationId={}, durationSeconds={}",
+                trip.getId(), trip.getUser().getId(), trip.getBike().getId(),
+                destination.getId(), trip.getDurationSeconds());
+    }
+
+    /**
+     * Viaje que cerró Emergencias al resolver el pedido de ayuda (CLOSED_BY_EMERGENCY): causaTipo EMERGENCIA y,
+     * como causaId, el código de la emergencia (EMG-…), el mismo que viaja en EmergenciaBicicleta.
+     * <p>
+     * El viaje termina donde se pidió ayuda, así que las coordenadas finales son las del SOS. estacionFin es la
+     * estación a la que se llevó la bici, o vacía si no había ninguna con lugar (el contrato no la admite nula).
+     */
+    public void tripClosedByEmergency(Trip trip, String emergencyCode, double latitude, double longitude) {
+        Station destination = trip.getDestinationStation();
+        publish(trip, destination == null ? "" : destination.getId().toString(), latitude, longitude,
+                emergencyCode, EMERGENCY_CAUSE);
+
+        log.info("Viaje cerrado por emergencia: tripId={}, emergencia={}, destinationStationId={}, durationSeconds={}",
+                trip.getId(), emergencyCode, destination == null ? null : destination.getId(),
+                trip.getDurationSeconds());
+    }
+
+    private void publish(Trip trip, String endStationId, double endLatitude, double endLongitude,
+                         String causeId, String causeType) {
         var origin = trip.getOriginStation();
-        var destination = trip.getDestinationStation();
         String tripId = trip.getId().toString();
         String endedAt = trip.getEndedAt().toString();
 
@@ -37,18 +71,13 @@ public class TripEventPublisher {
         data.put("latitudInicio", origin.getLatitude().doubleValue());
         data.put("longitudInicio", origin.getLongitude().doubleValue());
         data.put("horaInicio", trip.getStartedAt().toString());
-        data.put("estacionFin", destination.getId().toString());
-        data.put("latitudFin", destination.getLatitude().doubleValue());
-        data.put("longitudFin", destination.getLongitude().doubleValue());
+        data.put("estacionFin", endStationId);
+        data.put("latitudFin", endLatitude);
+        data.put("longitudFin", endLongitude);
         data.put("horaFinalizacion", endedAt);
-        // Una incidencia de bicicleta o un aviso SOS no identifican por sí solos un incidente vial.
-        data.put("causaId", null);
-        data.put("causaTipo", null);
+        data.put("causaId", causeId);
+        data.put("causaTipo", causeType);
         data.put("createdAt", endedAt);
-        events.publish("ViajeFinalizado", AggregateType.TRIP, tripId, data);
-
-        log.info("Viaje finalizado: tripId={}, userId={}, bikeId={}, destinationStationId={}, durationSeconds={}",
-                trip.getId(), trip.getUser().getId(), trip.getBike().getId(),
-                destination.getId(), trip.getDurationSeconds());
+        events.publish(EVENT_NAME, AggregateType.TRIP, tripId, data);
     }
 }

@@ -75,6 +75,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class EmergencyFlowIntegrationTest {
 
     private static final String EVENT_TYPE = "com.citypass.movilidad.EmergenciaBicicleta";
+    private static final String TRIP_ENDED = "com.citypass.movilidad.ViajeFinalizado";
     private static final String LOCATION =
             "{\"latitude\": -34.6037, \"longitude\": -58.3816, \"accuracyMeters\": 12.5}";
     private static final String NO_PUEDE_MOVERSE =
@@ -314,6 +315,16 @@ class EmergencyFlowIntegrationTest {
         assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
         assertThat(bike.getStation().getId()).isEqualTo(withRoom.getId());
 
+        // Analítica se entera del viaje interrumpido: ViajeFinalizado con la emergencia como causa.
+        List<EventOutbox> tripEnded = eventsOf(TRIP_ENDED, fixture.tripId);
+        assertThat(tripEnded).hasSize(1);
+        JsonNode ended = objectMapper.readTree(tripEnded.get(0).getPayload());
+        assertThat(ended.path("causaTipo").asText()).isEqualTo("EMERGENCIA");
+        assertThat(ended.path("causaId").asText()).isEqualTo(code);
+        assertThat(ended.path("estacionFin").asText()).isEqualTo(withRoom.getId().toString());
+        assertThat(ended.path("latitudFin").asDouble()).isEqualTo(-34.6037);
+        assertThat(ended.path("horaFinalizacion").asText()).isEqualTo("2026-11-15T13:00:00Z");
+
         // El usuario ya no tiene nada en curso y el viaje aparece en su historial.
         mockMvc.perform(get("/api/v1/trips/active").with(bearer(fixture.user))).andExpect(status().isNoContent());
         mockMvc.perform(get("/api/v1/emergencies/current").with(bearer(fixture.user)))
@@ -327,6 +338,7 @@ class EmergencyFlowIntegrationTest {
         int historyBefore = historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId()).size();
         resolutionHandler.handle(emergenciaActualizada(code, "RESUELTA"));
         assertThat(historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId())).hasSize(historyBefore);
+        assertThat(eventsOf(TRIP_ENDED, fixture.tripId)).hasSize(1);
     }
 
     private IncomingEvent emergenciaActualizada(String code, String estadoNuevo) {
@@ -383,8 +395,12 @@ class EmergencyFlowIntegrationTest {
     }
 
     private List<EventOutbox> eventsOf(long tripId) {
+        return eventsOf(EVENT_TYPE, tripId);
+    }
+
+    private List<EventOutbox> eventsOf(String eventType, long tripId) {
         return outboxRepository.findAll().stream()
-                .filter(event -> EVENT_TYPE.equals(event.getEventType()))
+                .filter(event -> eventType.equals(event.getEventType()))
                 .filter(event -> String.valueOf(tripId).equals(event.getAggregateId()))
                 .toList();
     }

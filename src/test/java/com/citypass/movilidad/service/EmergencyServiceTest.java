@@ -57,6 +57,7 @@ class EmergencyServiceTest {
     private UserRepository userRepository;
     private BikeService bikeService;
     private EventPublisher eventPublisher;
+    private TripEventPublisher tripEvents;
 
     private User user;
     private Bike bike;
@@ -69,6 +70,7 @@ class EmergencyServiceTest {
         userRepository = mock(UserRepository.class);
         bikeService = mock(BikeService.class);
         eventPublisher = mock(EventPublisher.class);
+        tripEvents = mock(TripEventPublisher.class);
         when(emergencyRepository.save(any(BikeEmergency.class))).thenAnswer(invocation -> {
             BikeEmergency emergency = invocation.getArgument(0);
             if (emergency.getId() == null) {
@@ -249,6 +251,7 @@ class EmergencyServiceTest {
         assertThat(trip.getDurationSeconds()).isEqualTo(1500);
         assertThat(emergency.getStatus()).isEqualTo(EmergencyStatus.RESOLVED);
         assertThat(emergency.getResolvedAt()).isEqualTo(resolvedAt);
+        verify(tripEvents).tripClosedByEmergency(trip, "EMG-20261028-0091", -34.6037, -58.3816);
     }
 
     @Test
@@ -269,6 +272,7 @@ class EmergencyServiceTest {
 
         verify(bikeService, never()).parkAfterEmergency(any(), anyDouble(), anyDouble(), any(), any());
         verify(tripRepository, never()).save(any());
+        verifyNoInteractions(tripEvents);
     }
 
     @Test
@@ -283,6 +287,8 @@ class EmergencyServiceTest {
         assertThat(emergency.getStatus()).isEqualTo(EmergencyStatus.RESOLVED);
         assertThat(trip.getStatus()).isEqualTo(TripStatus.COMPLETED);
         verify(bikeService, never()).parkAfterEmergency(any(), anyDouble(), anyDouble(), any(), any());
+        // Ese viaje ya publicó su ViajeFinalizado al terminar.
+        verifyNoInteractions(tripEvents);
     }
 
     @Test
@@ -295,7 +301,7 @@ class EmergencyServiceTest {
 
     private EmergencyService service(Instant now) {
         return new EmergencyService(emergencyRepository, tripRepository, userRepository, bikeService,
-                eventPublisher, WINDOWS, Clock.fixed(now, ZoneOffset.UTC));
+                eventPublisher, tripEvents, WINDOWS, Clock.fixed(now, ZoneOffset.UTC));
     }
 
     private void givenUserAndTrip() {
