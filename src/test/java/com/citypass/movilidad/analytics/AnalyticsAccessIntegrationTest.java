@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -43,17 +44,21 @@ class AnalyticsAccessIntegrationTest {
     @Autowired ObjectMapper mapper;
     @MockitoBean AnalyticsEmbedClient client;
     @BeforeEach void response() {
-        when(client.fetch()).thenReturn(new AnalyticsEmbedClient.Embed(MediaType.APPLICATION_JSON, "{\"status\":\"ok\"}"));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_HTML);
+        headers.set("Cache-Control", "no-store");
+        when(client.fetch(anyString())).thenReturn(new AnalyticsEmbedClient.Embed(MediaType.TEXT_HTML,
+                "<html>Analytics</html>".getBytes(java.nio.charset.StandardCharsets.UTF_8), headers));
     }
     @Test void adminConFirmaRealPuedeConsultar() throws Exception {
         mvc.perform(get(PATH).header("Authorization", "Bearer " + FederatedSecurityTestConfig.TOKENS.signedToken("U-BI-1", List.of("admin"))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ok"));
-        verify(client).fetch();
+                .andExpect(status().isOk()).andExpect(content().string("<html>Analytics</html>"));
+        verify(client).fetch(anyString());
     }
     @Test void empleadoSinPermisoDa403() throws Exception {
         mvc.perform(get(PATH).header("Authorization", "Bearer " + FederatedSecurityTestConfig.TOKENS.signedToken("U-BI-2", List.of("operadores"))))
                 .andExpect(status().isForbidden());
-        verify(client, never()).fetch();
+        verify(client, never()).fetch(anyString());
     }
     @Test void ciudadanoRegistradoConJwtValidoDa403() throws Exception {
         String body = "{\"email\":\"bi-" + UUID.randomUUID() + "@example.com\",\"password\":\"" + TestSecrets.CITIZEN_PASSWORD
@@ -62,11 +67,11 @@ class AnalyticsAccessIntegrationTest {
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         mvc.perform(get(PATH).header("Authorization", "Bearer " + mapper.readTree(response).path("accessToken").asText()))
                 .andExpect(status().isForbidden());
-        verify(client, never()).fetch();
+        verify(client, never()).fetch(anyString());
     }
     @Test void sinTokenOConTokenInvalidoDa401() throws Exception {
         mvc.perform(get(PATH)).andExpect(status().isUnauthorized());
         mvc.perform(get(PATH).header("Authorization", "Bearer invalid")).andExpect(status().isUnauthorized());
-        verify(client, never()).fetch();
+        verify(client, never()).fetch(anyString());
     }
 }

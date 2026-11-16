@@ -663,34 +663,24 @@ cada PR.
 .
 
 
-## Embed de Analítica (integración servidor a servidor)
+## Embed de Analítica
 
-`GET /api/v1/admin/analytics/embed` exige un JWT humano federado válido con autoridad
-`ROLE_ADMIN`. Se comprueba también dentro del controlador: el modo local, el usuario demo,
-`X-User-Id` y un token de servicio no dan acceso. Ciudadanos y personal sin ADMIN reciben 403;
-sin identidad se responde 401. Se reutilizan los validadores de JWT y el proveedor OAuth existentes,
-con una instancia y caché propias para BI, independientes de EDA.
+`GET /api/v1/admin/analytics/embed` valida la sesión del usuario y los permisos administrativos.
+El proxy reenvía a BI el mismo access token humano con el que llegó la petición; no obtiene ni
+almacena un token de servicio. CIudadanos, tokens de servicio y personal sin `ROLE_ADMIN` reciben
+403; sin sesión válida se responde 401. El endpoint devuelve el HTML de BI con `Content-Type`,
+`Cache-Control`, `Content-Security-Policy`, `X-Content-Type-Options` y `Referrer-Policy`, sin
+cachearlo. El iframe debe apuntar a esta ruta propia del backend; nunca se incluye el token en la URL.
 
-Configurar manualmente en Render, cuando BI/Identidad entreguen los datos:
+Configurar en Render:
 
 | Variable | Uso |
 | --- | --- |
-| `ANALITICA_URL` | Base HTTPS real de BI, sin `/embed/movilidad`. No hay URL por defecto. |
-| `ANALITICA_TOKEN_URL` | Endpoint HTTPS de Identidad para `client_credentials` con Basic Auth. |
-| `ANALITICA_AUTH_ISSUER` | Valor exacto de `iss` del emisor del token de servicio. |
-| `ANALITICA_JWK_SET_URI` | JWKS HTTPS de ese emisor para verificar RS256. |
-| `ANALITICA_CLIENT_ID` | Cliente de Movilidad registrado en Identidad. |
-| `ANALITICA_CLIENT_SECRET` | Secreto: guardar solo como variable segura del backend. |
+| `ANALITICA_URL` | Base HTTPS `https://citypass-backend-prod-becqetepcjbqa8c7.brazilsouth-01.azurewebsites.net`. El backend agrega `/embed/movilidad`. |
 | `ANALITICA_CONNECT_TIMEOUT_MS` | Conexión, 2000 ms por defecto. |
 | `ANALITICA_READ_TIMEOUT_MS` | Lectura, 5000 ms por defecto. |
 
-Las URLs HTTP se aceptan solo en loopback para pruebas locales. No se siguen redirecciones.
-Las credenciales deben emitir `aud` que incluya `citypass`, `token_use=service`, `ver=1`
-(entero) y `namespace=com.citypass.movilidad`, además de firma RS256 y vigencia correctas.
-No se copian automáticamente `EVENTBUS_*`: la documentación de EDA describe un emisor simulado,
-y no se ha verificado que sus credenciales sean compatibles con BI. Si Identidad confirma que el
-mismo cliente sirve para ambos, sus valores pueden configurarse explícitamente para BI.
-La caché OAuth se renueva antes del vencimiento y una vez ante 401 de BI.
+Se rechazan redirecciones y respuestas que no sean `text/html`; el tamaño máximo del HTML es 2 MiB.
 
 Sin configuración de BI, el módulo arranca normalmente y solo esta ruta responde 503
 `ANALYTICS_NOT_CONFIGURED`. Los 401/403 de BI se convierten en 502, para no tratar un problema

@@ -22,14 +22,12 @@ public class AnalyticsEmbedController {
     }
 
     @GetMapping("/embed")
-    public ResponseEntity<String> embed(Authentication authentication) {
+    public ResponseEntity<byte[]> embed(Authentication authentication) {
         requireAdministrator(authentication);
-        var embed = client.fetch();
-        return ResponseEntity.ok().contentType(embed.type())
-                .header("Cache-Control", "private, no-store")
-                .header("Content-Security-Policy", AnalyticsHtml.POLICY)
-                .header("Vary", "Authorization")
-                .body(embed.body());
+        var jwt = (Jwt) authentication.getPrincipal();
+        var embed = client.fetch(jwt.getTokenValue());
+        return ResponseEntity.ok().headers(headers -> headers.addAll(embed.headers()))
+                .contentType(embed.type()).body(embed.body());
     }
 
     /** Se ejecuta también cuando el modo local desactiva @PreAuthorize. Nunca usa el usuario demo. */
