@@ -1,6 +1,6 @@
 """Pruebas sin Render, credenciales reales, base compartida ni publicaciones EDA."""
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
@@ -485,6 +485,24 @@ class ScenariosTest(unittest.TestCase):
                 self.assertEqual(set(body), {"stationId"})
         self.assertNotIn("token", self.store.path.read_text().lower())
 
+    def test_exiting_menu_preserves_stock_and_recovery_state_until_reset(self):
+        self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        before = deepcopy(self.api.bikes)
+        self.api.calls.clear()
+        output = io.StringIO()
+        with patch.dict("os.environ", {"MOVILIDAD_ADMIN_TOKEN": "TEST-TOKEN"}), \
+                patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=["invalid", "0"]), \
+                patch.object(demo, "Api", return_value=self.api), patch.object(demo, "prompt_login"), \
+                redirect_stdout(output):
+            self.assertEqual(demo.main(["--state-file", str(self.store.path), "--base-url", self.api.url]), 0)
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.api.bikes, before)
+        self.assertEqual(self.store.load()["phase"], "exito")
+        self.assertIn("Opción inválida", output.getvalue())
+        self.assertIn("Salir no restaura", output.getvalue())
+        self.run_scenario("reset")
+
     def test_lock_prevents_two_local_writers(self):
         with self.store.lock():
             with self.assertRaisesRegex(demo.DemoError, "otra ejecución"):
@@ -499,8 +517,12 @@ class HttpTest(unittest.TestCase):
     def test_cli_borrowing_and_reset_restore_originals_over_http(self):
         self.cli_cycle(relocate_uade=True)
 
-    def cli_cycle(self, relocate_uade):
+    def test_interactive_login_menu_and_reset_over_http(self):
+        self.cli_cycle(relocate_uade=True, interactive=True)
+
+    def cli_cycle(self, relocate_uade, interactive=False):
         backend = FakeApi()
+        auth_calls = []
         if relocate_uade:
             backend.stations.append({"id": 50, "name": "DEPÓSITO", "capacity": 30, "status": "ACTIVE",
                                      "latitude": -34.7, "longitude": -58.5})
@@ -513,12 +535,17 @@ class HttpTest(unittest.TestCase):
                 pass
 
             def dispatch(self):
-                if self.headers.get("Authorization") != "Bearer TEST-HTTP-TOKEN":
-                    self.send_error(401)
-                    return
                 length = int(self.headers.get("Content-Length", "0"))
                 body = json.loads(self.rfile.read(length)) if length else None
-                result = backend.request(self.command, self.path, body)
+                if self.path == "/auth/login":
+                    auth_calls.append((body, self.headers.get("Authorization")))
+                    result = {"access_token": "TEST-HTTP-TOKEN", "refresh_token": "TEST-REFRESH-TOKEN",
+                              "expires_in": 3600, "token_type": "Bearer"}
+                else:
+                    if self.headers.get("Authorization") != "Bearer TEST-HTTP-TOKEN":
+                        self.send_error(401)
+                        return
+                    result = backend.request(self.command, self.path, body)
                 raw = json.dumps(result).encode() if result is not None else b""
                 self.send_response(204 if self.command == "DELETE" else 200)
                 self.send_header("Content-Type", "application/json")
@@ -532,14 +559,36 @@ class HttpTest(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"MOVILIDAD_ADMIN_TOKEN": "TEST-HTTP-TOKEN"}):
+            with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {
+                    "MOVILIDAD_ADMIN_TOKEN": "STALE-IGNORED-TOKEN" if interactive else "TEST-HTTP-TOKEN"}):
                 state_path = str(Path(directory) / "state.json")
-                for command in ("preparar", "sin-anclajes", "sin-bicis", "exito", "reset"):
-                    with self.subTest(command=command), redirect_stdout(io.StringIO()):
-                        flags = ["--trasladar-uade"] if command == "preparar" and relocate_uade else []
-                        exit_code = demo.main([command, "--apply", "--state-file", state_path,
-                                               "--base-url", f"http://127.0.0.1:{server.server_port}",
-                                               "--event-id", "evento-de-prueba", *flags])
+                root = f"http://127.0.0.1:{server.server_port}"
+                if interactive:
+                    output, errors = io.StringIO(), io.StringIO()
+                    with patch("sys.stdin.isatty", return_value=True), \
+                            patch("builtins.input", side_effect=["admin-demo", "9", "7", "evento-de-prueba",
+                                                                 "1", "3", "4", "2", "5", "6", "0"]), \
+                            patch.object(demo.getpass, "getpass", return_value="TEST-PASSWORD") as password_prompt, \
+                            redirect_stdout(output), redirect_stderr(errors):
+                        exit_code = demo.main(["--state-file", state_path, "--base-url", root, "--auth-url", root])
+                    self.assertEqual(errors.getvalue(), "")
+                    self.assertEqual(exit_code, 0)
+                    password_prompt.assert_called_once()
+                    self.assertEqual(auth_calls, [({"username": "admin-demo", "password": "TEST-PASSWORD",
+                                                   "clientId": demo.DEFAULT_CLIENT_ID}, None)])
+                    self.assertIn("Vista previa", output.getvalue())
+                    self.assertIn("PLANETARIO", output.getvalue())
+                    for secret in ("TEST-PASSWORD", "TEST-HTTP-TOKEN", "TEST-REFRESH-TOKEN"):
+                        self.assertNotIn(secret, output.getvalue() + errors.getvalue() + Path(state_path).read_text())
+                    # Solo los dos traslados normales de la original: al depósito y de vuelta.
+                    self.assertEqual(sum(m == "PATCH" and p == "/api/v1/bikes/900/station"
+                                         for m, p, _ in backend.calls), 2)
+                else:
+                    for command in ("preparar", "sin-anclajes", "sin-bicis", "exito", "reset"):
+                        with self.subTest(command=command), redirect_stdout(io.StringIO()):
+                            flags = ["--trasladar-uade"] if command == "preparar" and relocate_uade else []
+                            exit_code = demo.main([command, "--apply", "--state-file", state_path,
+                                                   "--base-url", root, "--event-id", "evento-de-prueba", *flags])
                         self.assertEqual(exit_code, 0)
                         if command == "sin-bicis":
                             self.assertEqual(backend.available(10), 0)
@@ -576,6 +625,100 @@ class HttpTest(unittest.TestCase):
     def test_redirect_is_rejected(self):
         with self.assertRaisesRegex(demo.DemoError, "no se reenvió"):
             demo.NoRedirect().redirect_request(None, None, 302, "Found", {}, "https://another.example")
+
+
+class SessionTest(unittest.TestCase):
+    @staticmethod
+    def tokens(access="access-1", refresh="refresh-1"):
+        return {"access_token": access, "refresh_token": refresh, "expires_in": 3600, "token_type": "Bearer"}
+
+    def test_staff_login_contract_and_rotating_refresh_used_by_the_api(self):
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.opener = Mock()
+        session.opener.open.side_effect = [io.BytesIO(json.dumps(t).encode()) for t in
+                                           (self.tokens(), self.tokens("access-2", "refresh-2"),
+                                            self.tokens("access-3", "refresh-3"))]
+        session.login("admin-demo", "PASSWORD-NOT-STORED")
+        login = session.opener.open.call_args_list[0].args[0]
+        self.assertEqual(login.full_url, demo.DEFAULT_AUTH_URL + "/auth/login")
+        self.assertIsNone(login.get_header("Authorization"))
+        self.assertEqual(json.loads(login.data), {"username": "admin-demo", "password": "PASSWORD-NOT-STORED",
+                                                 "clientId": demo.DEFAULT_CLIENT_ID})
+        self.assertNotIn("password", vars(session))
+        api = demo.Api("https://example.com", session=session)
+        api.opener = Mock()
+        api.opener.open.side_effect = [io.BytesIO(b"{}"), io.BytesIO(b"{}")]
+        for access, refresh in (("access-2", "refresh-1"), ("access-3", "refresh-2")):
+            session.expires_at = 0
+            api.request("GET", "/api/v1/users/me")
+            request = session.opener.open.call_args.args[0]
+            self.assertEqual(request.full_url, demo.DEFAULT_AUTH_URL + "/auth/refresh")
+            self.assertIsNone(request.get_header("Authorization"))
+            self.assertEqual(json.loads(request.data), {"refreshToken": refresh})
+            self.assertEqual(api.opener.open.call_args.args[0].get_header("Authorization"), "Bearer " + access)
+
+    def test_live_token_reused_without_another_login_or_refresh(self):
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.opener = Mock()
+        session.accept_tokens(self.tokens())
+        self.assertEqual(session.token(), "access-1")
+        self.assertEqual(session.token(), "access-1")
+        session.opener.open.assert_not_called()
+
+    def test_unauthorized_write_is_not_retried_and_session_is_cleared(self):
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.accept_tokens(self.tokens())
+        api = demo.Api("https://example.com", session=session)
+        api.opener = Mock()
+        api.opener.open.side_effect = HTTPError("https://example.com", 401, "Unauthorized", {}, io.BytesIO())
+        with self.assertRaises(demo.ApiError):
+            api.request("PATCH", "/api/v1/bikes/900/station", {"stationId": 50})
+        self.assertEqual(api.opener.open.call_count, 1)
+        self.assertIsNone(session.access_token)
+        self.assertIsNone(session.refresh_token)
+
+    def test_failed_refresh_is_not_reused_or_exposed(self):
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        session.accept_tokens(self.tokens())
+        session.expires_at = 0
+        session.opener = Mock()
+        session.opener.open.side_effect = HTTPError(session.url, 401, "Unauthorized", {}, io.BytesIO(b"refresh-1"))
+        for _ in range(2):
+            with self.assertRaises(demo.DemoError) as caught:
+                session.token()
+            self.assertNotIn("refresh-1", str(caught.exception))
+        self.assertEqual(session.opener.open.call_count, 1)
+        self.assertIsNone(session.access_token)
+        self.assertIsNone(session.refresh_token)
+
+    def test_citizen_or_non_admin_login_cannot_start_inventory_work(self):
+        api = FakeApi()
+        api.profile = {"type": "CITIZEN", "role": "USER"}
+        session = demo.StaffSession(demo.DEFAULT_AUTH_URL, demo.DEFAULT_CLIENT_ID)
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="ciudadano"), \
+                patch.object(demo.getpass, "getpass", return_value="TEST-PASSWORD"), \
+                patch.object(session, "login"), redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(demo.DemoError, "ADMIN"):
+                demo.prompt_login(api, session)
+        self.assertFalse(any(m != "GET" for m, _, _ in api.calls))
+        self.assertIsNone(session.access_token)
+
+    def test_wrong_backend_state_stops_before_prompting_or_sending_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory) / "state.json"
+            state.write_text(json.dumps({"version": 1, "url": "https://another.example"}))
+            with patch("sys.stdin.isatty", return_value=True), patch("builtins.input") as username, \
+                    patch.object(demo.getpass, "getpass") as password, \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertEqual(demo.main(["--state-file", str(state)]), 1)
+            username.assert_not_called()
+            password.assert_not_called()
+
+    def test_non_interactive_menu_stops_without_prompting(self):
+        with patch("sys.stdin.isatty", return_value=False), patch("builtins.input") as prompt, \
+                redirect_stderr(io.StringIO()):
+            self.assertEqual(demo.main([]), 1)
+        prompt.assert_not_called()
 
 
 if __name__ == "__main__":

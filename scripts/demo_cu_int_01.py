@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Prepara inventario real de prueba mediante las APIs normales de Movilidad.
 
-Python 3.10+, sin dependencias. Por defecto solo muestra un plan; --apply lo ejecuta.
-Usar un token de personal ADMIN en MOVILIDAD_ADMIN_TOKEN (o ingresarlo sin eco).
-No modifica estaciones, contratos, recomendaciones ni el gateway. Solo con
---trasladar-uade puede mover temporalmente las bicis AVAILABLE originales de UADE.
+Python 3.10+, sin dependencias. Sin argumentos abre un menú y pide las credenciales
+de personal ADMIN de Movilidad. Conserva y renueva el token solo en memoria hasta
+salir; no guarda la contraseña. Los comandos directos también aceptan
+MOVILIDAD_ADMIN_TOKEN y solo muestran un plan; --apply los ejecuta.
+No modifica estaciones, contratos, recomendaciones ni el gateway. La opción 1
+del menú (o preparar --trasladar-uade) permite trasladar temporalmente las bicis
+AVAILABLE originales de UADE.
 
 Ejemplos (desde la raíz del backend):
+  python scripts/demo_cu_int_01.py
   python scripts/demo_cu_int_01.py preparar
   python scripts/demo_cu_int_01.py preparar --apply
   python scripts/demo_cu_int_01.py preparar --trasladar-uade
@@ -42,6 +46,7 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unicodedata
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
@@ -53,12 +58,21 @@ NAMES = {"uade": "UADE", "independencia": "INDEPENDENCIA", "planetario": "PLANET
          "urquiza": "GENERAL URQUIZA"}
 SCENARIOS = ("exito", "sin-anclajes", "sin-bicis")
 DEFAULT_URL = "https://movilidad-backend.onrender.com"
+DEFAULT_AUTH_URL = "https://api.citypass-login.pp.ua"
+DEFAULT_CLIENT_ID = "citypass-movilidad-web"
 STATE_PATH = Path(__file__).resolve().parents[1] / ".demo-cu-int-01" / "state.json"
 MAX_BIKES = 200
 
 
 class DemoError(Exception):
     """Error operativo seguro para mostrar en la terminal."""
+
+
+class ApiError(DemoError):
+    def __init__(self, status, method, path):
+        self.status = status
+        super().__init__(f"API HTTP {status} en {method} {path.split('?')[0]}. "
+                         "Verificá permisos, vigencia de la sesión y disponibilidad del servicio.")
 
 
 def require(condition, message):
@@ -85,31 +99,109 @@ class NoRedirect(HTTPRedirectHandler):
         raise DemoError("El backend redirigió la petición. Revisá --base-url; no se reenvió el token.")
 
 
+def json_request(opener, url, method, path, body=None, token=None, timeout=15):
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = Request(url + path, method=method,
+                      data=None if body is None else json.dumps(body).encode("utf-8"), headers=headers)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(4 * 1024 * 1024 + 1)
+            require(len(raw) <= 4 * 1024 * 1024, "La respuesta de la API supera 4 MiB.")
+            return json.loads(raw) if raw else None
+    except HTTPError as error:
+        # No imprimir cuerpos remotos, credenciales ni cabeceras.
+        raise ApiError(error.code, method, path) from None
+    except (URLError, TimeoutError, OSError, ValueError):
+        raise DemoError("No se obtuvo una respuesta JSON válida del servicio. "
+                        "Revisá conexión/URL y despertá Render antes de la presentación.") from None
+
+
+class StaffSession:
+    """El mismo login de personal que el frontend. Tokens solo durante este proceso."""
+    def __init__(self, url, client_id):
+        self.url = base_url(url)
+        self.client_id = client_id
+        self.opener = build_opener(NoRedirect())
+        self.clear()
+
+    def clear(self):
+        self.access_token = None
+        self.refresh_token = None
+        self.expires_at = 0
+
+    def accept_tokens(self, response):
+        require(isinstance(response, dict)
+                and all(isinstance(response.get(k), str) and response[k].strip()
+                        for k in ("access_token", "refresh_token"))
+                and isinstance(response.get("expires_in"), (int, float))
+                and not isinstance(response["expires_in"], bool)
+                and math.isfinite(response["expires_in"]) and response["expires_in"] > 0,
+                "El login no devolvió los tokens de personal esperados. Revisá --auth-url y --client-id.")
+        self.access_token = response["access_token"]
+        self.refresh_token = response["refresh_token"]
+        self.expires_at = time.monotonic() + response["expires_in"]
+
+    def login(self, username, password):
+        self.clear()
+        response = json_request(self.opener, self.url, "POST", "/auth/login",
+                                {"username": username, "password": password, "clientId": self.client_id})
+        self.accept_tokens(response)
+
+    def token(self):
+        require(self.access_token, "Iniciá sesión nuevamente con la opción 8 del menú.")
+        if time.monotonic() >= self.expires_at - 30:
+            try:
+                response = json_request(self.opener, self.url, "POST", "/auth/refresh",
+                                        {"refreshToken": self.refresh_token})
+                self.accept_tokens(response)
+            except DemoError:
+                # Una respuesta perdida puede haber rotado el refresh token. No reusarlo.
+                self.clear()
+                raise DemoError("No se pudo renovar la sesión. Iniciá sesión nuevamente (opción 8).") from None
+        return self.access_token
+
+
 class Api:
-    def __init__(self, url, token, timeout=15):
+    def __init__(self, url, token=None, timeout=15, session=None):
         self.url = base_url(url)
         self.token = token
         self.timeout = timeout
+        self.session = session
         self.opener = build_opener(NoRedirect())
 
     def request(self, method, path, body=None):
         require(path.startswith("/api/v1/"), "Ruta de API inválida.")
-        request = Request(self.url + path, method=method,
-                          data=None if body is None else json.dumps(body).encode("utf-8"),
-                          headers={"Authorization": "Bearer " + self.token,
-                                   "Accept": "application/json", "Content-Type": "application/json"})
+        token = self.session.token() if self.session else self.token
         try:
-            with self.opener.open(request, timeout=self.timeout) as response:
-                raw = response.read(4 * 1024 * 1024 + 1)
-                require(len(raw) <= 4 * 1024 * 1024, "La respuesta de la API supera 4 MiB.")
-                return json.loads(raw) if raw else None
-        except HTTPError as error:
-            # No imprimir cuerpos remotos, credenciales ni cabeceras.
-            raise DemoError(f"API HTTP {error.code} en {method} {path.split('?')[0]}. "
-                            "Verificá permisos, vigencia del token y disponibilidad del servicio.") from None
-        except (URLError, TimeoutError, OSError, ValueError):
-            raise DemoError("No se obtuvo una respuesta JSON válida del backend. "
-                            "Revisá conexión/URL y despertá Render antes de la presentación.") from None
+            return json_request(self.opener, self.url, method, path, body, token, self.timeout)
+        except ApiError as error:
+            if error.status == 401 and self.session:
+                self.session.clear()
+            raise  # No repetir automáticamente una escritura que pudo haberse confirmado.
+
+
+def require_admin(profile):
+    require(isinstance(profile, dict) and profile.get("type") == "STAFF" and profile.get("role") == "ADMIN",
+            "Se necesita una cuenta STAFF con rol ADMIN en Movilidad.")
+
+
+def prompt_login(api, session):
+    require(sys.stdin.isatty(), "Ejecutá desde una terminal para ingresar tus credenciales, o definí MOVILIDAD_ADMIN_TOKEN.")
+    print(f"Login de personal de Movilidad: {session.url}")
+    username = input("Usuario: ").strip()
+    password = getpass.getpass("Contraseña (sin eco): ")
+    require(username and password, "El usuario y la contraseña no pueden estar vacíos.")
+    api.token = None
+    api.session = session
+    try:
+        session.login(username, password)
+        require_admin(api.request("GET", "/api/v1/users/me"))
+    except DemoError:
+        session.clear()
+        raise
+    print("Sesión ADMIN iniciada. El token se conserva solo mientras el script está abierto.")
 
 
 def fingerprint(bike):
@@ -508,8 +600,7 @@ def run(api, store, command, apply=False, overrides=None, minimum=5, event_id=No
     state = store.load()
     require(state is None or state.get("url") == api.url, "El estado pertenece a otro backend; no se modifica ninguno.")
     profile = api.request("GET", "/api/v1/users/me")
-    require(isinstance(profile, dict) and profile.get("type") == "STAFF" and profile.get("role") == "ADMIN",
-            "Se necesita una cuenta STAFF con rol ADMIN en Movilidad.")
+    require_admin(profile)
     stations, bikes = read_inventory(api)
     if state and state.get("pending"):
         recover_pending(state, bikes)
@@ -572,12 +663,80 @@ def run(api, store, command, apply=False, overrides=None, minimum=5, event_id=No
     return True if resetting else check_recommendations(api, state, scenario, event_id, origin)
 
 
+def show_error(error, applied=False):
+    # Errores inesperados de formatos no deben mostrar respuestas ni secretos.
+    message = str(error) if isinstance(error, DemoError) else "Formato/estado local inesperado; conservá el archivo de sesión."
+    print("ERROR: " + message, file=sys.stderr)
+    if applied:
+        print("Si hubo escrituras, pueden ser parciales: revisá estado y luego reset. No borres el archivo de sesión.", file=sys.stderr)
+    else:
+        print("Esta ejecución no modificó inventario.", file=sys.stderr)
+
+
+def interactive_menu(api, store, session, args, overrides, origin):
+    choices = {"1": "preparar", "2": "exito", "3": "sin-anclajes", "4": "sin-bicis",
+               "5": "estado", "6": "reset", "9": "preparar"}
+    event_id = args.event_id
+    print(f"\nBackend: {api.url}\nEstado de la demo: {store.path}")
+    try:
+        while True:
+            print("\nCU-INT-01 — Menú de la demo")
+            print("1. Preparar demo y trasladar temporalmente las bicicletas originales de UADE")
+            print("2. Éxito: UADE con bicicletas y PLANETARIO con anclajes")
+            print("3. Sin anclajes en PLANETARIO")
+            print("4. Sin bicicletas en UADE")
+            print("5. Consultar estado")
+            print("6. Reset: devolver las originales y dar de baja las bicicletas de la demo")
+            print(f"7. Configurar evento de Espacios (actual: {event_id or 'sin configurar'})")
+            print("8. Iniciar sesión nuevamente")
+            print("9. Ver el plan de preparación sin modificar inventario")
+            print("0. Salir")
+            choice = input("Elegí una opción: ").strip()
+            if choice == "0":
+                break
+            if choice == "7":
+                event_id = input("ID del evento activo de Espacios (vacío para omitir validación): ").strip() or None
+                continue
+            if choice not in choices and choice != "8":
+                print("Opción inválida. Elegí un número del menú.")
+                continue
+            applied = choice in ("1", "2", "3", "4", "6")
+            try:
+                if choice == "8":
+                    prompt_login(api, session)
+                    continue
+                command = choices[choice]
+                options = dict(overrides=overrides, minimum=args.min_bikes, event_id=event_id, origin=origin,
+                               relocate_uade=command == "preparar", parking_id=args.deposito_id)
+                if applied:
+                    with store.lock():
+                        success = run(api, store, command, True, **options)
+                else:
+                    success = run(api, store, command, False, **options)
+                if not success:
+                    print("El inventario se preparó, pero la API eligió otra recomendación. Revisá el resultado mostrado.")
+            except (DemoError, OSError, KeyError, TypeError, StopIteration) as error:
+                show_error(error, applied)
+                if isinstance(error, ApiError) and error.status == 401:
+                    print("Si la sesión venció o fue revocada, volvé a ingresar con la opción 8.")
+    except (EOFError, KeyboardInterrupt):
+        print("\nMenú interrumpido.")
+    state = store.load()
+    if state and state.get("phase") != "cerrado":
+        print("La demo sigue preparada. Salir no restaura las bicicletas: volvé al menú y elegí 6 para completar reset.")
+    print("Sesión de consola finalizada. No se guardaron credenciales ni tokens en archivos.")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=("preparar", *SCENARIOS, "reset", "estado"))
+    parser.add_argument("command", nargs="?", default="menu", choices=("menu", "preparar", *SCENARIOS, "reset", "estado"))
     parser.add_argument("--base-url", default=os.environ.get("MOVILIDAD_API_URL", DEFAULT_URL))
+    parser.add_argument("--auth-url", default=os.environ.get("MOVILIDAD_AUTH_URL", DEFAULT_AUTH_URL),
+                        help="URL raíz del login de personal, igual a la del frontend.")
+    parser.add_argument("--client-id", default=os.environ.get("MOVILIDAD_CLIENT_ID", DEFAULT_CLIENT_ID))
     parser.add_argument("--state-file", type=Path, default=STATE_PATH)
-    parser.add_argument("--apply", action="store_true", help="Ejecutar las escrituras mostradas en el plan.")
+    parser.add_argument("--apply", action="store_true", help="Ejecutar un comando directo. En el menú se ejecuta la opción elegida.")
     parser.add_argument("--station", action="append", default=[], metavar="ALIAS=ID_INTERNO",
                         help="Desambiguar uade, independencia, planetario o urquiza. No usar IDs externos.")
     parser.add_argument("--min-bikes", type=int, default=5, help="Mínimo en UADE e INDEPENDENCIA al preparar (default: 5).")
@@ -590,12 +749,18 @@ def main(argv=None):
     parser.add_argument("--origin-lat", type=float, help="Latitud de partida usada en Espacios.")
     parser.add_argument("--origin-lng", type=float, help="Longitud de partida usada en Espacios.")
     args = parser.parse_args(argv)
+    api, session = None, None
+    may_have_writes = False
     try:
         url = base_url(args.base_url)
+        auth_url = base_url(args.auth_url)
+        require(args.client_id.strip(), "--client-id no puede estar vacío.")
+        require(args.command != "menu" or sys.stdin.isatty(), "El menú requiere una terminal interactiva.")
         require(1 <= args.min_bikes <= 30, "--min-bikes debe estar entre 1 y 30.")
-        require(args.deposito_id is None or (args.deposito_id > 0 and args.trasladar_uade),
+        require(args.deposito_id is None or (args.deposito_id > 0 and (args.trasladar_uade or args.command == "menu")),
                 "--deposito-id requiere un ID positivo y --trasladar-uade.")
-        require(not args.trasladar_uade or args.command == "preparar", "--trasladar-uade se indica solamente al preparar.")
+        require(not args.trasladar_uade or args.command in ("preparar", "menu"),
+                "--trasladar-uade se indica solamente al preparar.")
         overrides = {}
         for item in args.station:
             alias, separator, value = item.partition("=")
@@ -609,12 +774,21 @@ def main(argv=None):
             require(math.isfinite(args.origin_lat) and math.isfinite(args.origin_lng)
                     and abs(args.origin_lat) <= 90 and abs(args.origin_lng) <= 180, "Origen fuera de rango.")
             origin = (args.origin_lat, args.origin_lng)
+        store = Store(args.state_file)
+        state = store.load()
+        require(state is None or state.get("url") == url, "El estado pertenece a otro backend; no se modifica ninguno.")
+        session = StaffSession(auth_url, args.client_id)
         token = os.environ.get("MOVILIDAD_ADMIN_TOKEN", "").strip()
-        if not token and sys.stdin.isatty():
-            token = getpass.getpass("Token ADMIN de Movilidad (sin eco): ").strip()
-        require(token, "Definí MOVILIDAD_ADMIN_TOKEN o ejecutá desde una terminal interactiva. No guardes el token en archivos.")
-        api, store = Api(url, token), Store(args.state_file)
+        api = Api(url, token)
+        if token and args.command != "menu":
+            require_admin(api.request("GET", "/api/v1/users/me"))
+        else:
+            prompt_login(api, session)
+        if args.command == "menu":
+            may_have_writes = True
+            return interactive_menu(api, store, session, args, overrides, origin)
         if args.apply:
+            may_have_writes = True
             with store.lock():
                 success = run(api, store, args.command, True, overrides, args.min_bikes, args.event_id, origin,
                               args.trasladar_uade, args.deposito_id)
@@ -623,14 +797,16 @@ def main(argv=None):
                           args.trasladar_uade, args.deposito_id)
         return 0 if success else 2
     except (DemoError, OSError, KeyError, TypeError, StopIteration) as error:
-        # Errores inesperados de formatos no deben mostrar respuestas ni secretos.
-        message = str(error) if isinstance(error, DemoError) else "Formato/estado local inesperado; conservá el archivo de sesión."
-        print("ERROR: " + message, file=sys.stderr)
-        if args.apply:
-            print("Si hubo escrituras, pueden ser parciales: revisá estado y luego reset. No borres el archivo de sesión.", file=sys.stderr)
-        else:
-            print("Esta ejecución fue una vista previa: no modificó inventario.", file=sys.stderr)
+        show_error(error, may_have_writes)
         return 1
+    except (EOFError, KeyboardInterrupt):
+        print("\nEjecución interrumpida. Conservá el archivo de sesión para completar reset si había una demo preparada.")
+        return 130
+    finally:
+        if session:
+            session.clear()
+        if api:
+            api.token = None
 
 
 if __name__ == "__main__":
