@@ -153,8 +153,11 @@ class TripFlowIntegrationTest {
         assertThat(event.path("estacionFin").textValue()).isEqualTo(destination.getId().toString());
         assertThat(event.path("latitudFin").doubleValue()).isEqualTo(destination.getLatitude().doubleValue());
         assertThat(event.path("longitudFin").doubleValue()).isEqualTo(destination.getLongitude().doubleValue());
-        assertThat(Instant.parse(event.path("horaFinalizacion").asText()))
-                .isAfterOrEqualTo(Instant.parse(event.path("horaInicio").asText()));
+        Instant horaInicio = Instant.parse(event.path("horaInicio").asText());
+        Instant horaFinalizacion = Instant.parse(event.path("horaFinalizacion").asText());
+        assertThat(horaFinalizacion)
+                .as("horaInicio=%s, horaFinalizacion=%s", horaInicio, horaFinalizacion)
+                .isAfterOrEqualTo(horaInicio);
         assertThat(event.path("createdAt").textValue()).isEqualTo(event.path("horaFinalizacion").textValue());
         assertThat(event.path("causaId").isNull()).isTrue();
         assertThat(event.path("causaTipo").isNull()).isTrue();
