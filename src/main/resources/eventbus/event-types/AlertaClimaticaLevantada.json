@@ -1,0 +1,14 @@
+{
+  "name": "AlertaClimaticaLevantada",
+  "fields": [
+    { "name": "alertaId", "type": "string" },
+    { "name": "estacionesRestablecidas", "type": { "type": "array", "items": { "type": "record", "name": "EstacionClimaticaRestablecida", "fields": [
+      { "name": "id", "type": "string" },
+      { "name": "nombre", "type": "string" },
+      { "name": "barrio", "type": "string" },
+      { "name": "latitud", "type": "double" },
+      { "name": "longitud", "type": "double" }
+    ] } } },
+    { "name": "levantadaEn", "type": "long" }
+  ]
+}

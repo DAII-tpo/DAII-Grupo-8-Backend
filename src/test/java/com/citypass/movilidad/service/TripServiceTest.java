@@ -5,8 +5,10 @@ import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
+import com.citypass.movilidad.exception.ClimateTripException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
+import com.citypass.movilidad.model.ClimateAlert;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.Trip;
 import com.citypass.movilidad.model.User;
@@ -46,6 +48,7 @@ class TripServiceTest {
     private BikeService bikeService;
     private TripEventPublisher eventPublisher;
     private BikeIncidentRepository incidentRepository;
+    private ClimatePolicyService climatePolicy;
     private TripService service;
 
     @BeforeEach
@@ -55,8 +58,10 @@ class TripServiceTest {
         bikeService = mock(BikeService.class);
         eventPublisher = mock(TripEventPublisher.class);
         incidentRepository = mock(BikeIncidentRepository.class);
+        climatePolicy = mock(ClimatePolicyService.class);
         service = new TripService(tripRepository, userRepository, bikeService, eventPublisher,
-                incidentRepository);
+                incidentRepository, climatePolicy);
+        when(climatePolicy.effectiveAlert(any(Station.class))).thenReturn(Optional.empty());
         when(tripRepository.save(any(Trip.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -89,6 +94,45 @@ class TripServiceTest {
         assertThat(saved.getValue().getBike()).isSameAs(bike);
         assertThat(saved.getValue().getOriginStation()).isSameAs(origin);
         verify(eventPublisher).tripStarted(saved.getValue());
+    }
+
+    @Test
+    void mediumClimateRequiresExplicitRiskAcceptance() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Station origin = station(10L, "Centro");
+        Bike bike = bike(5L, BikeStatus.AVAILABLE, origin);
+        ClimateAlert alert = new ClimateAlert();
+        alert.setSeverity(ClimateAlert.Severity.MEDIA);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        when(climatePolicy.effectiveAlert(origin)).thenReturn(Optional.of(alert));
+
+        assertThatThrownBy(() -> service.startTrip(1L, new TripStartRequest(5L)))
+                .isInstanceOf(ClimateTripException.class)
+                .extracting("code").isEqualTo("CONFIRMACION_RIESGO_CLIMATICO_REQUERIDA");
+        verify(bikeService, never()).checkOutForTrip(any(), any());
+        verify(tripRepository, never()).save(any());
+
+        when(bikeService.checkOutForTrip(bike, user)).thenReturn(origin);
+        assertThat(service.startTrip(1L, new TripStartRequest(5L, true)).status())
+                .isEqualTo(TripStatus.ACTIVE);
+    }
+
+    @Test
+    void highClimateBlocksPickupEvenWhenRiskAccepted() {
+        User user = user(1L, UserStatus.ACTIVE);
+        Station origin = station(10L, "Centro");
+        Bike bike = bike(5L, BikeStatus.AVAILABLE, origin);
+        ClimateAlert alert = new ClimateAlert();
+        alert.setSeverity(ClimateAlert.Severity.ALTA);
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        when(climatePolicy.effectiveAlert(origin)).thenReturn(Optional.of(alert));
+
+        assertThatThrownBy(() -> service.startTrip(1L, new TripStartRequest(5L, true)))
+                .isInstanceOf(ClimateTripException.class)
+                .extracting("code").isEqualTo("ALQUILER_BLOQUEADO_POR_CLIMA");
+        verify(bikeService, never()).checkOutForTrip(any(), any());
     }
 
     @Test
@@ -282,8 +326,8 @@ class TripServiceTest {
 
         // El aislamiento entre usuarios y la exclusión de los viajes en curso están en la consulta,
         // no en un filtrado posterior que se pueda olvidar.
-        verify(tripRepository).findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                eq(1L), eq(TripStatus.COMPLETED), any(Pageable.class));
+        verify(tripRepository).findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripService.FINISHED_STATUSES), any(Pageable.class));
     }
 
     @Test
@@ -293,8 +337,8 @@ class TripServiceTest {
         service.findTripHistory(1L, 2, 5);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(tripRepository).findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                eq(1L), eq(TripStatus.COMPLETED), pageable.capture());
+        verify(tripRepository).findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripService.FINISHED_STATUSES), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(5);
         // El orden lo define el nombre del método del repositorio: un Sort acá lo alteraría.
@@ -510,8 +554,8 @@ class TripServiceTest {
 
     private void givenHistoryPage(Page<Trip> page) {
         when(userRepository.existsById(1L)).thenReturn(true);
-        when(tripRepository.findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                eq(1L), eq(TripStatus.COMPLETED), any(Pageable.class))).thenReturn(page);
+        when(tripRepository.findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                eq(1L), eq(TripService.FINISHED_STATUSES), any(Pageable.class))).thenReturn(page);
     }
 
     private Trip completedTrip(Long id, User user, Instant startedAt, int durationSeconds) {

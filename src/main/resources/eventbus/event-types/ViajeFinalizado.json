@@ -1,0 +1,29 @@
+{
+  "name": "ViajeFinalizado",
+  "fields": [
+    { "name": "viajeId", "type": "string" },
+    { "name": "correlationId", "type": "string" },
+    { "name": "estacionInicio", "type": "string" },
+    { "name": "latitudInicio", "type": "double" },
+    { "name": "longitudInicio", "type": "double" },
+    { "name": "horaInicio", "type": "string" },
+    { "name": "estacionFin", "type": "string" },
+    { "name": "latitudFin", "type": "double" },
+    { "name": "longitudFin", "type": "double" },
+    { "name": "horaFinalizacion", "type": "string" },
+    { "name": "causaId", "type": ["null", "string"], "default": null },
+    {
+      "name": "causaTipo",
+      "type": [
+        "null",
+        {
+          "type": "enum",
+          "name": "CausaFinalizacionViaje",
+          "symbols": ["EVENTO_CLIMATICO", "RECLAMO", "INCIDENTE_VIAL", "EVENTO_PUBLICO", "RESERVA", "EMERGENCIA"]
+        }
+      ],
+      "default": null
+    },
+    { "name": "createdAt", "type": "string" }
+  ]
+}

@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -48,13 +49,15 @@ class EmergencyServiceTest {
     // 02:00 UTC del 29/10 es todavía el 28/10 en Buenos Aires.
     private static final Instant NOW = Instant.parse("2026-10-29T02:00:00Z");
     private static final EmergencyProperties WINDOWS =
-            new EmergencyProperties(Duration.ofSeconds(10), Duration.ofSeconds(60));
+            new EmergencyProperties(Duration.ofSeconds(10), Duration.ofSeconds(60),
+                    "com.citypass.emergencias.EmergenciaActualizada");
 
     private BikeEmergencyRepository emergencyRepository;
     private TripRepository tripRepository;
     private UserRepository userRepository;
     private BikeService bikeService;
     private EventPublisher eventPublisher;
+    private TripEventPublisher tripEvents;
 
     private User user;
     private Bike bike;
@@ -67,6 +70,7 @@ class EmergencyServiceTest {
         userRepository = mock(UserRepository.class);
         bikeService = mock(BikeService.class);
         eventPublisher = mock(EventPublisher.class);
+        tripEvents = mock(TripEventPublisher.class);
         when(emergencyRepository.save(any(BikeEmergency.class))).thenAnswer(invocation -> {
             BikeEmergency emergency = invocation.getArgument(0);
             if (emergency.getId() == null) {
@@ -227,9 +231,77 @@ class EmergencyServiceTest {
         assertThatThrownBy(() -> service(NOW).findCurrent(2L)).isInstanceOf(ResourceNotFoundException.class);
     }
 
+    @Test
+    void laResolucionDeEmergenciasCierraElViajeSinCargoYDejaLaBiciParaRevision() {
+        BikeEmergency emergency = givenPending();
+        emergency.setStatus(EmergencyStatus.REPORTED);
+        trip.setStatus(TripStatus.EMERGENCY);
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(trip));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        Station nearest = Station.builder().id(30L).name("Plaza").build();
+        when(bikeService.parkAfterEmergency(bike, -34.6037, -58.3816, user,
+                "Emergencia EMG-20261028-0091 resuelta: queda para revisión")).thenReturn(nearest);
+        Instant resolvedAt = NOW.plusSeconds(900);
+
+        assertThat(service(NOW).resolveByEmergencias("EMG-20261028-0091", resolvedAt)).isTrue();
+
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.CLOSED_BY_EMERGENCY);
+        assertThat(trip.getDestinationStation()).isSameAs(nearest);
+        assertThat(trip.getEndedAt()).isEqualTo(resolvedAt);
+        assertThat(trip.getDurationSeconds()).isEqualTo(1500);
+        assertThat(emergency.getStatus()).isEqualTo(EmergencyStatus.RESOLVED);
+        assertThat(emergency.getResolvedAt()).isEqualTo(resolvedAt);
+        verify(tripEvents).tripClosedByEmergency(trip, "EMG-20261028-0091", -34.6037, -58.3816);
+    }
+
+    @Test
+    void laResolucionEsIdempotenteYNoTocaEmergenciasAjenasOCanceladas() {
+        BikeEmergency emergency = givenPending();
+        EmergencyService service = service(NOW);
+
+        // Código con otra fecha, código ajeno, o algo que no es un código nuestro.
+        assertThat(service.resolveByEmergencias("EMG-20990101-0091", NOW)).isFalse();
+        assertThat(service.resolveByEmergencias("EMG-20261028-0092", NOW)).isFalse();
+        assertThat(service.resolveByEmergencias("8f3c-emergencias", NOW)).isFalse();
+        assertThat(service.resolveByEmergencias(null, NOW)).isFalse();
+
+        emergency.setStatus(EmergencyStatus.CANCELLED);
+        assertThat(service.resolveByEmergencias("EMG-20261028-0091", NOW)).isFalse();
+        emergency.setStatus(EmergencyStatus.RESOLVED);
+        assertThat(service.resolveByEmergencias("EMG-20261028-0091", NOW)).isFalse();
+
+        verify(bikeService, never()).parkAfterEmergency(any(), anyDouble(), anyDouble(), any(), any());
+        verify(tripRepository, never()).save(any());
+        verifyNoInteractions(tripEvents);
+    }
+
+    @Test
+    void siElViajeYaNoEstaPausadoSoloSeMarcaLaEmergenciaComoResuelta() {
+        BikeEmergency emergency = givenPending();
+        emergency.setStatus(EmergencyStatus.REPORTED);
+        trip.setStatus(TripStatus.COMPLETED);
+        when(tripRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(trip));
+
+        assertThat(service(NOW).resolveByEmergencias("EMG-20261028-0091", NOW)).isTrue();
+
+        assertThat(emergency.getStatus()).isEqualTo(EmergencyStatus.RESOLVED);
+        assertThat(trip.getStatus()).isEqualTo(TripStatus.COMPLETED);
+        verify(bikeService, never()).parkAfterEmergency(any(), anyDouble(), anyDouble(), any(), any());
+        // Ese viaje ya publicó su ViajeFinalizado al terminar.
+        verifyNoInteractions(tripEvents);
+    }
+
+    @Test
+    void elCodigoSeLeeSoloSiTieneLaFormaEsperada() {
+        assertThat(EmergencyService.idFromCode("EMG-20261028-0091")).contains(91L);
+        assertThat(EmergencyService.idFromCode(" EMG-20261028-12345 ")).contains(12345L);
+        assertThat(EmergencyService.idFromCode("EMG-2026-0091")).isEmpty();
+        assertThat(EmergencyService.idFromCode("EMG-20261028-99999999999999999999")).isEmpty();
+    }
+
     private EmergencyService service(Instant now) {
         return new EmergencyService(emergencyRepository, tripRepository, userRepository, bikeService,
-                eventPublisher, WINDOWS, Clock.fixed(now, ZoneOffset.UTC));
+                eventPublisher, tripEvents, WINDOWS, Clock.fixed(now, ZoneOffset.UTC));
     }
 
     private void givenUserAndTrip() {

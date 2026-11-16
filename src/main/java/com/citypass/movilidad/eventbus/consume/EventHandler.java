@@ -2,7 +2,8 @@ package com.citypass.movilidad.eventbus.consume;
 
 /**
  * Procesa los eventos de un tópico del bus. Para consumir un tópico nuevo alcanza con registrar un bean que
- * implemente esta interfaz: el listener se suscribe a los tópicos de todos los handlers.
+ * implemente esta interfaz: el listener se suscribe a los tópicos de todos los handlers. Un mismo tópico puede
+ * tener varios handlers; reciben cada evento en la misma transacción.
  * <p>
  * handle corre dentro de la misma transacción que registra el evento como procesado, así que sus cambios en
  * la base y la marca de "ya procesado" se confirman juntos. Si lanza una excepción, se hace rollback y el

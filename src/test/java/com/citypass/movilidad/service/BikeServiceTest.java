@@ -3,6 +3,7 @@ package com.citypass.movilidad.service;
 import com.citypass.movilidad.dto.BikeCreateRequest;
 import com.citypass.movilidad.dto.BikeResponse;
 import com.citypass.movilidad.dto.BikeStatusChangeRequest;
+import com.citypass.movilidad.dto.RestockBikeTransferRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
@@ -16,6 +17,7 @@ import com.citypass.movilidad.repository.BikeRepository;
 import com.citypass.movilidad.repository.BikeStatusHistoryRepository;
 import com.citypass.movilidad.repository.MaintenanceRecordRepository;
 import com.citypass.movilidad.repository.StationRepository;
+import com.citypass.movilidad.repository.projection.NearbyStationProjection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,6 +43,7 @@ class BikeServiceTest {
     private StationRepository stationRepository;
     private BikeStatusHistoryRepository historyRepository;
     private MaintenanceRecordRepository maintenanceRepository;
+    private AffectedStationsService affectedStations;
     private BikeService service;
 
     @BeforeEach
@@ -48,7 +52,8 @@ class BikeServiceTest {
         stationRepository = mock(StationRepository.class);
         historyRepository = mock(BikeStatusHistoryRepository.class);
         maintenanceRepository = mock(MaintenanceRecordRepository.class);
-        service = new BikeService(bikeRepository, stationRepository, historyRepository, maintenanceRepository);
+        affectedStations = mock(AffectedStationsService.class);
+        service = new BikeService(bikeRepository, stationRepository, historyRepository, maintenanceRepository, affectedStations);
         when(bikeRepository.save(any(Bike.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -88,12 +93,12 @@ class BikeServiceTest {
     @Test
     void rejectsTransferWhileBikeIsInUse() {
         Bike bike = bike(BikeStatus.IN_USE, null);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
 
-        assertThatThrownBy(() -> service.transfer(1L, 20L))
+        assertThatThrownBy(() -> service.transfer(1L, 20L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("IN_USE");
-        verify(stationRepository, never()).findByIdAndDeletedAtIsNull(any());
+        verify(stationRepository, never()).findByIdAndDeletedAtIsNullForUpdate(any());
     }
 
     @Test
@@ -203,28 +208,87 @@ class BikeServiceTest {
     void transfersBikeToActiveStation() {
         Station origin = activeStation(10L, 20);
         Station destination = activeStation(20L, 20);
-        Bike bike = bike(BikeStatus.MAINTENANCE, origin);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
-        when(stationRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(destination));
+        Bike bike = bike(BikeStatus.AVAILABLE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
 
-        assertThat(service.transfer(1L, 20L).stationId()).isEqualTo(20L);
+        assertThat(service.transfer(1L, 20L, 8L).stationId()).isEqualTo(20L);
+        verify(affectedStations).registerFestivalTransfer(8L, destination);
+    }
+
+    @Test
+    void transfersOnlyConfirmedBikesAndRegistersOneAffectation() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 20);
+        Bike first = bike(BikeStatus.AVAILABLE, origin);
+        Bike second = bike(BikeStatus.AVAILABLE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(first));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(second));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(origin));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.saveAll(List.of(first, second))).thenReturn(List.of(first, second));
+
+        var moved = service.transferForRestock(new RestockBikeTransferRequest(10L, 20L, 8L, Set.of(2L, 1L)));
+
+        assertThat(moved).extracting(BikeResponse::stationId).containsExactly(20L, 20L);
+        verify(affectedStations).registerFestivalTransfer(8L, destination);
+    }
+
+    @Test
+    void rejectsTheWholeRestockTripWhenASelectedBikeHasMoved() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 20);
+        Bike first = bike(BikeStatus.AVAILABLE, origin);
+        Bike second = bike(BikeStatus.AVAILABLE, destination);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(first));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(second));
+        var request = new RestockBikeTransferRequest(10L, 20L, 8L, Set.of(1L, 2L));
+
+        assertThatThrownBy(() -> service.transferForRestock(request))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("ya no está disponible en la estación de origen");
+        assertThat(first.getStation()).isSameAs(origin);
+        verify(bikeRepository, never()).saveAll(any());
+        verifyNoInteractions(affectedStations);
+    }
+
+    @Test
+    void rejectsTheWholeRestockTripWhenTheDestinationCannotFitAllBikes() {
+        Station origin = activeStation(10L, 20);
+        Station destination = activeStation(20L, 20);
+        Bike first = bike(BikeStatus.AVAILABLE, origin);
+        Bike second = bike(BikeStatus.AVAILABLE, origin);
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(first));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(2L)).thenReturn(Optional.of(second));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(origin));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(destination));
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(20L)).thenReturn(19L);
+        var request = new RestockBikeTransferRequest(10L, 20L, 8L, Set.of(1L, 2L));
+
+        assertThatThrownBy(() -> service.transferForRestock(request))
+                .isInstanceOf(BusinessRuleException.class)
+                .hasMessageContaining("capacidad");
+        assertThat(first.getStation()).isSameAs(origin);
+        assertThat(second.getStation()).isSameAs(origin);
+        verify(bikeRepository, never()).saveAll(any());
+        verifyNoInteractions(affectedStations);
     }
 
     @Test
     void rejectsTransferToSameOrInactiveStation() {
         Station origin = activeStation(10L, 20);
         Bike bike = bike(BikeStatus.AVAILABLE, origin);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
-        when(stationRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(origin));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(origin));
 
-        assertThatThrownBy(() -> service.transfer(1L, 10L))
+        assertThatThrownBy(() -> service.transfer(1L, 10L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("ya se encuentra");
 
         Station inactive = activeStation(20L, 20);
         inactive.setStatus(StationStatus.INACTIVE);
-        when(stationRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(inactive));
-        assertThatThrownBy(() -> service.transfer(1L, 20L))
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(20L)).thenReturn(Optional.of(inactive));
+        assertThatThrownBy(() -> service.transfer(1L, 20L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("habilitada");
     }
@@ -468,10 +532,10 @@ class BikeServiceTest {
     @Test
     void rejectsTransferOfBikeWithMaintenanceInProgress() {
         Bike bike = bike(BikeStatus.MAINTENANCE, null);
-        when(bikeRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(bike));
+        when(bikeRepository.findByIdAndDeletedAtIsNullForUpdate(1L)).thenReturn(Optional.of(bike));
         when(maintenanceRepository.existsByBikeIdAndStatus(1L, MaintenanceStatus.IN_PROGRESS)).thenReturn(true);
 
-        assertThatThrownBy(() -> service.transfer(1L, 20L))
+        assertThatThrownBy(() -> service.transfer(1L, 20L, null))
                 .isInstanceOf(BusinessRuleException.class)
                 .hasMessageContaining("mantenimiento");
         verify(bikeRepository, never()).save(any());
@@ -609,6 +673,53 @@ class BikeServiceTest {
         assertThatThrownBy(() -> service.unblockAfterCancelledEmergency(available, null, "Cancelada"))
                 .isInstanceOf(BusinessRuleException.class);
         assertThat(available.getStatus()).isEqualTo(BikeStatus.AVAILABLE);
+    }
+
+    @Test
+    void trasUnaEmergenciaLaBiciQuedaFueraDeServicioEnLaEstacionMasCercanaConLugar() {
+        Bike bike = bike(BikeStatus.BLOCKED, null);
+        Station full = activeStation(10L, 1);
+        Station withRoom = activeStation(11L, 5);
+        List<NearbyStationProjection> candidates = List.of(candidate(10L), candidate(11L));
+        when(stationRepository.findNearestWithFreeDock(-34.6, -58.38, "ACTIVE", 5)).thenReturn(candidates);
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(10L)).thenReturn(Optional.of(full));
+        when(stationRepository.findByIdAndDeletedAtIsNullForUpdate(11L)).thenReturn(Optional.of(withRoom));
+        // La primera se llenó entre la consulta y el lock.
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(10L)).thenReturn(1L);
+        when(bikeRepository.countByStationIdAndDeletedAtIsNull(11L)).thenReturn(2L);
+
+        Station parked = service.parkAfterEmergency(bike, -34.6, -58.38, null, "Emergencia resuelta");
+
+        assertThat(parked).isSameAs(withRoom);
+        assertThat(bike.getStation()).isSameAs(withRoom);
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+        ArgumentCaptor<BikeStatusHistory> history = ArgumentCaptor.forClass(BikeStatusHistory.class);
+        verify(historyRepository).save(history.capture());
+        assertThat(history.getValue().getNewStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+    }
+
+    @Test
+    void sinEstacionesConLugarLaBiciQuedaFueraDeServicioSinEstacion() {
+        Bike bike = bike(BikeStatus.BLOCKED, null);
+        when(stationRepository.findNearestWithFreeDock(-34.6, -58.38, "ACTIVE", 5)).thenReturn(List.of());
+
+        assertThat(service.parkAfterEmergency(bike, -34.6, -58.38, null, "Emergencia resuelta")).isNull();
+        assertThat(bike.getStation()).isNull();
+        assertThat(bike.getStatus()).isEqualTo(BikeStatus.OUT_OF_SERVICE);
+    }
+
+    @Test
+    void soloSeEstacionaUnaBiciBloqueadaPorEmergencia() {
+        Bike bike = bike(BikeStatus.IN_USE, null);
+
+        assertThatThrownBy(() -> service.parkAfterEmergency(bike, -34.6, -58.38, null, "Emergencia"))
+                .isInstanceOf(BusinessRuleException.class);
+    }
+
+    private static NearbyStationProjection candidate(Long id) {
+        NearbyStationProjection projection = mock(NearbyStationProjection.class);
+        when(projection.getId()).thenReturn(id);
+        return projection;
     }
 
     private BikeStatusHistory history(BikeStatus newStatus, String reason) {

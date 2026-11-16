@@ -28,6 +28,8 @@ public interface StationRepository extends JpaRepository<Station, Long> {
     /** Catálogo global activo: la métrica BI no depende de un destino particular. */
     List<Station> findByStatusAndDeletedAtIsNull(com.citypass.movilidad.model.enums.StationStatus status);
 
+    List<Station> findByNeighborhood_IdInAndDeletedAtIsNull(java.util.Collection<String> neighborhoodIds);
+
     /**
      * Estaciones activas dentro del radio, de la más cercana a la más lejana.
      * Distancia con Haversine (sin funciones espaciales: la base de producción no las soporta).
@@ -65,4 +67,35 @@ public interface StationRepository extends JpaRepository<Station, Long> {
                                              @Param("radiusMeters") int radiusMeters,
                                              @Param("activeStatus") String activeStatus,
                                              @Param("maxResults") int maxResults);
+
+    /**
+     * Estaciones activas con al menos un anclaje libre, de la más cercana a la más lejana, sin límite de radio.
+     * Para dejar una bici que no viene de un viaje normal (por ejemplo, al resolverse una emergencia).
+     */
+    @Query(value = """
+            SELECT * FROM (
+                SELECT s.id        AS id,
+                       s.name      AS name,
+                       s.address   AS address,
+                       s.latitude  AS latitude,
+                       s.longitude AS longitude,
+                       s.capacity  AS capacity,
+                       6370986 * ACOS(GREATEST(-1.0, LEAST(1.0,
+                             COS(RADIANS(:latitude)) * COS(RADIANS(s.latitude))
+                                 * COS(RADIANS(s.longitude) - RADIANS(:longitude))
+                           + SIN(RADIANS(:latitude)) * SIN(RADIANS(s.latitude))
+                       ))) AS distanceMeters
+                FROM stations s
+                WHERE s.deleted_at IS NULL
+                  AND s.status = :activeStatus
+                  AND s.capacity > (SELECT COUNT(*) FROM bikes b
+                                    WHERE b.station_id = s.id AND b.deleted_at IS NULL)
+            ) nearby
+            ORDER BY nearby.distanceMeters ASC
+            LIMIT :maxResults
+            """, nativeQuery = true)
+    List<NearbyStationProjection> findNearestWithFreeDock(@Param("latitude") double latitude,
+                                                          @Param("longitude") double longitude,
+                                                          @Param("activeStatus") String activeStatus,
+                                                          @Param("maxResults") int maxResults);
 }

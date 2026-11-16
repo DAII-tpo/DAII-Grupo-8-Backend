@@ -24,6 +24,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,6 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
 
 /**
  * Flujo completo del ciclo de vida de un viaje (MOV-026, MOV-027, MOV-028) y su historial
@@ -91,6 +94,9 @@ class TripFlowIntegrationTest {
     @Autowired
     private BikeStatusHistoryRepository historyRepository;
 
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @Test
     void recorreElCicloCompletoIniciarConsultarYFinalizar() throws Exception {
         User user = user("ciclo@example.com");
@@ -99,6 +105,7 @@ class TripFlowIntegrationTest {
         Bike bike = bike("TRIP-FLOW-1", origin, BikeStatus.AVAILABLE);
 
         long tripId = startTrip(user, bike);
+        assertThat(publishedTripPayloads(tripId)).isEmpty();
 
         mockMvc.perform(get("/api/v1/trips/active").with(bearer(user)))
                 .andExpect(status().isOk())
@@ -135,6 +142,23 @@ class TripFlowIntegrationTest {
         assertThat(finalTrip.getEndedAt()).isNotNull();
         assertThat(finalTrip.getDurationSeconds()).isNotNull();
 
+        var payloads = publishedTripPayloads(tripId);
+        assertThat(payloads).hasSize(1);
+        var event = objectMapper.readTree(payloads.getFirst());
+        assertThat(event.path("viajeId").textValue()).isEqualTo(Long.toString(tripId));
+        assertThat(event.path("correlationId").textValue()).isEqualTo("viaje-" + tripId);
+        assertThat(event.path("estacionInicio").textValue()).isEqualTo(origin.getId().toString());
+        assertThat(event.path("latitudInicio").doubleValue()).isEqualTo(origin.getLatitude().doubleValue());
+        assertThat(event.path("longitudInicio").doubleValue()).isEqualTo(origin.getLongitude().doubleValue());
+        assertThat(event.path("estacionFin").textValue()).isEqualTo(destination.getId().toString());
+        assertThat(event.path("latitudFin").doubleValue()).isEqualTo(destination.getLatitude().doubleValue());
+        assertThat(event.path("longitudFin").doubleValue()).isEqualTo(destination.getLongitude().doubleValue());
+        assertThat(Instant.parse(event.path("horaFinalizacion").asText()))
+                .isAfterOrEqualTo(Instant.parse(event.path("horaInicio").asText()));
+        assertThat(event.path("createdAt").textValue()).isEqualTo(event.path("horaFinalizacion").textValue());
+        assertThat(event.path("causaId").isNull()).isTrue();
+        assertThat(event.path("causaTipo").isNull()).isTrue();
+
         assertThat(historyRepository.findAllByBikeIdOrderByChangedAtDesc(bike.getId()))
                 .extracting(BikeStatusHistory::getNewStatus)
                 .containsExactlyInAnyOrder(BikeStatus.IN_USE, BikeStatus.AVAILABLE);
@@ -159,6 +183,7 @@ class TripFlowIntegrationTest {
                         .content("{\"destinationStationId\":" + full.getId() + "}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("La estación no tiene capacidad disponible: " + full.getId()));
+        assertThat(publishedTripPayloads(tripId)).isEmpty();
 
         Trip trip = tripRepository.findById(tripId).orElseThrow();
         assertThat(trip.getStatus()).isEqualTo(TripStatus.ACTIVE);
@@ -352,6 +377,14 @@ class TripFlowIntegrationTest {
 
         mockMvc.perform(get("/api/v1/trips/history"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    private List<String> publishedTripPayloads(long tripId) {
+        return jdbc.queryForList("""
+                SELECT payload FROM event_outbox
+                WHERE event_type = 'com.citypass.movilidad.ViajeFinalizado'
+                  AND aggregate_type = 'TRIP' AND aggregate_id = ?
+                """, String.class, Long.toString(tripId));
     }
 
     private long completeTrip(User user, Bike bike, Station destination) throws Exception {

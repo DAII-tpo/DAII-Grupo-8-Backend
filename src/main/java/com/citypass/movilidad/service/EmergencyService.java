@@ -27,12 +27,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Pedido de ayuda (SOS) durante un viaje.
@@ -53,23 +56,26 @@ public class EmergencyService {
     // El código lleva la fecha local de la ciudad, que es la que ve el usuario.
     private static final ZoneId CODE_ZONE = ZoneId.of("America/Argentina/Buenos_Aires");
     private static final DateTimeFormatter CODE_DATE = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(CODE_ZONE);
+    private static final Pattern CODE_PATTERN = Pattern.compile("EMG-\\d{8}-(\\d{1,18})");
 
     private final BikeEmergencyRepository emergencyRepository;
     private final TripRepository tripRepository;
     private final UserRepository userRepository;
     private final BikeService bikeService;
     private final EventPublisher eventPublisher;
+    private final TripEventPublisher tripEvents;
     private final EmergencyProperties properties;
     private final Clock clock;
 
     public EmergencyService(BikeEmergencyRepository emergencyRepository, TripRepository tripRepository,
                             UserRepository userRepository, BikeService bikeService, EventPublisher eventPublisher,
-                            EmergencyProperties properties, Clock clock) {
+                            TripEventPublisher tripEvents, EmergencyProperties properties, Clock clock) {
         this.emergencyRepository = emergencyRepository;
         this.tripRepository = tripRepository;
         this.userRepository = userRepository;
         this.bikeService = bikeService;
         this.eventPublisher = eventPublisher;
+        this.tripEvents = tripEvents;
         this.properties = properties;
         this.clock = clock;
     }
@@ -177,6 +183,56 @@ public class EmergencyService {
         return true;
     }
 
+    /**
+     * Emergencias informó que resolvió el pedido de ayuda con este código: el viaje se cierra sin cargo y la bici
+     * queda fuera de servicio en la estación activa más cercana con lugar, para revisarla. Se publica
+     * ViajeFinalizado con causaTipo EMERGENCIA y el código como causaId.
+     * <p>
+     * Idempotente: un código que no es nuestro, una emergencia cancelada o una ya resuelta no hacen nada (las
+     * reentregas del mismo evento ya las descarta el inbox, pero Emergencias puede publicar RESUELTA más de una
+     * vez). Devuelve true si cerró el viaje.
+     */
+    @Transactional
+    public boolean resolveByEmergencias(String code, Instant resolvedAt) {
+        BikeEmergency emergency = idFromCode(code)
+                .flatMap(emergencyRepository::findByIdForUpdate)
+                .filter(found -> codeOf(found).equals(code))
+                .orElse(null);
+        if (emergency == null) {
+            return false;
+        }
+        if (emergency.getStatus() == EmergencyStatus.RESOLVED || emergency.getStatus() == EmergencyStatus.CANCELLED) {
+            LOG.info("Resolución ignorada: la emergencia {} ya estaba {}", code, emergency.getStatus());
+            return false;
+        }
+
+        Long tripId = emergency.getTrip().getId();
+        Trip trip = tripRepository.findByIdForUpdate(tripId)
+                .orElseThrow(() -> new ResourceNotFoundException("Viaje no encontrado: " + tripId));
+        Station destination = null;
+        if (trip.getStatus() == TripStatus.EMERGENCY) {
+            double latitude = emergency.getLatitude().doubleValue();
+            double longitude = emergency.getLongitude().doubleValue();
+            Bike bike = bikeService.lockActiveBike(emergency.getBike().getId());
+            destination = bikeService.parkAfterEmergency(bike, latitude, longitude, emergency.getUser(),
+                    "Emergencia " + code + " resuelta: queda para revisión");
+            trip.setStatus(TripStatus.CLOSED_BY_EMERGENCY);
+            trip.setDestinationStation(destination);
+            trip.setEndedAt(resolvedAt);
+            trip.setDurationSeconds((int) Math.max(0, Duration.between(trip.getStartedAt(), resolvedAt).toSeconds()));
+            tripRepository.save(trip);
+            // Analítica cuenta los viajes interrumpidos con este evento: va en la misma transacción (outbox).
+            tripEvents.tripClosedByEmergency(trip, code, latitude, longitude);
+        }
+        emergency.setStatus(EmergencyStatus.RESOLVED);
+        emergency.setResolvedAt(resolvedAt);
+        emergencyRepository.save(emergency);
+
+        LOG.info("Emergencia resuelta por Emergencias: emergencia={}, viaje={}, estación={}", code, trip.getId(),
+                destination == null ? "sin lugar disponible" : destination.getId());
+        return true;
+    }
+
     /** Emergencias pendientes cuyo plazo para el cuestionario ya venció. */
     public List<Long> findExpiredPendingIds() {
         return emergencyRepository.findIdsByStatusAndTriageDeadlineBefore(EmergencyStatus.PENDING, clock.instant());
@@ -208,6 +264,22 @@ public class EmergencyService {
         return emergencyRepository.findByIdForUpdate(emergencyId)
                 .filter(found -> found.getUser().getId().equals(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Emergencia no encontrada: " + emergencyId));
+    }
+
+    /** Id de la emergencia a partir de su código, si tiene la forma EMG-yyyyMMdd-NNNN. */
+    static Optional<Long> idFromCode(String code) {
+        if (code == null) {
+            return Optional.empty();
+        }
+        Matcher matcher = CODE_PATTERN.matcher(code.trim());
+        if (!matcher.matches()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Long.parseLong(matcher.group(1)));
+        } catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
     }
 
     /** Código legible: EMG-yyyyMMdd-NNNN, con la fecha local del pedido y el id. */

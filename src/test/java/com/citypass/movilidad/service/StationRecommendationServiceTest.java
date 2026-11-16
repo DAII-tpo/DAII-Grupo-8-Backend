@@ -13,11 +13,14 @@ import com.citypass.movilidad.model.enums.RecommendationPurpose;
 import com.citypass.movilidad.model.enums.RecommendationSource;
 import com.citypass.movilidad.model.enums.RecommendationStatus;
 import org.junit.jupiter.api.BeforeEach;
+import com.citypass.movilidad.repository.StationAffectationRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,17 +44,21 @@ class StationRecommendationServiceTest {
     private NearbyStationService nearbyStationService;
     private RecommendationClient recommendationClient;
     private IncidentProximityFilter incidentFilter;
+    private CicloviaObstructionService obstructionService;
     private StationRecommendationService service;
 
     @BeforeEach
     void setUp() {
         nearbyStationService = mock(NearbyStationService.class);
         recommendationClient = mock(RecommendationClient.class);
+        obstructionService = mock(CicloviaObstructionService.class);
+        when(obstructionService.affectedStationIds(any())).thenReturn(Set.of());
         incidentFilter = mock(IncidentProximityFilter.class);
         when(incidentFilter.apply(any())).thenAnswer(invocation -> invocation.getArgument(0));
         service = new StationRecommendationService(nearbyStationService, recommendationClient,
                 new RecommendationMessageComposer(),
-                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true), incidentFilter);
+                new RecommendationProperties("http://localhost:8000", 1000, 2000, 1000, 15, true),
+                obstructionService, incidentFilter, mock(StationAffectationRepository.class));
     }
 
     @Test
@@ -266,6 +273,65 @@ class StationRecommendationServiceTest {
         StationRecommendationResponse response = service.recommend(LAT, LNG, RecommendationPurpose.PICKUP);
 
         assertThat(response.alternatives()).hasSize(2);
+    }
+
+    @Test
+    void recomiendaParaElEventoUsandoDemandaProyectadaSinAlterarLaDisponibilidadReal() {
+        givenCandidates(diagonalNorte(), cerrito());
+        when(recommendationClient.recommend(any()))
+                .thenThrow(new RecommendationUnavailableException("caído"));
+
+        EventRecommendationResult result = service.recommendEventDestination(
+                LAT, LNG, Map.of(44L, 17, 77L, 2), false);
+
+        assertThat(result.recommendation().station().stationId()).isEqualTo(77L);
+        assertThat(result.recommendation().station().availableSlots()).isEqualTo(17);
+        assertThat(result.projections()).extracting("stationId", "projectedAvailableSlots", "saturationRisk")
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(44L, 0, "SATURATED"),
+                        org.assertj.core.groups.Tuple.tuple(77L, 15, "LOW"));
+    }
+
+    @Test
+    void informaSinEstacionViableCuandoLaDemandaProyectadaOcupaTodosLosAnclajes() {
+        givenCandidates(diagonalNorte(), cerrito());
+
+        EventRecommendationResult result = service.recommendEventDestination(
+                LAT, LNG, Map.of(44L, 17, 77L, 17), false);
+
+        assertThat(result.recommendation().status()).isEqualTo(RecommendationStatus.NO_RECOMMENDATION);
+        assertThat(result.recommendation().reason()).isEqualTo(NoRecommendationReason.NO_VIABLE_STATION);
+        assertThat(result.projections()).hasSize(2);
+        verifyNoInteractions(recommendationClient);
+    }
+
+    @Test
+    void excluyeLaZonaDelEventoYLasEstacionesObstruidas() {
+        NearbyStationResponse lejana = new NearbyStationResponse(88L, "RETIRO", "Dirección de RETIRO",
+                new BigDecimal("-34.5900"), new BigDecimal("-58.3750"), 650, 24, 8, 16);
+        givenCandidates(cerrito(), lejana);
+        when(obstructionService.affectedStationIds(any())).thenReturn(Set.of(88L));
+
+        EventRecommendationResult result = service.recommendEventDestination(
+                LAT, LNG, Map.of(), true);
+
+        assertThat(result.recommendation().status()).isEqualTo(RecommendationStatus.NO_RECOMMENDATION);
+        assertThat(result.recommendation().reason()).isEqualTo(NoRecommendationReason.NO_CANDIDATES);
+        assertThat(result.projections()).isEmpty();
+    }
+
+    @Test
+    void recomiendaUnaDevolucionAlternativaFueraDelRadioDelEvento() {
+        NearbyStationResponse lejana = new NearbyStationResponse(88L, "RETIRO", "Dirección de RETIRO",
+                new BigDecimal("-34.5900"), new BigDecimal("-58.3750"), 650, 24, 8, 16);
+        givenCandidates(cerrito(), lejana);
+        when(recommendationClient.recommend(any()))
+                .thenThrow(new RecommendationUnavailableException("caído"));
+
+        StationRecommendationResponse response = service.recommendAlternativeDropoff(LAT, LNG, 0);
+
+        assertThat(response.station().stationId()).isEqualTo(88L);
+        assertThat(response.purpose()).isEqualTo(RecommendationPurpose.DROPOFF);
     }
 
     private void givenCandidates(NearbyStationResponse... stations) {

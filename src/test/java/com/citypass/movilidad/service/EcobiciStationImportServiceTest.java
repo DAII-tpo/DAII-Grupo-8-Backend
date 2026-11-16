@@ -31,7 +31,8 @@ class EcobiciStationImportServiceTest {
     @BeforeEach
     void setUp() {
         repository = mock(StationRepository.class);
-        service = new EcobiciStationImportService(repository, new EcobiciStationMapper(), new ObjectMapper());
+        service = new EcobiciStationImportService(repository, new EcobiciStationMapper(),
+                new ObjectMapper(), org.mockito.Mockito.mock(com.citypass.movilidad.repository.NeighborhoodRepository.class));
         when(repository.saveAndFlush(any(Station.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 

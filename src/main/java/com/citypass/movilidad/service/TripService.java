@@ -5,8 +5,10 @@ import com.citypass.movilidad.dto.TripEndRequest;
 import com.citypass.movilidad.dto.TripResponse;
 import com.citypass.movilidad.dto.TripStartRequest;
 import com.citypass.movilidad.exception.BusinessRuleException;
+import com.citypass.movilidad.exception.ClimateTripException;
 import com.citypass.movilidad.exception.ResourceNotFoundException;
 import com.citypass.movilidad.model.Bike;
+import com.citypass.movilidad.model.ClimateAlert;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.model.Trip;
 import com.citypass.movilidad.model.User;
@@ -23,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -33,20 +36,24 @@ import java.util.Optional;
 @Transactional(readOnly = true)
 public class TripService {
 
+    static final List<TripStatus> FINISHED_STATUSES = List.of(TripStatus.COMPLETED, TripStatus.CLOSED_BY_EMERGENCY);
+
     private final TripRepository tripRepository;
     private final UserRepository userRepository;
     private final BikeService bikeService;
     private final TripEventPublisher eventPublisher;
     private final BikeIncidentRepository incidentRepository;
+    private final ClimatePolicyService climatePolicy;
 
     public TripService(TripRepository tripRepository, UserRepository userRepository,
                        BikeService bikeService, TripEventPublisher eventPublisher,
-                       BikeIncidentRepository incidentRepository) {
+                       BikeIncidentRepository incidentRepository, ClimatePolicyService climatePolicy) {
         this.tripRepository = tripRepository;
         this.userRepository = userRepository;
         this.bikeService = bikeService;
         this.eventPublisher = eventPublisher;
         this.incidentRepository = incidentRepository;
+        this.climatePolicy = climatePolicy;
     }
 
     @Transactional
@@ -63,6 +70,8 @@ public class TripService {
             throw new BusinessRuleException("El usuario tiene un viaje pausado por una emergencia");
         }
         Bike bike = bikeService.lockActiveBike(request.bikeId());
+        climatePolicy.effectiveAlert(bike.getStation())
+                .ifPresent(alert -> checkClimatePolicy(alert, request));
         Station origin = bikeService.checkOutForTrip(bike, user);
 
         Trip trip = new Trip();
@@ -76,18 +85,34 @@ public class TripService {
         return toResponse(saved);
     }
 
+    private void checkClimatePolicy(ClimateAlert alert, TripStartRequest request) {
+        if (alert.getSeverity() == ClimateAlert.Severity.ALTA
+                || alert.getSeverity() == ClimateAlert.Severity.CRITICA) {
+            throw new ClimateTripException("ALQUILER_BLOQUEADO_POR_CLIMA",
+                    "No se puede retirar una bicicleta por la alerta climática vigente", alert);
+        }
+        if (alert.getSeverity() == ClimateAlert.Severity.MEDIA
+                && !Boolean.TRUE.equals(request.aceptaRiesgoClimatico())) {
+            throw new ClimateTripException("CONFIRMACION_RIESGO_CLIMATICO_REQUERIDA",
+                    "Confirmá que aceptás el riesgo climático antes de iniciar el viaje", alert);
+        }
+    }
+
     /** Viaje en curso del usuario, si tiene: activo o pausado por una emergencia (status EMERGENCY). */
     public Optional<TripResponse> findActiveTrip(Long userId) {
         existingUser(userId);
         return activeTripOf(userId).or(() -> emergencyTripOf(userId)).map(this::toResponse);
     }
 
-    /** Historial paginado de viajes finalizados del usuario, del más reciente al más antiguo. */
+    /**
+     * Historial paginado de viajes finalizados del usuario, del más reciente al más antiguo: los completados y
+     * los cerrados sin cargo por una emergencia.
+     */
     public PagedResponse<TripResponse> findTripHistory(Long userId, int page, int size) {
         existingUser(userId);
         Page<TripResponse> history = tripRepository
-                .findByUserIdAndStatusOrderByStartedAtDescIdDesc(
-                        userId, TripStatus.COMPLETED, PageRequest.of(page, size))
+                .findByUserIdAndStatusInOrderByStartedAtDescIdDesc(
+                        userId, FINISHED_STATUSES, PageRequest.of(page, size))
                 .map(this::toResponse);
         return PagedResponse.of(history);
     }

@@ -1,0 +1,16 @@
+{
+  "name": "EmergenciaSolicitada",
+  "fields": [
+    { "name": "reclamoId", "type": "string" },
+    { "name": "correlationId", "type": ["null", "string"], "default": null },
+    { "name": "origen", "type": "string" },
+    { "name": "tipoEmergencia", "type": "string" },
+    { "name": "prioridad", "type": "string" },
+    { "name": "descripcion", "type": "string" },
+    { "name": "direccion", "type": ["null", "string"], "default": null },
+    { "name": "latitud", "type": "double" },
+    { "name": "longitud", "type": "double" },
+    { "name": "solicitadoAt", "type": { "type": "long", "logicalType": "timestamp-millis" } }
+  ]
+}
+

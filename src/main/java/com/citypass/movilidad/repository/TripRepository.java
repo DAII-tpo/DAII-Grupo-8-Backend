@@ -12,8 +12,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import java.util.List;
+import java.util.Collection;
 
 public interface TripRepository extends JpaRepository<Trip, Long> {
+
+    List<Trip> findByStatusAndOriginStation_IdIn(TripStatus status, Collection<Long> stationIds);
 
     /** Viaje de un usuario en un estado (con ACTIVE: su viaje activo). */
     @EntityGraph(attributePaths = {"bike", "originStation"})
@@ -26,6 +30,11 @@ public interface TripRepository extends JpaRepository<Trip, Long> {
     @EntityGraph(attributePaths = {"bike", "originStation", "destinationStation"})
     Page<Trip> findByUserIdAndStatusOrderByStartedAtDescIdDesc(Long userId, TripStatus status,
                                                                Pageable pageable);
+
+    /** Igual que el anterior, para varios estados finales (completados y cerrados por una emergencia). */
+    @EntityGraph(attributePaths = {"bike", "originStation", "destinationStation"})
+    Page<Trip> findByUserIdAndStatusInOrderByStartedAtDescIdDesc(Long userId, Collection<TripStatus> statuses,
+                                                                 Pageable pageable);
 
     /** Viaje con lock pesimista, para que no se finalice dos veces. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)

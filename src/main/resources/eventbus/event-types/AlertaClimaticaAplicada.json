@@ -1,0 +1,20 @@
+{
+  "name": "AlertaClimaticaAplicada",
+  "fields": [
+    { "name": "alertaId", "type": "string" },
+    { "name": "nivelCriticidad", "type": { "type": "enum", "name": "NivelCriticidadAplicada", "symbols": ["BAJA", "MEDIA", "ALTA", "CRITICA"] } },
+    { "name": "estado", "type": { "type": "enum", "name": "EstadoAplicacionClimatica", "symbols": ["APLICADA", "FALLIDA"] } },
+    { "name": "accionesAplicadas", "type": { "type": "array", "items": "string" } },
+    { "name": "estacionesBloqueadas", "type": { "type": "array", "items": { "type": "record", "name": "EstacionClimaticaBloqueada", "fields": [
+      { "name": "id", "type": "string" },
+      { "name": "nombre", "type": "string" },
+      { "name": "barrio", "type": "string" },
+      { "name": "latitud", "type": "double" },
+      { "name": "longitud", "type": "double" }
+    ] } } },
+    { "name": "cantidadEstacionesBloqueadas", "type": "int" },
+    { "name": "viajesActivosNotificados", "type": "int" },
+    { "name": "aplicadaEn", "type": "long" },
+    { "name": "detalleError", "type": ["null", "string"], "default": null }
+  ]
+}
