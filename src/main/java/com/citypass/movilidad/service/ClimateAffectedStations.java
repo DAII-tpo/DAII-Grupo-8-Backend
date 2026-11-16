@@ -1,6 +1,7 @@
 package com.citypass.movilidad.service;
 
 import com.citypass.movilidad.model.ClimateAlert;
+import com.citypass.movilidad.model.Neighborhood;
 import com.citypass.movilidad.model.Station;
 import com.citypass.movilidad.repository.StationRepository;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,7 @@ public class ClimateAffectedStations {
     }
 
     public static Set<String> neighborhoodIds(ClimateAlert alert) {
-        return alert.getNeighborhoods().stream().map(neighborhood -> neighborhood.getId())
+        return alert.getNeighborhoods().stream().map(Neighborhood::getId)
                 .collect(Collectors.toSet());
     }
 }
