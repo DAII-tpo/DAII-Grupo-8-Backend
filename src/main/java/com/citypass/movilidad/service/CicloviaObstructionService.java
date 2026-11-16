@@ -49,6 +49,10 @@ public class CicloviaObstructionService {
     private static final Logger LOG = LoggerFactory.getLogger(CicloviaObstructionService.class);
     private static final int INFLUENCE_RADIUS_METERS = 500;
     private static final int MAX_AFFECTED_STATIONS = 10;
+    private static final String EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA = "MovilidadObstruccionEvaluada";
+    private static final String RECLAMO_EN_REVISION = "EN_REVISION";
+    private static final String OBJETO_CICLOVIA = "CICLOVIA";
+    private static final String PRIORIDAD_CRITICA = "CRITICA";
 
     private final CicloviaObstructionRepository obstructionRepository;
     private final StationRepository stationRepository;
@@ -67,6 +71,10 @@ public class CicloviaObstructionService {
 
     @Transactional
     public Optional<CicloviaObstruction> procesarReclamoCreado(ReclamoCreadoData data) {
+        return procesarReclamoCreadoInterno(data);
+    }
+
+    private Optional<CicloviaObstruction> procesarReclamoCreadoInterno(ReclamoCreadoData data) {
         if (data == null || data.reclamoId() == null) {
             LOG.warn("ReclamoCreado recibido nulo o sin reclamoId");
             return Optional.empty();
@@ -153,7 +161,7 @@ public class CicloviaObstructionService {
                 requiresTow,
                 clock.millis()
         );
-        eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, data.reclamoId(), evaluadaPayload);
+        eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, data.reclamoId(), evaluadaPayload);
 
         // Si hay riesgo crítico, publicar com.citypass.movilidad.EmergenciaSolicitada
         if (requiresEmergency) {
@@ -163,7 +171,7 @@ public class CicloviaObstructionService {
                     "com.citypass.movilidad",
                     "OBSTRUCCION_CICLOVIA_CRITICA",
                     data.prioridad() != null ? data.prioridad() : "ALTA",
-                    "Vehículo estacionado indebidamente bloqueando ciclovía en " + (data.direccion() != null ? data.direccion() : "zona reportada"),
+                    buildEmergencyDescription(data.titulo(), data.descripcion()),
                     data.direccion(),
                     lat,
                     lon,
@@ -219,7 +227,7 @@ public class CicloviaObstructionService {
                     null, data.barrio(), data.latitud(), data.longitud(), data.objetoAfectadoNuevo(),
                     data.afectaCirculacionNueva(), data.correlationId(), data.reclasificadoAt()
             );
-            return procesarReclamoCreado(reclamoActualizado);
+            return procesarReclamoCreadoInterno(reclamoActualizado);
         }
 
         CicloviaObstruction obstruction = existing.get();
@@ -261,7 +269,7 @@ public class CicloviaObstructionService {
             obstruction.setImpactLevel(ObstructionImpactLevel.BAJO);
             obstruction.setDetourDescription(null);
             obstruction = obstructionRepository.save(obstruction);
-            eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, data.reclamoId(),
+            eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, data.reclamoId(),
                     new MovilidadObstruccionEvaluadaData(data.reclamoId(), data.correlationId(), lat, lon,
                             obstruction.getDireccion(), obstruction.getBarrio(), false, List.of(), "BAJO", null,
                             false, false, clock.millis()));
@@ -282,7 +290,7 @@ public class CicloviaObstructionService {
         obstruction.setEmergencyDispatched(emergencyAlreadyDispatched || requiresEmergency);
         obstruction = obstructionRepository.save(obstruction);
 
-        eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, data.reclamoId(),
+        eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, data.reclamoId(),
                 new MovilidadObstruccionEvaluadaData(data.reclamoId(), data.correlationId(), lat, lon,
                         obstruction.getDireccion(), obstruction.getBarrio(), true, affectedStationIds,
                         impactLevel.name(), detour, requiresEmergency, requiresTow, clock.millis()));
@@ -321,7 +329,7 @@ public class CicloviaObstructionService {
     }
 
     private boolean esRelevanteParaCiclovia(ReclamoCreadoData data) {
-        return "CICLOVIA".equalsIgnoreCase(safe(data.objetoAfectado()).trim())
+        return OBJETO_CICLOVIA.equalsIgnoreCase(safe(data.objetoAfectado()).trim())
                 && Boolean.TRUE.equals(data.afectaCirculacion());
     }
 
@@ -341,9 +349,9 @@ public class CicloviaObstructionService {
     }
 
     private ObstructionImpactLevel evaluateImpactLevel(ReclamoCreadoData data, int affectedStationsCount) {
-        String prioridad = "EN_REVISION".equalsIgnoreCase(safe(data.estado()).trim())
+        String prioridad = RECLAMO_EN_REVISION.equalsIgnoreCase(safe(data.estado()).trim())
                 ? "" : safe(data.prioridad()).toUpperCase(Locale.ROOT);
-        if ("ALTA".equals(prioridad) || "CRITICA".equals(prioridad) || affectedStationsCount >= 3) {
+        if ("ALTA".equals(prioridad) || PRIORIDAD_CRITICA.equals(prioridad) || affectedStationsCount >= 3) {
             return ObstructionImpactLevel.ALTO;
         }
         if ("MEDIA".equals(prioridad) || affectedStationsCount >= 1) {
@@ -354,15 +362,15 @@ public class CicloviaObstructionService {
 
     private boolean isCriticalEmergency(ReclamoCreadoData data) {
         // Una prioridad de modelo en revisión humana no debe disparar despacho de emergencias.
-        if ("EN_REVISION".equalsIgnoreCase(safe(data.estado()).trim())) {
+        if (RECLAMO_EN_REVISION.equalsIgnoreCase(safe(data.estado()).trim())) {
             return false;
         }
         String prioridad = safe(data.prioridad()).toUpperCase(Locale.ROOT);
-        return "ALTA".equals(prioridad) || "CRITICA".equals(prioridad);
+        return "ALTA".equals(prioridad) || PRIORIDAD_CRITICA.equals(prioridad);
     }
 
     private boolean isTowRequired(ReclamoCreadoData data) {
-        return "CICLOVIA".equalsIgnoreCase(safe(data.objetoAfectado()).trim())
+        return OBJETO_CICLOVIA.equalsIgnoreCase(safe(data.objetoAfectado()).trim())
                 && "TRANSITO".equalsIgnoreCase(safe(data.categoria()).trim())
                 && Boolean.TRUE.equals(data.afectaCirculacion());
     }
@@ -370,16 +378,16 @@ public class CicloviaObstructionService {
     private void solicitarEmergenciaSiCorresponde(CicloviaObstruction obstruction, String correlationId) {
         String prioridad = safe(obstruction.getReclamoPrioridad()).toUpperCase(Locale.ROOT);
         if (obstruction.getStatus() != ObstructionStatus.ACTIVE || obstruction.isEmergencyDispatched()
-                || !("ALTA".equals(prioridad) || "CRITICA".equals(prioridad))) {
+                || !("ALTA".equals(prioridad) || PRIORIDAD_CRITICA.equals(prioridad))) {
             return;
         }
         obstruction.setEmergencyDispatched(true);
         obstructionRepository.save(obstruction);
         List<Long> stations = parseIds(obstruction.getAffectedStationIds());
-        boolean requiresTow = "CICLOVIA".equalsIgnoreCase(safe(obstruction.getObjetoAfectado()).trim())
+        boolean requiresTow = OBJETO_CICLOVIA.equalsIgnoreCase(safe(obstruction.getObjetoAfectado()).trim())
                 && "TRANSITO".equalsIgnoreCase(safe(obstruction.getReclamoCategoria()).trim())
                 && Boolean.TRUE.equals(obstruction.getAfectaCirculacion());
-        eventPublisher.publish("MovilidadObstruccionEvaluada", AggregateType.INCIDENT, obstruction.getReclamoId(),
+        eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, obstruction.getReclamoId(),
                 new MovilidadObstruccionEvaluadaData(obstruction.getReclamoId(), correlationId,
                         obstruction.getLatitude().doubleValue(), obstruction.getLongitude().doubleValue(),
                         obstruction.getDireccion(), obstruction.getBarrio(), true, stations,
@@ -394,7 +402,7 @@ public class CicloviaObstructionService {
         EmergenciaSolicitadaData payload = new EmergenciaSolicitadaData(
                 obstruction.getReclamoId(), correlationId, "com.citypass.movilidad",
                 "OBSTRUCCION_CICLOVIA_CRITICA", prioridad,
-                safe(obstruction.getTitulo()) + ". " + safe(obstruction.getDescripcion()),
+                buildEmergencyDescription(obstruction.getTitulo(), obstruction.getDescripcion()),
                 obstruction.getDireccion(), lat, lon, clock.millis());
         eventPublisher.publish("EmergenciaSolicitada", AggregateType.INCIDENT, obstruction.getReclamoId(), payload);
         LOG.warn("Alerta de emergencia emitida para reclamoId={} con prioridad {}",
@@ -404,6 +412,18 @@ public class CicloviaObstructionService {
     private static boolean validCoordinates(double lat, double lon) {
         return Double.isFinite(lat) && Double.isFinite(lon)
                 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    }
+
+    private static String buildEmergencyDescription(String title, String description) {
+        String cleanTitle = title == null ? "" : title.trim();
+        String cleanDescription = description == null ? "" : description.trim();
+        if (cleanTitle.isEmpty()) {
+            return cleanDescription.isEmpty() ? "Obstrucción de ciclovía reportada." : cleanDescription;
+        }
+        if (cleanDescription.isEmpty() || cleanTitle.equalsIgnoreCase(cleanDescription)) {
+            return cleanTitle;
+        }
+        return cleanTitle + ". " + cleanDescription;
     }
 
     private String buildDetourSuggestion(ReclamoCreadoData data) {
