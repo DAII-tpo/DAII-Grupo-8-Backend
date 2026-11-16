@@ -103,6 +103,22 @@ class ScenariosTest(unittest.TestCase):
     def writes(self):
         return [c for c in self.api.calls if c[0] != "GET"]
 
+    def original_uade_stock(self, count=2):
+        self.api.stations.append({"id": 50, "name": "DEPÓSITO ACORDADO", "capacity": 30,
+                                  "status": "ACTIVE", "latitude": -34.7, "longitude": -58.5})
+        originals = [{"id": 900 + i, "code": f"ECO-UADE-{i}", "model": "Stock previo",
+                      "stationId": 10, "status": "AVAILABLE", "updatedAt": f"original-{i}"}
+                     for i in range(count)]
+        self.api.bikes.extend(deepcopy(originals))
+        return originals
+
+    def assert_originals_restored(self, originals):
+        actual = {b["code"]: b for b in self.api.bikes}
+        self.assertEqual(set(actual), {b["code"] for b in originals})
+        for expected in originals:
+            for key in ("id", "code", "model", "stationId", "status"):
+                self.assertEqual(actual[expected["code"]][key], expected[key])
+
     def test_preview_does_not_create_data_or_state(self):
         self.assertTrue(self.run_scenario("preparar", apply=False))
         self.assertEqual(self.writes(), [])
@@ -155,6 +171,197 @@ class ScenariosTest(unittest.TestCase):
             self.run_scenario("preparar")
         self.assertEqual(self.writes(), [])
         self.assertFalse(self.store.path.exists())
+
+    def test_borrowing_preview_lists_originals_without_moving_them(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", apply=False, relocate_uade=True)
+        self.assert_originals_restored(originals)
+        self.assertEqual(self.writes(), [])
+        self.assertFalse(self.store.path.exists())
+        self.assertIn("original de UADE, no se elimina", self.output.getvalue())
+        self.assertIn("DEPÓSITO ACORDADO", self.output.getvalue())
+
+    def test_borrowed_bikes_survive_full_cycle_and_return_to_uade(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        self.assertTrue(all(b["stationId"] == 50 for b in self.api.bikes if b["id"] >= 900))
+        for scenario in demo.SCENARIOS:
+            self.run_scenario(scenario)
+        self.assertEqual(self.api.available(10), 0)
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+        for method, path, _ in self.writes():
+            if method == "DELETE":
+                self.assertLess(int(path.rsplit("/", 1)[1]), 900)
+            self.assertFalse(path.endswith("/status"))
+        self.assertTrue(all(r["returned"] for r in self.store.load()["borrowed"]))
+
+    def test_borrowing_leaves_unavailable_originals_in_place(self):
+        originals = self.original_uade_stock()
+        maintenance = {"id": 950, "code": "EN-MANTENIMIENTO", "stationId": 10,
+                       "status": "MAINTENANCE", "model": "Otra", "updatedAt": "intacto"}
+        self.api.bikes.append(deepcopy(maintenance))
+        self.run_scenario("preparar", relocate_uade=True)
+        self.run_scenario("sin-bicis")
+        self.assertEqual(self.api.available(10), 0)
+        self.assertIn(maintenance, self.api.bikes)
+        self.run_scenario("reset")
+        self.assertIn(maintenance, self.api.bikes)
+        self.api.bikes.remove(maintenance)
+        self.assert_originals_restored(originals)
+
+    def test_borrowing_requires_safe_parking_before_any_write(self):
+        self.original_uade_stock()
+        self.api.stations[-1]["capacity"] = 1
+        with self.assertRaisesRegex(demo.DemoError, "depósito"):
+            self.run_scenario("preparar", relocate_uade=True)
+        self.assertEqual(self.writes(), [])
+        self.assertFalse(self.store.path.exists())
+
+    def test_parking_cannot_be_one_of_the_four_stations_or_near_the_route(self):
+        self.original_uade_stock()
+        with self.assertRaises(demo.DemoError):
+            self.run_scenario("preparar", relocate_uade=True, parking_id=40)
+        self.api.stations[-1]["latitude"] = -34.6
+        self.api.stations[-1]["longitude"] = -58.4
+        with self.assertRaises(demo.DemoError):
+            self.run_scenario("preparar", relocate_uade=True, parking_id=50)
+        self.assertEqual(self.writes(), [])
+
+    def test_lost_borrow_response_can_resume_without_duplicate_transfers(self):
+        originals = self.original_uade_stock()
+        self.api.lose_response = "PATCH"
+        with self.assertRaises(demo.DemoError):
+            self.run_scenario("preparar", relocate_uade=True)
+        self.assertTrue(self.store.load()["pending"]["borrowed"])
+        self.run_scenario("preparar")
+        self.assertEqual(sum(m == "PATCH" and p == "/api/v1/bikes/900/station" for m, p, _ in self.writes()), 1)
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+
+    def test_partial_borrowing_can_be_reset_without_finishing_preparation(self):
+        originals = self.original_uade_stock()
+        self.api.lose_response = "PATCH"
+        with self.assertRaises(demo.DemoError):
+            self.run_scenario("preparar", relocate_uade=True)
+        with self.assertRaisesRegex(demo.DemoError, "Completá preparar"):
+            self.run_scenario("sin-bicis")
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+
+    def test_lost_return_response_can_finish_reset(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        self.api.lose_response = "PATCH"
+        with self.assertRaises(demo.DemoError):
+            self.run_scenario("reset")
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+        self.assertEqual(sum(m == "PATCH" and p == "/api/v1/bikes/900/station" for m, p, _ in self.writes()), 2)
+
+    def test_uncommitted_borrow_and_return_can_be_retried(self):
+        originals = self.original_uade_stock()
+        request = self.api.request
+
+        def fail_transfer(method, path, body=None):
+            if method == "PATCH":
+                raise demo.DemoError("Traslado no confirmado")
+            return request(method, path, body)
+
+        for command in ("preparar", "reset"):
+            with self.subTest(command=command):
+                with patch.object(self.api, "request", side_effect=fail_transfer):
+                    with self.assertRaisesRegex(demo.DemoError, "no confirmado"):
+                        self.run_scenario(command, relocate_uade=command == "preparar")
+                self.assertTrue(self.store.load()["pending"]["borrowed"])
+                self.run_scenario(command)
+        self.assert_originals_restored(originals)
+
+    def test_partial_reset_without_test_pool_must_finish_before_preparing_again(self):
+        originals = self.original_uade_stock()
+        request = self.api.request
+
+        def fail_create(method, path, body=None):
+            if method == "POST":
+                raise demo.DemoError("Alta no confirmada")
+            return request(method, path, body)
+
+        with patch.object(self.api, "request", side_effect=fail_create):
+            with self.assertRaisesRegex(demo.DemoError, "Alta no confirmada"):
+                self.run_scenario("preparar", relocate_uade=True)
+        self.assertTrue(all(b["stationId"] == 50 for b in self.api.bikes))
+
+        def fail_second_return(method, path, body=None):
+            if method == "PATCH" and path == "/api/v1/bikes/901/station":
+                raise demo.DemoError("Segundo regreso no confirmado")
+            return request(method, path, body)
+
+        with patch.object(self.api, "request", side_effect=fail_second_return):
+            with self.assertRaisesRegex(demo.DemoError, "Segundo regreso"):
+                self.run_scenario("reset")
+        self.assertTrue(self.store.load()["borrowed"][0]["returned"])
+        self.api.calls.clear()
+        with self.assertRaisesRegex(demo.DemoError, "reset quedó parcial"):
+            self.run_scenario("preparar")
+        self.assertEqual(self.writes(), [])
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+
+    def test_missing_original_is_not_recreated_or_adopted(self):
+        self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        self.api.bikes[:] = [b for b in self.api.bikes if b["id"] != 900]
+        self.api.calls.clear()
+        with self.assertRaisesRegex(demo.DemoError, "original.*cambió"):
+            self.run_scenario("reset")
+        self.assertEqual(self.writes(), [])
+
+    def test_inactive_original_station_blocks_reset_before_writes(self):
+        self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True, parking_id=50)
+        self.api.stations[0]["status"] = "INACTIVE"
+        self.api.calls.clear()
+        with self.assertRaisesRegex(demo.DemoError, "original debe estar activa"):
+            self.run_scenario("reset")
+        self.assertEqual(self.writes(), [])
+
+    def test_borrowed_bike_in_use_or_modified_blocks_reset_before_deleting_our_pool(self):
+        self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        next(b for b in self.api.bikes if b["id"] == 900)["status"] = "IN_USE"
+        self.api.calls.clear()
+        with self.assertRaisesRegex(demo.DemoError, "original.*cambió"):
+            self.run_scenario("reset")
+        self.assertEqual(self.writes(), [])
+
+    def test_reset_checks_return_capacity_before_deleting_our_pool(self):
+        originals = self.original_uade_stock(count=16)
+        self.run_scenario("preparar", relocate_uade=True)
+        outsider = {"id": 999, "code": "NUEVA-AJENA", "model": "Otra", "stationId": 10,
+                    "status": "AVAILABLE", "updatedAt": "externo"}
+        self.api.bikes.append(outsider)
+        self.api.calls.clear()
+        with self.assertRaisesRegex(demo.DemoError, "No hay lugar.*devolver"):
+            self.run_scenario("reset")
+        self.assertEqual(self.writes(), [])
+        self.api.bikes.remove(outsider)
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+
+    def test_parking_change_stops_scenario_but_does_not_get_reverted_by_reset(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        outsider = {"id": 999, "code": "AJENA-DEPOSITO", "stationId": 50,
+                    "status": "AVAILABLE", "updatedAt": "externo"}
+        self.api.bikes.append(outsider)
+        self.api.calls.clear()
+        with self.assertRaisesRegex(demo.DemoError, "inventario ajeno"):
+            self.run_scenario("sin-anclajes")
+        self.assertEqual(self.writes(), [])
+        self.run_scenario("reset")
+        self.assertIn(outsider, self.api.bikes)
+        self.api.bikes.remove(outsider)
+        self.assert_originals_restored(originals)
 
     def test_no_parking_capacity_aborts_before_writes(self):
         self.api.stations[1]["capacity"] = 5
@@ -287,7 +494,19 @@ class ScenariosTest(unittest.TestCase):
 
 class HttpTest(unittest.TestCase):
     def test_cli_full_cycle_over_http_uses_existing_admin_endpoints(self):
+        self.cli_cycle(relocate_uade=False)
+
+    def test_cli_borrowing_and_reset_restore_originals_over_http(self):
+        self.cli_cycle(relocate_uade=True)
+
+    def cli_cycle(self, relocate_uade):
         backend = FakeApi()
+        if relocate_uade:
+            backend.stations.append({"id": 50, "name": "DEPÓSITO", "capacity": 30, "status": "ACTIVE",
+                                     "latitude": -34.7, "longitude": -58.5})
+            backend.bikes.append({"id": 900, "code": "UADE-ORIGINAL-HTTP", "stationId": 10,
+                                  "model": "Existente", "status": "AVAILABLE", "updatedAt": "original"})
+        originals = deepcopy(backend.bikes)
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_):
@@ -317,13 +536,21 @@ class HttpTest(unittest.TestCase):
                 state_path = str(Path(directory) / "state.json")
                 for command in ("preparar", "sin-anclajes", "sin-bicis", "exito", "reset"):
                     with self.subTest(command=command), redirect_stdout(io.StringIO()):
+                        flags = ["--trasladar-uade"] if command == "preparar" and relocate_uade else []
                         exit_code = demo.main([command, "--apply", "--state-file", state_path,
                                                "--base-url", f"http://127.0.0.1:{server.server_port}",
-                                               "--event-id", "evento-de-prueba"])
+                                               "--event-id", "evento-de-prueba", *flags])
                         self.assertEqual(exit_code, 0)
+                        if command == "sin-bicis":
+                            self.assertEqual(backend.available(10), 0)
+                        elif command != "reset":
+                            self.assertGreaterEqual(backend.available(10), 5)
                 state = json.loads(Path(state_path).read_text())
                 self.assertEqual(state["phase"], "cerrado")
-                self.assertEqual(backend.bikes, [])
+                self.assertEqual(len(backend.bikes), len(originals))
+                for actual, expected in zip(backend.bikes, originals):
+                    for key in ("id", "code", "model", "stationId", "status"):
+                        self.assertEqual(actual[key], expected[key])
                 self.assertNotIn("TEST-HTTP-TOKEN", Path(state_path).read_text())
         finally:
             server.shutdown()
