@@ -6,9 +6,13 @@ de personal ADMIN de Movilidad. Conserva y renueva el token solo en memoria hast
 salir; no guarda la contraseña. Los comandos directos también aceptan
 MOVILIDAD_ADMIN_TOKEN y solo muestran un plan; --apply los ejecuta.
 La contraseña se ingresa visible en la consola para poder verificarla.
+El menú se mantiene abierto después de cada acción. La opción 6 ejecuta reset y
+solo cierra cuando se confirmó la restauración. Ctrl+C también intenta reset.
+Un cierre forzado de la terminal o del proceso puede impedir la restauración:
+conservar el archivo de estado para completarla en la próxima ejecución.
 Si el proveedor rechaza el login desde consola, --usar-token permite pegar el
 accessToken de la sesión web de Movilidad. No pide ni reutiliza su refreshToken;
-al vencer, pegar uno vigente con la opción 8. Tampoco lo guarda en archivos.
+al vencer, pegar uno vigente con la opción 10. Tampoco lo guarda en archivos.
 No modifica estaciones, contratos, recomendaciones ni el gateway. La opción 1
 del menú (o preparar --trasladar-uade) permite trasladar temporalmente las bicis
 AVAILABLE originales de UADE.
@@ -232,8 +236,10 @@ class Api:
         try:
             return json_request(self.opener, self.url, method, path, body, token, self.timeout)
         except ApiError as error:
-            if error.status == 401 and self.session:
-                self.session.clear()
+            if error.status == 401:
+                self.token = None
+                if self.session:
+                    self.session.clear()
             raise  # No repetir automáticamente una escritura que pudo haberse confirmado.
 
 
@@ -276,7 +282,7 @@ def prompt_token(api, session):
     except DemoError:
         api.token = None
         raise
-    print("Sesión web ADMIN validada. El token queda solo en memoria; al vencer, actualizalo con la opción 8.")
+    print("Sesión web ADMIN validada. El token queda solo en memoria; al vencer, actualizalo con la opción 10.")
 
 
 def fingerprint(bike):
@@ -748,59 +754,87 @@ def show_error(error, applied=False):
         print("Esta ejecución no modificó inventario.", file=sys.stderr)
 
 
+def reset_and_close(api, store):
+    """La salida normal requiere haber confirmado el reset de esta sesión."""
+    with store.lock():
+        state = store.load()
+        if state and state.get("phase") != "cerrado":
+            require(run(api, store, "reset", True), "No se pudo completar reset. El menú sigue abierto.")
+        else:
+            print("No hay cambios pendientes de esta sesión para restaurar.")
+        restored = store.load()
+        require(restored is None or restored.get("phase") == "cerrado",
+                "Todavía quedan cambios pendientes. El menú sigue abierto hasta completar reset.")
+    print("Reset confirmado. Se cierra el menú; no se guardaron credenciales ni tokens en archivos.")
+    return 0
+
+
 def interactive_menu(api, store, session, args, overrides, origin):
     choices = {"1": "preparar", "2": "exito", "3": "sin-anclajes", "4": "sin-bicis",
-               "5": "estado", "6": "reset", "9": "preparar"}
+               "5": "estado", "9": "preparar"}
     event_id = args.event_id
+    initial_login = True
     print(f"\nBackend: {api.url}\nEstado de la demo: {store.path}")
-    try:
-        while True:
+    while True:
+        applied = False
+        try:
+            if initial_login:
+                initial_login = False
+                (prompt_token if args.usar_token else prompt_login)(api, session)
             print("\nCU-INT-01 — Menú de la demo")
             print("1. Preparar demo y trasladar temporalmente las bicicletas originales de UADE")
             print("2. Éxito: UADE con bicicletas y PLANETARIO con anclajes")
             print("3. Sin anclajes en PLANETARIO")
             print("4. Sin bicicletas en UADE")
             print("5. Consultar estado")
-            print("6. Reset: devolver las originales y dar de baja las bicicletas de la demo")
+            print("6. Reset y salir: devolver las originales y dar de baja las bicicletas de la demo")
             print(f"7. Configurar evento de Espacios (actual: {event_id or 'sin configurar'})")
-            print("8. Iniciar sesión nuevamente")
+            print("8. Iniciar sesión con usuario y contraseña")
             print("9. Ver el plan de preparación sin modificar inventario")
-            print("0. Salir")
+            print("10. Usar el access token de tu sesión web")
             choice = input("Elegí una opción: ").strip()
             if choice == "0":
-                break
+                print("El menú solo se cierra después de restaurar el inventario: elegí 6 (Reset y salir).")
+                continue
+            if choice == "6":
+                applied = True
+                return reset_and_close(api, store)
             if choice == "7":
                 event_id = input("ID del evento activo de Espacios (vacío para omitir validación): ").strip() or None
                 continue
-            if choice not in choices and choice != "8":
+            if choice in ("8", "10"):
+                (prompt_token if choice == "10" else prompt_login)(api, session)
+                continue
+            if choice not in choices:
                 print("Opción inválida. Elegí un número del menú.")
                 continue
-            applied = choice in ("1", "2", "3", "4", "6")
+            command = choices[choice]
+            options = dict(overrides=overrides, minimum=args.min_bikes, event_id=event_id, origin=origin,
+                           relocate_uade=command == "preparar", parking_id=args.deposito_id)
+            applied = choice in ("1", "2", "3", "4")
+            if applied:
+                with store.lock():
+                    success = run(api, store, command, True, **options)
+            else:
+                success = run(api, store, command, False, **options)
+            if not success:
+                print("El inventario se preparó, pero la API eligió otra recomendación. Revisá el resultado mostrado.")
+        except (DemoError, OSError, KeyError, TypeError, StopIteration) as error:
+            show_error(error, applied)
+            print("El menú sigue abierto. Podés iniciar sesión con 8, usar un token web con 10 o reintentar reset con 6.")
+        except (EOFError, KeyboardInterrupt) as interrupt:
+            print("\nSe solicitó cerrar el menú. Ejecutando reset antes de salir...")
             try:
-                if choice == "8":
-                    (prompt_token if args.usar_token else prompt_login)(api, session)
-                    continue
-                command = choices[choice]
-                options = dict(overrides=overrides, minimum=args.min_bikes, event_id=event_id, origin=origin,
-                               relocate_uade=command == "preparar", parking_id=args.deposito_id)
-                if applied:
-                    with store.lock():
-                        success = run(api, store, command, True, **options)
-                else:
-                    success = run(api, store, command, False, **options)
-                if not success:
-                    print("El inventario se preparó, pero la API eligió otra recomendación. Revisá el resultado mostrado.")
+                return reset_and_close(api, store)
             except (DemoError, OSError, KeyError, TypeError, StopIteration) as error:
-                show_error(error, applied)
-                if isinstance(error, ApiError) and error.status == 401:
-                    print("Si la sesión venció o fue revocada, volvé a ingresar con la opción 8.")
-    except (EOFError, KeyboardInterrupt):
-        print("\nMenú interrumpido.")
-    state = store.load()
-    if state and state.get("phase") != "cerrado":
-        print("La demo sigue preparada. Salir no restaura las bicicletas: volvé al menú y elegí 6 para completar reset.")
-    print("Sesión de consola finalizada. No se guardaron credenciales ni tokens en archivos.")
-    return 0
+                show_error(error, True)
+                if isinstance(interrupt, EOFError):
+                    print("Se cerró la entrada de la terminal y no se pudo confirmar reset. "
+                          "Conservá el archivo de estado y completalo al volver a ejecutar el script.", file=sys.stderr)
+                    return 1  # Cierre externo anormal: no anunciar un reset exitoso.
+                print("No se pudo restaurar todo. El menú sigue abierto para iniciar sesión y reintentar reset.")
+            except KeyboardInterrupt:
+                print("Reset interrumpido. El menú sigue abierto; elegí 6 para completarlo.")
 
 
 def main(argv=None):
@@ -857,15 +891,16 @@ def main(argv=None):
         session = StaffSession(auth_url, args.client_id)
         token = os.environ.get("MOVILIDAD_ADMIN_TOKEN", "").strip()
         api = Api(url, token)
+        if args.command == "menu":
+            api.token = None  # El menú inicia y conserva su propia sesión.
+            may_have_writes = True
+            return interactive_menu(api, store, session, args, overrides, origin)
         if args.usar_token:
             prompt_token(api, session)
         elif token and args.command != "menu":
             require_admin(api.request("GET", "/api/v1/users/me"))
         else:
             prompt_login(api, session)
-        if args.command == "menu":
-            may_have_writes = True
-            return interactive_menu(api, store, session, args, overrides, origin)
         if args.apply:
             may_have_writes = True
             with store.lock():

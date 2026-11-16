@@ -17,6 +17,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import demo_cu_int_01 as demo
 
 
+def console_inputs(values):
+    """Falla si el menú pide más entradas de las previstas, en vez de quedar en un bucle."""
+    values = iter(values)
+
+    def read(_prompt):
+        try:
+            value = next(values)
+        except StopIteration:
+            raise AssertionError("El menú solicitó una entrada inesperada después del flujo de prueba") from None
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    return read
+
+
 class FakeApi:
     """Contrato HTTP administrativo: capacidad, bajas lógicas y updatedAt."""
     def __init__(self):
@@ -102,6 +118,16 @@ class ScenariosTest(unittest.TestCase):
 
     def writes(self):
         return [c for c in self.api.calls if c[0] != "GET"]
+
+    def run_menu(self, inputs, login_effect=None):
+        output, errors = io.StringIO(), io.StringIO()
+        with patch.dict("os.environ", {"MOVILIDAD_ADMIN_TOKEN": "STALE-IGNORED-TOKEN"}), \
+                patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=console_inputs(inputs)), \
+                patch.object(demo, "Api", return_value=self.api), \
+                patch.object(demo, "prompt_login", side_effect=login_effect) as login, \
+                redirect_stdout(output), redirect_stderr(errors):
+            code = demo.main(["--state-file", str(self.store.path), "--base-url", self.api.url])
+        return code, output.getvalue(), errors.getvalue(), login.call_count
 
     def original_uade_stock(self, count=2):
         self.api.stations.append({"id": 50, "name": "DEPÓSITO ACORDADO", "capacity": 30,
@@ -485,22 +511,95 @@ class ScenariosTest(unittest.TestCase):
                 self.assertEqual(set(body), {"stationId"})
         self.assertNotIn("token", self.store.path.read_text().lower())
 
-    def test_exiting_menu_preserves_stock_and_recovery_state_until_reset(self):
-        self.original_uade_stock()
+    def test_zero_does_not_exit_menu_and_reset_restores_stock_before_closing(self):
+        originals = self.original_uade_stock()
         self.run_scenario("preparar", relocate_uade=True)
-        before = deepcopy(self.api.bikes)
-        self.api.calls.clear()
-        output = io.StringIO()
-        with patch.dict("os.environ", {"MOVILIDAD_ADMIN_TOKEN": "TEST-TOKEN"}), \
-                patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=["invalid", "0"]), \
-                patch.object(demo, "Api", return_value=self.api), patch.object(demo, "prompt_login"), \
-                redirect_stdout(output):
-            self.assertEqual(demo.main(["--state-file", str(self.store.path), "--base-url", self.api.url]), 0)
+        code, output, errors, logins = self.run_menu(["invalid", "0", "5", "6"])
+        self.assertEqual(code, 0)
+        self.assertEqual(errors, "")
+        self.assertEqual(logins, 1)
+        self.assert_originals_restored(originals)
+        self.assertEqual(self.store.load()["phase"], "cerrado")
+        self.assertIn("Opción inválida", output)
+        self.assertIn("El menú solo se cierra después de restaurar", output)
+        self.assertIn("Reset confirmado", output)
+
+    def test_login_failure_keeps_menu_open_for_another_login_and_reset(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        code, output, errors, logins = self.run_menu(["8", "5", "6"],
+                                                   [demo.ApiError(403, "POST", "/auth/login"), None])
+        self.assertEqual(code, 0)
+        self.assertEqual(logins, 2)
+        self.assertIn("403", errors)
+        self.assertIn("El menú sigue abierto", output)
+        self.assert_originals_restored(originals)
+
+    def test_partial_reset_keeps_menu_open_until_a_retry_completes_it(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        self.api.lose_response = "DELETE"
+        code, output, errors, _ = self.run_menu(["6", "5", "6"])
+        self.assertEqual(code, 0)
+        self.assertIn("Respuesta perdida", errors)
+        self.assertIn("El menú sigue abierto", output)
+        self.assertGreaterEqual(output.count("CU-INT-01 — Menú de la demo"), 3)
+        self.assert_originals_restored(originals)
+        self.assertEqual(self.store.load()["phase"], "cerrado")
+
+    def test_ctrl_c_restores_original_stock_before_closing(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        code, output, errors, _ = self.run_menu([KeyboardInterrupt()])
+        self.assertEqual(code, 0)
+        self.assertEqual(errors, "")
+        self.assertIn("Ejecutando reset antes de salir", output)
+        self.assert_originals_restored(originals)
+
+    def test_ctrl_c_with_failed_reset_returns_to_menu_until_reset_succeeds(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        self.api.lose_response = "DELETE"
+        code, output, errors, _ = self.run_menu([KeyboardInterrupt(), "6"])
+        self.assertEqual(code, 0)
+        self.assertIn("Respuesta perdida", errors)
+        self.assertIn("El menú sigue abierto", output)
+        self.assert_originals_restored(originals)
+
+    def test_disconnected_input_attempts_reset_before_closing(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        code, _, errors, _ = self.run_menu([EOFError()])
+        self.assertEqual(code, 0)
+        self.assertEqual(errors, "")
+        self.assert_originals_restored(originals)
+
+    def test_disconnected_input_with_failed_reset_preserves_recovery_file_and_reports_failure(self):
+        originals = self.original_uade_stock()
+        self.run_scenario("preparar", relocate_uade=True)
+        self.api.lose_response = "DELETE"
+        code, output, errors, _ = self.run_menu([EOFError()])
+        self.assertEqual(code, 1)
+        self.assertIn("no se pudo confirmar reset", errors)
+        self.assertNotIn("Reset confirmado", output)
+        self.assertIsNotNone(self.store.load()["pending"])
+        self.assertNotEqual(self.store.load()["phase"], "cerrado")
+        self.run_scenario("reset")
+        self.assert_originals_restored(originals)
+
+    def test_reset_without_prepared_inventory_can_close_after_failed_login(self):
+        code, output, _, _ = self.run_menu(["6"], demo.ApiError(403, "POST", "/auth/login"))
+        self.assertEqual(code, 0)
+        self.assertIn("No hay cambios pendientes", output)
+        self.assertFalse(self.store.path.exists())
         self.assertEqual(self.writes(), [])
-        self.assertEqual(self.api.bikes, before)
-        self.assertEqual(self.store.load()["phase"], "exito")
-        self.assertIn("Opción inválida", output.getvalue())
-        self.assertIn("Salir no restaura", output.getvalue())
+
+    def test_reset_cannot_announce_success_without_confirmed_closed_state(self):
+        self.run_scenario("preparar")
+        with patch.object(demo, "run", return_value=True), redirect_stdout(self.output):
+            with self.assertRaisesRegex(demo.DemoError, "Todavía quedan cambios pendientes"):
+                demo.reset_and_close(self.api, self.store)
+        self.assertNotEqual(self.store.load()["phase"], "cerrado")
         self.run_scenario("reset")
 
     def test_lock_prevents_two_local_writers(self):
@@ -523,7 +622,10 @@ class HttpTest(unittest.TestCase):
     def test_menu_with_web_token_uses_backend_role_and_never_calls_idp(self):
         self.cli_cycle(relocate_uade=True, interactive=True, token_login=True)
 
-    def cli_cycle(self, relocate_uade, interactive=False, token_login=False):
+    def test_rejected_login_keeps_http_menu_open_to_import_session_and_restore(self):
+        self.cli_cycle(relocate_uade=True, interactive=True, reject_login=True)
+
+    def cli_cycle(self, relocate_uade, interactive=False, token_login=False, reject_login=False):
         backend = FakeApi()
         auth_calls = []
         if relocate_uade:
@@ -542,7 +644,7 @@ class HttpTest(unittest.TestCase):
                 body = json.loads(self.rfile.read(length)) if length else None
                 if self.path == "/auth/login":
                     auth_calls.append((body, self.headers.get("Authorization")))
-                    if token_login:
+                    if token_login or reject_login:
                         self.send_error(403)
                         return
                     result = {"access_token": "TEST-HTTP-TOKEN", "refresh_token": "TEST-REFRESH-TOKEN",
@@ -572,16 +674,21 @@ class HttpTest(unittest.TestCase):
                 if interactive:
                     output, errors = io.StringIO(), io.StringIO()
                     inputs = ([] if token_login else ["admin-demo", "TEST-PASSWORD"])
+                    inputs += ["10"] if reject_login else []
                     inputs += ["9", "7", "evento-de-prueba", "1", "3"]
-                    inputs += ["8"] if token_login else []
-                    inputs += ["4", "2", "5", "6", "0"]
+                    inputs += ["10"] if token_login else []
+                    inputs += ["4", "2", "5", "6"]
                     with patch("sys.stdin.isatty", return_value=True), \
-                            patch("builtins.input", side_effect=inputs) as prompts, \
+                            patch("builtins.input", side_effect=console_inputs(inputs)) as prompts, \
                             patch.object(demo.getpass, "getpass", return_value="TEST-HTTP-TOKEN") as token_prompt, \
                             redirect_stdout(output), redirect_stderr(errors):
                         flags = ["--usar-token"] if token_login else []
                         exit_code = demo.main(["--state-file", state_path, "--base-url", root, "--auth-url", root, *flags])
-                    self.assertEqual(errors.getvalue(), "")
+                    if reject_login:
+                        self.assertIn("API HTTP 403", errors.getvalue())
+                        self.assertIn("El menú sigue abierto", output.getvalue())
+                    else:
+                        self.assertEqual(errors.getvalue(), "")
                     self.assertEqual(exit_code, 0)
                     if token_login:
                         self.assertEqual(auth_calls, [])
@@ -591,7 +698,10 @@ class HttpTest(unittest.TestCase):
                         self.assertIn("Contraseña (visible en consola)", prompts.call_args_list[1].args[0])
                         self.assertEqual(auth_calls, [({"username": "admin-demo", "password": "TEST-PASSWORD",
                                                        "clientId": demo.DEFAULT_CLIENT_ID}, None)])
-                        token_prompt.assert_not_called()
+                        if reject_login:
+                            token_prompt.assert_called_once()
+                        else:
+                            token_prompt.assert_not_called()
                     self.assertIn("Vista previa", output.getvalue())
                     self.assertIn("PLANETARIO", output.getvalue())
                     for secret in ("TEST-PASSWORD", "TEST-HTTP-TOKEN", "TEST-REFRESH-TOKEN"):
