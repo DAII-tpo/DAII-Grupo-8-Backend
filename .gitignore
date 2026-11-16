@@ -35,5 +35,9 @@ out/
 ### Env ###
 .env
 
+# Inventario y avances locales del script de presentación (sin tokens).
+/.demo-cu-int-01/
+/scripts/**/__pycache__/
+
 ### Cobertura Python (recommendation-service, cuando pytest corre desde la raíz como en CI) ###
 .coverage
