@@ -124,7 +124,7 @@ No hace falta crear tablas: Flyway arma el esquema en el primer arranque.
 
 ### 2. Levantar la app
 
-```bash
+``` bash
 ./gradlew bootRun
 ```
 
