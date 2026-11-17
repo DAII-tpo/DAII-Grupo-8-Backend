@@ -79,6 +79,13 @@ class ClimatePolicyMatrixTest {
     }
 
     @Test
+    void loggedValuesCannotForgeLogLines() {
+        assertThat(LogValues.safe("TSUNAMI\r\n2026 ERROR falso\t")).isEqualTo("TSUNAMI__2026 ERROR falso_");
+        assertThat(LogValues.safe("GRANIZO")).isEqualTo("GRANIZO");
+        assertThat(LogValues.safe(null)).isNull();
+    }
+
+    @Test
     void publishedActionsKeepTheContractStrings() {
         assertThat(ClimateResponse.AVISO.publishedActions()).containsExactly("AVISO_USUARIOS");
         assertThat(ClimateResponse.CONFIRMACION.publishedActions())

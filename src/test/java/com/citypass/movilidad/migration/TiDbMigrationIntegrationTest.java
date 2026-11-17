@@ -27,7 +27,7 @@ class TiDbMigrationIntegrationTest {
     void migraDesdeCeroYValidaElHistorialEnTiDb853() {
         String url = databaseUrl("test");
         Flyway flyway = Flyway.configure().dataSource(url, "root", "").load();
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(32);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(33);
         var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "root", ""));
         assertThat(jdbc.queryForObject("SELECT VERSION()", String.class)).contains("TiDB-v8.5.3");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM neighborhoods", Integer.class)).isEqualTo(48);
@@ -51,7 +51,7 @@ class TiDbMigrationIntegrationTest {
                 """);
 
         Flyway current = Flyway.configure().dataSource(url, "root", "").load();
-        assertThat(current.migrate().migrationsExecuted).isEqualTo(14);
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(15);
         assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 18 ORDER BY installed_rank"))
                 .isEqualTo(history);
         assertThat(jdbc.queryForObject("SELECT name FROM stations WHERE id=1000", String.class)).isEqualTo("MADERO UCA");

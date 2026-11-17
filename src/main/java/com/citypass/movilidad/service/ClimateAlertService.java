@@ -50,7 +50,7 @@ public class ClimateAlertService {
     public void confirm(JsonNode data, Instant receivedAt) {
         String externalId = requiredText(data, "alertaId");
         if (alerts.findByExternalAlertId(externalId).isPresent()) {
-            log.info("Alerta climática duplicada: {}", externalId);
+            log.info("Alerta climática duplicada: {}", LogValues.safe(externalId));
             return;
         }
         Instant from = epochMillis(data, "vigenciaDesde");
@@ -83,7 +83,7 @@ public class ClimateAlertService {
             String normalized = NeighborhoodNames.normalize(name.asText());
             neighborhoods.findByNormalizedName(normalized).ifPresentOrElse(
                     alert.getNeighborhoods()::add,
-                    () -> log.warn("Barrio de alerta climática sin correspondencia: {}", normalized));
+                    () -> log.warn("Barrio de alerta climática sin correspondencia: {}", LogValues.safe(normalized)));
         }
         alerts.saveAndFlush(alert);
         blockStationsIfRequired(alert, now);
@@ -108,7 +108,7 @@ public class ClimateAlertService {
             if (wasActive) {
                 effects.lifted(alert, alert.getFinalizedAt());
             }
-        }, () -> log.warn("Finalización de alerta climática desconocida: {}", externalId));
+        }, () -> log.warn("Finalización de alerta climática desconocida: {}", LogValues.safe(externalId)));
     }
 
     @Transactional

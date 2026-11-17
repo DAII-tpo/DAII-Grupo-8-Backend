@@ -43,7 +43,7 @@ public class ClimatePolicyMatrix {
 
     public ClimateResponse responseFor(String phenomenon, Severity severity) {
         var row = ClimatePhenomenon.parse(phenomenon).map(matrix::get).orElseGet(() -> {
-            log.warn("Fenómeno climático desconocido '{}': se aplica la política base", phenomenon);
+            log.warn("Fenómeno climático desconocido '{}': se aplica la política base", LogValues.safe(phenomenon));
             return fallback;
         });
         return row.get(severity);

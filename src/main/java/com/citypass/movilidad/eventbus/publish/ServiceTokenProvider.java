@@ -26,15 +26,25 @@ public class ServiceTokenProvider {
     private static final Duration EXPIRY_MARGIN = Duration.ofSeconds(30);
 
     private final RestClient restClient;
-    private final EventBusProperties properties;
+    private final String tokenUrl;
+    private final String clientId;
+    private final String clientSecret;
     private final Clock clock;
 
     private String token;
     private Instant expiresAt = Instant.MIN;
 
     public ServiceTokenProvider(RestClient restClient, EventBusProperties properties, Clock clock) {
+        this(restClient, properties.tokenUrl(), properties.clientId(), properties.clientSecret(), clock);
+    }
+
+    /** Otra integración puede reutilizar OAuth y su caché con configuración independiente del bus. */
+    public ServiceTokenProvider(RestClient restClient, String tokenUrl, String clientId,
+                                String clientSecret, Clock clock) {
         this.restClient = restClient;
-        this.properties = properties;
+        this.tokenUrl = tokenUrl;
+        this.clientId = clientId;
+        this.clientSecret = clientSecret;
         this.clock = clock;
     }
 
@@ -59,9 +69,9 @@ public class ServiceTokenProvider {
         TokenResponse response;
         try {
             response = restClient.post()
-                    .uri(properties.tokenUrl())
+                    .uri(tokenUrl)
                     .headers(headers -> headers.setBasicAuth(
-                            properties.clientId(), properties.clientSecret(), StandardCharsets.UTF_8))
+                            clientId, clientSecret, StandardCharsets.UTF_8))
                     .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                     .body(form)
                     .retrieve()

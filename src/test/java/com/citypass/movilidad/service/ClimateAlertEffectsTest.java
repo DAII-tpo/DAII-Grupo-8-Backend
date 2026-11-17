@@ -13,6 +13,7 @@ import com.citypass.movilidad.repository.ClimateTripNotificationRepository;
 import com.citypass.movilidad.repository.StationRepository;
 import com.citypass.movilidad.repository.TripRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -38,8 +39,17 @@ class ClimateAlertEffectsTest {
     private final EventPublisher events = mock(EventPublisher.class);
     private final StationAvailabilityService availability = mock(StationAvailabilityService.class);
     private final ClimateAlertEffects service = new ClimateAlertEffects(stations, trips, notifications,
-            policy, events, availability, new ClimateAffectedStations(stations), new ClimatePolicyMatrix());
+            policy, events, availability, new ClimateAffectedStations(stations));
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @BeforeEach
+    void policyAnswersWithTheRealMatrix() {
+        ClimatePolicyMatrix matrix = new ClimatePolicyMatrix();
+        when(policy.effectiveOf(any())).thenAnswer(invocation -> {
+            ClimateAlert alert = invocation.getArgument(0);
+            return new ClimatePolicyService.EffectiveClimate(alert, matrix.responseFor(alert));
+        });
+    }
 
     @Test
     void highAlertPublishesOnlyActiveBlockedStations() {

@@ -30,13 +30,11 @@ public class ClimateAlertEffects {
     private final EventPublisher events;
     private final StationAvailabilityService availability;
     private final ClimateAffectedStations affectedStations;
-    private final ClimatePolicyMatrix matrix;
 
     public ClimateAlertEffects(StationRepository stations, TripRepository trips,
                                ClimateTripNotificationRepository notifications,
                                ClimatePolicyService policy, EventPublisher events,
-                               StationAvailabilityService availability, ClimateAffectedStations affectedStations,
-                               ClimatePolicyMatrix matrix) {
+                               StationAvailabilityService availability, ClimateAffectedStations affectedStations) {
         this.stations = stations;
         this.trips = trips;
         this.notifications = notifications;
@@ -44,11 +42,10 @@ public class ClimateAlertEffects {
         this.events = events;
         this.availability = availability;
         this.affectedStations = affectedStations;
-        this.matrix = matrix;
     }
 
     public void applied(ClimateAlert alert, Instant now) {
-        ClimateResponse response = matrix.responseFor(alert);
+        ClimateResponse response = policy.effectiveOf(alert).response();
         List<Station> affected = affectedStations.of(alert);
         int notified = response.notifiesActiveTrips() ? notifyActiveTrips(alert, affected, now) : 0;
         List<AffectedStation> blockedStations = response.blocksRental() ? affected.stream()
