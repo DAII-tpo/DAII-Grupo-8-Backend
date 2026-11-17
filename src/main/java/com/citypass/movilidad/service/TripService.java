@@ -70,8 +70,9 @@ public class TripService {
             throw new BusinessRuleException("El usuario tiene un viaje pausado por una emergencia");
         }
         Bike bike = bikeService.lockActiveBike(request.bikeId());
-        climatePolicy.effectiveAlert(bike.getStation())
-                .ifPresent(alert -> checkClimatePolicy(alert, request));
+        // Solo el retiro depende del clima: la devolución se permite siempre, aun en estaciones bloqueadas.
+        climatePolicy.effective(bike.getStation())
+                .ifPresent(climate -> checkClimatePolicy(climate, request));
         Station origin = bikeService.checkOutForTrip(bike, user);
 
         Trip trip = new Trip();
@@ -85,16 +86,18 @@ public class TripService {
         return toResponse(saved);
     }
 
-    private void checkClimatePolicy(ClimateAlert alert, TripStartRequest request) {
-        if (alert.getSeverity() == ClimateAlert.Severity.ALTA
-                || alert.getSeverity() == ClimateAlert.Severity.CRITICA) {
+    private void checkClimatePolicy(ClimatePolicyService.EffectiveClimate climate, TripStartRequest request) {
+        ClimateAlert alert = climate.alert();
+        ClimateResponse response = climate.response();
+        String hint = ClimatePhenomenon.parse(alert.getPhenomenon())
+                .map(phenomenon -> " (" + phenomenon.riskHint() + ")").orElse("");
+        if (response.blocksRental()) {
             throw new ClimateTripException("ALQUILER_BLOQUEADO_POR_CLIMA",
-                    "No se puede retirar una bicicleta por la alerta climática vigente", alert);
+                    "No se puede retirar una bicicleta por la alerta climática vigente" + hint, alert, response);
         }
-        if (alert.getSeverity() == ClimateAlert.Severity.MEDIA
-                && !Boolean.TRUE.equals(request.aceptaRiesgoClimatico())) {
+        if (response.requiresRiskConfirmation() && !Boolean.TRUE.equals(request.aceptaRiesgoClimatico())) {
             throw new ClimateTripException("CONFIRMACION_RIESGO_CLIMATICO_REQUERIDA",
-                    "Confirmá que aceptás el riesgo climático antes de iniciar el viaje", alert);
+                    "Confirmá que aceptás el riesgo climático" + hint + " antes de iniciar el viaje", alert, response);
         }
     }
 

@@ -29,40 +29,41 @@ public class ClimateAlertEffects {
     private final ClimatePolicyService policy;
     private final EventPublisher events;
     private final StationAvailabilityService availability;
+    private final ClimateAffectedStations affectedStations;
 
     public ClimateAlertEffects(StationRepository stations, TripRepository trips,
                                ClimateTripNotificationRepository notifications,
                                ClimatePolicyService policy, EventPublisher events,
-                               StationAvailabilityService availability) {
+                               StationAvailabilityService availability, ClimateAffectedStations affectedStations) {
         this.stations = stations;
         this.trips = trips;
         this.notifications = notifications;
         this.policy = policy;
         this.events = events;
         this.availability = availability;
+        this.affectedStations = affectedStations;
     }
 
     public void applied(ClimateAlert alert, Instant now) {
-        List<Station> affected = affectedStations(alert);
-        int notified = alert.getSeverity() == ClimateAlert.Severity.CRITICA
-                ? notifyActiveTrips(alert, affected, now) : 0;
-        boolean blocked = alert.getSeverity() == ClimateAlert.Severity.ALTA
-                || alert.getSeverity() == ClimateAlert.Severity.CRITICA;
-        List<AffectedStation> blockedStations = blocked ? affected.stream()
+        ClimateResponse response = policy.effectiveOf(alert).response();
+        List<Station> affected = affectedStations.of(alert);
+        int notified = response.notifiesActiveTrips() ? notifyActiveTrips(alert, affected, now) : 0;
+        List<AffectedStation> blockedStations = response.blocksRental() ? affected.stream()
                 .filter(station -> station.getStatus() == StationStatus.ACTIVE)
                 .map(ClimateAlertEffects::toEventStation).toList()
                 : List.of();
         events.publish("AlertaClimaticaAplicada", AggregateType.CLIMATE_ALERT, alert.getId(),
                 new AppliedEvent(alert.getExternalAlertId(), alert.getSeverity().name(), "APLICADA",
-                        actions(alert.getSeverity()), blockedStations, blockedStations.size(), notified,
+                        response.publishedActions(), blockedStations, blockedStations.size(), notified,
                         now.toEpochMilli(), null));
     }
 
     public void lifted(ClimateAlert alert, Instant now) {
-        List<AffectedStation> restored = affectedStations(alert).stream()
+        // Solo se declara restablecida si ninguna otra alerta activa sigue bloqueando la estación.
+        List<AffectedStation> restored = affectedStations.of(alert).stream()
                 .filter(station -> station.getStatus() == StationStatus.ACTIVE)
-                .filter(station -> policy.effectiveAlert(station)
-                        .map(active -> active.getSeverity().ordinal() < ClimateAlert.Severity.ALTA.ordinal())
+                .filter(station -> policy.effective(station)
+                        .map(active -> !active.response().blocksRental())
                         .orElse(true))
                 .map(ClimateAlertEffects::toEventStation)
                 .toList();
@@ -76,18 +77,11 @@ public class ClimateAlertEffects {
                         List.of(), List.of(), 0, 0, now.toEpochMilli(), detail));
     }
 
-    private List<Station> affectedStations(ClimateAlert alert) {
-        Set<String> ids = alert.getNeighborhoods().stream().map(neighborhood -> neighborhood.getId())
-                .collect(Collectors.toSet());
-        return ids.isEmpty() ? List.of() : stations.findByNeighborhood_IdInAndDeletedAtIsNull(ids);
-    }
-
     private int notifyActiveTrips(ClimateAlert alert, List<Station> affected, Instant now) {
         if (affected.isEmpty()) {
             return 0;
         }
-        Set<String> affectedNeighborhoods = alert.getNeighborhoods().stream()
-                .map(neighborhood -> neighborhood.getId()).collect(Collectors.toSet());
+        Set<String> affectedNeighborhoods = ClimateAffectedStations.neighborhoodIds(alert);
         List<Station> candidates = stations.findByStatusAndDeletedAtIsNull(StationStatus.ACTIVE);
         Map<Long, Integer> capacityByStation = candidates.stream()
                 .collect(Collectors.toMap(Station::getId, Station::getCapacity));
@@ -107,24 +101,15 @@ public class ClimateAlertEffects {
         return activeTrips.size();
     }
 
+    /** Estación más cercana fuera de los barrios afectados; null si no hay ninguna (nunca una afectada). */
     private Station suggestedStation(Station origin, List<Station> candidates, Set<String> affectedNeighborhoods) {
-        List<Station> clear = candidates.stream()
+        return candidates.stream()
                 .filter(station -> station.getNeighborhood() != null
                         && !affectedNeighborhoods.contains(station.getNeighborhood().getId()))
-                .toList();
-        List<Station> pool = clear.isEmpty() ? candidates : clear;
-        return pool.stream().min(Comparator.comparingDouble(station -> GeoDistance.meters(
-                origin.getLatitude().doubleValue(), origin.getLongitude().doubleValue(),
-                station.getLatitude().doubleValue(), station.getLongitude().doubleValue()))).orElse(null);
-    }
-
-    private static List<String> actions(ClimateAlert.Severity severity) {
-        return switch (severity) {
-            case BAJA -> List.of("AVISO_USUARIOS");
-            case MEDIA -> List.of("AVISO_USUARIOS", "CONFIRMACION_RIESGO_AL_ALQUILAR");
-            case ALTA -> List.of("AVISO_USUARIOS", "BLOQUEO_ALQUILER");
-            case CRITICA -> List.of("AVISO_USUARIOS", "BLOQUEO_ALQUILER", "AVISO_DEVOLUCION_VIAJES_ACTIVOS");
-        };
+                .min(Comparator.comparingDouble(station -> GeoDistance.meters(
+                        origin.getLatitude().doubleValue(), origin.getLongitude().doubleValue(),
+                        station.getLatitude().doubleValue(), station.getLongitude().doubleValue())))
+                .orElse(null);
     }
 
     private static AffectedStation toEventStation(Station station) {

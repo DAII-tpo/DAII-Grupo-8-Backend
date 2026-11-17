@@ -8,6 +8,7 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,6 +17,9 @@ public interface ClimateAlertRepository extends JpaRepository<ClimateAlert, Long
     Optional<ClimateAlert> findByExternalAlertId(String externalAlertId);
 
     List<ClimateAlert> findByStatusAndValidFromLessThanEqual(ClimateAlert.Status status, Instant now);
+
+    /** Alertas abiertas cuya vigencia ya terminó: las cierra el job de vencimiento. */
+    List<ClimateAlert> findByStatusInAndValidUntilLessThanEqual(Collection<ClimateAlert.Status> statuses, Instant now);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select a from ClimateAlert a where a.id = :id")

@@ -35,6 +35,8 @@ import java.io.ByteArrayOutputStream;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,7 +114,9 @@ class ReclamoCreadoV3IntegrationTest {
         // Cada versión de ReclamoCreado tiene un único handler: el evento no se procesa dos veces.
         assertThat(handlers).extracting(EventHandler::topic).filteredOn(CREATED::equals).hasSize(1);
         assertThat(count("city_incidents")).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT reported_at FROM city_incidents", Timestamp.class).toInstant())
+        // Hibernate guarda los Instant en UTC: leer el DATETIME sin zona para no depender de la de la JVM.
+        assertThat(jdbc.queryForObject("SELECT reported_at FROM city_incidents", LocalDateTime.class)
+                .toInstant(ZoneOffset.UTC))
                 .isEqualTo(Instant.ofEpochMilli(CREATED_AT));
         assertThat(payloads(AFFECTED)).hasSize(2);
         assertThat(jdbc.queryForList("SELECT s.name FROM station_affectations a JOIN stations s ON s.id=a.station_id",
