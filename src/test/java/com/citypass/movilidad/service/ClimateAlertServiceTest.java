@@ -120,6 +120,7 @@ class ClimateAlertServiceTest {
     @Test
     void scheduledAlertCanFinishWithoutClaimingStationsWereRestored() throws Exception {
         ClimateAlert scheduled = new ClimateAlert();
+        scheduled.setExternalAlertId("weather-1");
         scheduled.setStatus(ClimateAlert.Status.PROGRAMADA);
         when(repository.findByExternalAlertId("weather-1")).thenReturn(Optional.of(scheduled));
         Instant finishedAt = Instant.parse("2026-11-14T12:00:00Z");
@@ -129,6 +130,7 @@ class ClimateAlertServiceTest {
 
         assertThat(scheduled.getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
         assertThat(scheduled.getFinalizedAt()).isEqualTo(finishedAt);
+        assertThat(scheduled.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.ESPACIOS);
         verify(repository).save(scheduled);
         // No se publica AlertaClimaticaLevantada, pero sí se cierran las afectaciones preventivas para BI.
         verifyNoInteractions(effects);
@@ -242,6 +244,7 @@ class ClimateAlertServiceTest {
         alert.setExternalAlertId(id);
         alert.setStatus(status);
         alert.setSeverity(severity);
+        alert.setValidUntil(Instant.now().plusSeconds(3600));
         return alert;
     }
 
@@ -299,6 +302,7 @@ class ClimateAlertServiceTest {
         alert.setPhenomenon("TORMENTA_FUERTE");
         alert.setSeverity(ClimateAlert.Severity.ALTA);
         alert.setValidFrom(Instant.now().minusSeconds(30));
+        alert.setValidUntil(Instant.now().plusSeconds(3600));
         when(repository.findByIdForUpdate(3L)).thenReturn(Optional.of(alert));
 
         service.activateAlert(3L);
@@ -314,7 +318,174 @@ class ClimateAlertServiceTest {
                 """));
 
         assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
-        verify(effects).lifted(any(ClimateAlert.class), any(Instant.class));
+        assertThat(alert.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.ESPACIOS);
+        verify(effects).lifted(alert, Instant.ofEpochMilli(1794011463871L));
         verify(affectedStations).restoreClimateAlert("weather-3", Instant.ofEpochMilli(1794011463871L));
+    }
+
+    @Test
+    void expiredActiveAlertIsFinalizedAtItsValidUntilAndLifted() {
+        Instant validUntil = Instant.now().minusSeconds(5);
+        ClimateAlert alert = alert(10L, "weather-10", ClimateAlert.Status.ACTIVA, validUntil);
+        when(repository.findByIdForUpdate(10L)).thenReturn(Optional.of(alert));
+
+        service.expireAlert(10L);
+
+        assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
+        assertThat(alert.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.VENCIMIENTO);
+        // La fecha de cierre es el fin real de la vigencia, no el momento en que corrió el job.
+        assertThat(alert.getFinalizedAt()).isEqualTo(validUntil);
+        verify(repository).save(alert);
+        verify(affectedStations).restoreClimateAlert("weather-10", validUntil);
+        verify(effects).lifted(alert, validUntil);
+    }
+
+    @Test
+    void expiredScheduledAlertRestoresPreventiveAffectationsWithoutLifting() {
+        Instant validUntil = Instant.now().minusSeconds(5);
+        ClimateAlert alert = alert(11L, "weather-11", ClimateAlert.Status.PROGRAMADA, validUntil);
+        when(repository.findByIdForUpdate(11L)).thenReturn(Optional.of(alert));
+
+        service.expireAlert(11L);
+
+        assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
+        assertThat(alert.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.VENCIMIENTO);
+        verify(affectedStations).restoreClimateAlert("weather-11", validUntil);
+        verifyNoInteractions(effects);
+    }
+
+    @Test
+    void alertStillInForceIsNotExpired() {
+        ClimateAlert alert = alert(12L, "weather-12", ClimateAlert.Status.ACTIVA, Instant.now().plusSeconds(600));
+        when(repository.findByIdForUpdate(12L)).thenReturn(Optional.of(alert));
+
+        service.expireAlert(12L);
+        service.expireAlert(99L);
+
+        assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.ACTIVA);
+        verify(repository, never()).save(any());
+        verifyNoInteractions(effects, affectedStations);
+    }
+
+    @Test
+    void alertAlreadyFinalizedByEspaciosIsNotExpiredAgain() {
+        ClimateAlert alert = alert(13L, "weather-13", ClimateAlert.Status.FINALIZADA, Instant.now().minusSeconds(5));
+        alert.setFinalizationReason(ClimateAlert.FinalizationReason.ESPACIOS);
+        when(repository.findByIdForUpdate(13L)).thenReturn(Optional.of(alert));
+
+        service.expireAlert(13L);
+
+        assertThat(alert.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.ESPACIOS);
+        verify(repository, never()).save(any());
+        verifyNoInteractions(effects, affectedStations);
+    }
+
+    @Test
+    void espaciosFinishAfterExpirationIsIgnoredAndKeepsTheReason() throws Exception {
+        Instant validUntil = Instant.now().minusSeconds(5);
+        ClimateAlert alert = alert(14L, "weather-14", ClimateAlert.Status.ACTIVA, validUntil);
+        when(repository.findByIdForUpdate(14L)).thenReturn(Optional.of(alert));
+        when(repository.findByExternalAlertId("weather-14")).thenReturn(Optional.of(alert));
+        service.expireAlert(14L);
+
+        service.finish(mapper.readTree("{\"alertaId\":\"weather-14\",\"finalizadaEn\":"
+                + Instant.now().toEpochMilli() + "}"));
+
+        assertThat(alert.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.VENCIMIENTO);
+        assertThat(alert.getFinalizedAt()).isEqualTo(validUntil);
+        verify(repository, org.mockito.Mockito.times(1)).save(alert);
+        verify(affectedStations, org.mockito.Mockito.times(1)).restoreClimateAlert(any(), any());
+        verify(effects, org.mockito.Mockito.times(1)).lifted(any(), any());
+    }
+
+    @Test
+    void espaciosFinishAfterValidUntilIsRespectedWhenItArrivesFirst() throws Exception {
+        Instant validUntil = Instant.now().minusSeconds(60);
+        Instant finishedAt = Instant.now().minusSeconds(10).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        ClimateAlert alert = alert(15L, "weather-15", ClimateAlert.Status.ACTIVA, validUntil);
+        when(repository.findByExternalAlertId("weather-15")).thenReturn(Optional.of(alert));
+
+        service.finish(mapper.readTree("{\"alertaId\":\"weather-15\",\"finalizadaEn\":"
+                + finishedAt.toEpochMilli() + "}"));
+
+        assertThat(alert.getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.ESPACIOS);
+        assertThat(alert.getFinalizedAt()).isEqualTo(finishedAt);
+        verify(effects).lifted(alert, finishedAt);
+    }
+
+    @Test
+    void alertReceivedAlreadyExpiredIsStoredFinalizedWithoutEffectsAndDuplicateIsIgnored() throws Exception {
+        Neighborhood palermo = new Neighborhood();
+        palermo.setId("AR-CABA-PALERMO");
+        when(neighborhoods.findByNormalizedName("PALERMO")).thenReturn(Optional.of(palermo));
+        long from = Instant.now().minusSeconds(7200).toEpochMilli();
+        long until = Instant.now().minusSeconds(60).toEpochMilli();
+        var data = mapper.readTree("""
+                {"alertaId":"weather-16","nivelCriticidad":"ALTA","fenomeno":"TORMENTA_ELECTRICA",
+                "barrios":["Palermo"],"vigenciaDesde":%d,"vigenciaHasta":%d}
+                """.formatted(from, until));
+
+        service.confirm(data, Instant.now());
+
+        ArgumentCaptor<ClimateAlert> saved = ArgumentCaptor.forClass(ClimateAlert.class);
+        verify(repository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
+        assertThat(saved.getValue().getFinalizationReason()).isEqualTo(ClimateAlert.FinalizationReason.VENCIMIENTO);
+        assertThat(saved.getValue().getFinalizedAt()).isEqualTo(Instant.ofEpochMilli(until));
+        assertThat(saved.getValue().getActivatedAt()).isNull();
+        assertThat(saved.getValue().getNeighborhoods()).containsExactly(palermo);
+        verifyNoInteractions(effects, affectedStations);
+
+        when(repository.findByExternalAlertId("weather-16")).thenReturn(Optional.of(saved.getValue()));
+        service.confirm(data, Instant.now());
+        verify(repository).saveAndFlush(any());
+        verifyNoInteractions(effects, affectedStations);
+    }
+
+    @Test
+    void scheduledAlertWhoseValidityAlreadyEndedIsNotActivated() {
+        ClimateAlert alert = alert(17L, "weather-17", ClimateAlert.Status.PROGRAMADA, Instant.now().minusSeconds(5));
+        alert.setValidFrom(Instant.now().minusSeconds(3600));
+        when(repository.findByIdForUpdate(17L)).thenReturn(Optional.of(alert));
+
+        service.activateAlert(17L);
+
+        assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.PROGRAMADA);
+        verify(repository, never()).save(any());
+        verifyNoInteractions(effects, affectedStations);
+    }
+
+    @Test
+    void expiredAlertsAreNoLongerVisibleNorNotifiedBeforeTheJobRuns() {
+        ClimateAlert expiredActive = visibleAlert("vencida-activa", ClimateAlert.Status.ACTIVA, ClimateAlert.Severity.ALTA);
+        expiredActive.setValidUntil(Instant.now().minusSeconds(1));
+        ClimateAlert expiredScheduled = visibleAlert("vencida-programada", ClimateAlert.Status.PROGRAMADA,
+                ClimateAlert.Severity.ALTA);
+        expiredScheduled.setValidUntil(Instant.now().minusSeconds(1));
+        ClimateAlert current = visibleAlert("vigente", ClimateAlert.Status.ACTIVA, ClimateAlert.Severity.ALTA);
+        when(repository.findByStatusIn(List.of(ClimateAlert.Status.PROGRAMADA, ClimateAlert.Status.ACTIVA)))
+                .thenReturn(List.of(expiredActive, expiredScheduled, current));
+        var notice = new com.citypass.movilidad.model.ClimateTripNotification();
+        notice.setTrip(new com.citypass.movilidad.model.Trip());
+        notice.setAlert(expiredActive);
+        when(notifications.findByTrip_User_IdAndTrip_StatusAndAlert_StatusOrderByNotifiedAtDesc(
+                5L, com.citypass.movilidad.model.enums.TripStatus.ACTIVE, ClimateAlert.Status.ACTIVA))
+                .thenReturn(List.of(notice));
+
+        assertThat(service.visibleAlerts()).extracting(com.citypass.movilidad.dto.ClimateAlertResponse::alertaId)
+                .containsExactly("vigente");
+        assertThat(service.tripNotifications(5L)).isEmpty();
+    }
+
+    private static ClimateAlert alert(Long id, String externalId, ClimateAlert.Status status, Instant validUntil) {
+        ClimateAlert alert = new ClimateAlert();
+        alert.setId(id);
+        alert.setExternalAlertId(externalId);
+        alert.setStatus(status);
+        alert.setPhenomenon("TORMENTA_ELECTRICA");
+        alert.setSeverity(ClimateAlert.Severity.ALTA);
+        alert.setValidFrom(validUntil.minusSeconds(3600));
+        alert.setValidUntil(validUntil);
+        return alert;
     }
 }

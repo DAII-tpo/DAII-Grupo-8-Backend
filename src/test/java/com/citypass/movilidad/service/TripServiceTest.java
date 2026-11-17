@@ -121,6 +121,31 @@ class TripServiceTest {
     }
 
     @Test
+    void activeBlockingAlertPastItsValidUntilNoLongerBlocksBeforeTheJobRuns() {
+        var alerts = mock(com.citypass.movilidad.repository.ClimateAlertRepository.class);
+        service = new TripService(tripRepository, userRepository, bikeService, eventPublisher, incidentRepository,
+                new ClimatePolicyService(alerts, mock(com.citypass.movilidad.repository.StationRepository.class),
+                        new ClimatePolicyMatrix()));
+        var palermo = new com.citypass.movilidad.model.Neighborhood();
+        palermo.setId("AR-CABA-PALERMO");
+        User user = user(1L, UserStatus.ACTIVE);
+        Station origin = station(10L, "Centro");
+        origin.setNeighborhood(palermo);
+        Bike bike = bike(5L, BikeStatus.AVAILABLE, origin);
+        // Sigue ACTIVA en la base (el job todavía no corrió), pero su vigencia ya terminó.
+        ClimateAlert alert = climateAlert("TORMENTA_ELECTRICA", ClimateAlert.Severity.CRITICA);
+        alert.setStatus(ClimateAlert.Status.ACTIVA);
+        alert.setValidUntil(Instant.now().minusSeconds(1));
+        when(alerts.findByStatusAndNeighborhoodId(ClimateAlert.Status.ACTIVA, palermo.getId()))
+                .thenReturn(List.of(alert));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(user));
+        when(bikeService.lockActiveBike(5L)).thenReturn(bike);
+        when(bikeService.checkOutForTrip(bike, user)).thenReturn(origin);
+
+        assertThat(service.startTrip(1L, new TripStartRequest(5L)).status()).isEqualTo(TripStatus.ACTIVE);
+    }
+
+    @Test
     void blockingResponseBlocksPickupEvenWhenRiskAccepted() {
         User user = user(1L, UserStatus.ACTIVE);
         Station origin = station(10L, "Centro");

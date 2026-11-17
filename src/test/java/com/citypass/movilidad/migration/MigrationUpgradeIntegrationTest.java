@@ -96,8 +96,8 @@ class MigrationUpgradeIntegrationTest {
 
         Flyway current = flyway(integrated, "latest");
         var result = current.migrate();
-        assertThat(result.migrationsExecuted).isEqualTo(27);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(result.migrationsExecuted).isEqualTo(28);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("34");
         assertThat(jdbc.queryForObject("SELECT checksum FROM flyway_schema_history WHERE version = '6'",
                 Integer.class)).isEqualTo(checksum);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id = 'existing-trip'",
@@ -154,8 +154,8 @@ class MigrationUpgradeIntegrationTest {
         jdbc.update("INSERT INTO event_outbox (id,aggregate_type,aggregate_id,event_type,payload) "
                 + "VALUES (UUID(),'TRIP','previo-login','com.citypass.movilidad.ViajeIniciado','{}')");
         var current = flyway(integrated, "latest");
-        assertThat(current.migrate().migrationsExecuted).isEqualTo(24);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(25);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("34");
         assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 9 ORDER BY installed_rank"))
                 .isEqualTo(history);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE aggregate_id='previo-login'", Integer.class)).isEqualTo(1);
@@ -178,8 +178,8 @@ class MigrationUpgradeIntegrationTest {
                 """);
 
         Flyway current = flyway("latest");
-        assertThat(current.migrate().migrationsExecuted).isEqualTo(15);
-        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("33");
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(16);
+        assertThat(current.info().current().getVersion().getVersion()).isEqualTo("34");
         assertThat(jdbc.queryForList("SELECT version, script, checksum FROM flyway_schema_history WHERE CAST(version AS UNSIGNED) <= 18 ORDER BY installed_rank"))
                 .isEqualTo(history);
         assertThat(jdbc.queryForObject("SELECT name FROM stations WHERE id=1000", String.class)).isEqualTo("MADERO UCA");
