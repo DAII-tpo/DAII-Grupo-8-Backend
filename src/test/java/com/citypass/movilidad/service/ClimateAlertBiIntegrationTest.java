@@ -43,6 +43,7 @@ class ClimateAlertBiIntegrationTest {
     private static final String NS = "com.citypass.movilidad.";
     @Autowired ClimateAlertService climate;
     @Autowired AffectedStationsService affectations;
+    @Autowired ClimateActivationJob job;
     @Autowired TransactionTemplate transactions;
     @Autowired JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -92,6 +93,8 @@ class ClimateAlertBiIntegrationTest {
                 .isEqualTo(Instant.ofEpochMilli(finishedAt).toString()));
         assertThat(payloads("AlertaClimaticaLevantada")).hasSize(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM station_affectations", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT finalization_reason FROM climate_alerts WHERE external_alert_id = 'alerta-1'",
+                String.class)).isEqualTo("ESPACIOS");
         assertEveryPayloadMatchesItsContract();
     }
 
@@ -110,6 +113,57 @@ class ClimateAlertBiIntegrationTest {
         finish("alerta-2", Instant.now().toEpochMilli());
         assertThat(payloads("EstacionUrbanaRestaurada")).hasSize(3);
         assertThat(payloads("AlertaClimaticaLevantada")).isEmpty();
+        assertEveryPayloadMatchesItsContract();
+    }
+
+    @Test void activeAlertExpiresAtItsValidUntilWithTheSameEffectsAsEspaciosFinish() throws Exception {
+        Instant validUntil = soon();
+        confirm("alerta-5", "TORMENTA_ELECTRICA", "ALTA", Instant.now().minusSeconds(60), validUntil);
+        List<JsonNode> affected = payloads("EstacionUrbanaAfectada");
+        assertThat(affected).hasSize(3);
+        assertThat(payloads("AlertaClimaticaAplicada")).hasSize(1);
+
+        // Pasa la vigencia sin que llegue la Finalizada de Espacios; el job corre después (tarde).
+        waitUntilPast(validUntil);
+        job.expireDueAlerts();
+
+        List<JsonNode> restored = payloads("EstacionUrbanaRestaurada");
+        assertThat(ids(restored)).isEqualTo(ids(affected));
+        assertThat(restored).allSatisfy(data ->
+                assertThat(data.path("restauradaAt").asText()).isEqualTo(validUntil.toString()));
+        assertThat(payloads("AlertaClimaticaLevantada")).singleElement().satisfies(lifted ->
+                assertThat(lifted.path("levantadaEn").asLong()).isEqualTo(validUntil.toEpochMilli()));
+        assertThat(jdbc.queryForMap(
+                "SELECT status, finalization_reason FROM climate_alerts WHERE external_alert_id = 'alerta-5'"))
+                .containsEntry("status", "FINALIZADA").containsEntry("finalization_reason", "VENCIMIENTO");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM station_affectations", Integer.class)).isZero();
+        assertEveryPayloadMatchesItsContract();
+
+        // La Finalizada de Espacios que llega después no publica nada nuevo.
+        int published = outboxSize();
+        finish("alerta-5", Instant.now().toEpochMilli());
+        assertThat(outboxSize()).isEqualTo(published);
+        assertThat(jdbc.queryForObject("SELECT finalization_reason FROM climate_alerts WHERE external_alert_id = 'alerta-5'",
+                String.class)).isEqualTo("VENCIMIENTO");
+    }
+
+    @Test void scheduledAlertThatExpiresWithoutActivatingOnlyRestoresItsPreventiveAffectations() throws Exception {
+        Instant validUntil = soon();
+        confirm("alerta-6", "TORMENTA_FUERTE", "ALTA", validUntil.minusMillis(500), validUntil);
+        assertThat(payloads("EstacionUrbanaAfectada")).hasSize(3);
+        assertThat(jdbc.queryForObject("SELECT status FROM climate_alerts WHERE external_alert_id = 'alerta-6'",
+                String.class)).isEqualTo("PROGRAMADA");
+
+        // Vence sin que el job llegue a activarla: en el tick se vence primero y ya no se activa.
+        waitUntilPast(validUntil);
+        job.tick();
+
+        assertThat(payloads("EstacionUrbanaRestaurada")).hasSize(3).allSatisfy(data ->
+                assertThat(data.path("restauradaAt").asText()).isEqualTo(validUntil.toString()));
+        assertThat(payloads("AlertaClimaticaAplicada")).isEmpty();
+        assertThat(payloads("AlertaClimaticaLevantada")).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT status FROM climate_alerts WHERE external_alert_id = 'alerta-6'",
+                String.class)).isEqualTo("FINALIZADA");
         assertEveryPayloadMatchesItsContract();
     }
 
@@ -133,16 +187,36 @@ class ClimateAlertBiIntegrationTest {
     }
 
     private void confirm(String id, String phenomenon, String severity, Instant from) throws Exception {
+        confirm(id, phenomenon, severity, from, from.plusSeconds(7200));
+    }
+
+    private void confirm(String id, String phenomenon, String severity, Instant from, Instant until)
+            throws Exception {
         JsonNode data = mapper.readTree("""
                 {"alertaId":"%s","fenomeno":"%s","nivelCriticidad":"%s","barrios":["Palermo","Recoleta"],
                  "vigenciaDesde":%d,"vigenciaHasta":%d}
-                """.formatted(id, phenomenon, severity, from.toEpochMilli(), from.plusSeconds(7200).toEpochMilli()));
+                """.formatted(id, phenomenon, severity, from.toEpochMilli(), until.toEpochMilli()));
         transactions.executeWithoutResult(status -> climate.confirm(data, Instant.now()));
     }
 
     private void finish(String id, long finishedAt) throws Exception {
         JsonNode data = mapper.readTree("{\"alertaId\":\"%s\",\"finalizadaEn\":%d}".formatted(id, finishedAt));
         transactions.executeWithoutResult(status -> climate.finish(data));
+    }
+
+    /** Fin de vigencia cercano; el evento viaja en epoch millis, así que se compara con esa precisión. */
+    private static Instant soon() {
+        return Instant.now().plusMillis(1500).truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+    }
+
+    private static void waitUntilPast(Instant instant) throws InterruptedException {
+        while (!Instant.now().isAfter(instant)) {
+            Thread.sleep(50);
+        }
+    }
+
+    private int outboxSize() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox", Integer.class);
     }
 
     private void station(String name, String neighborhood, String status) {

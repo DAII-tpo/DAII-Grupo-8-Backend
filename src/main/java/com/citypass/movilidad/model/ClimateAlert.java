@@ -25,6 +25,8 @@ import java.util.Set;
 public class ClimateAlert {
     public enum Severity { BAJA, MEDIA, ALTA, CRITICA }
     public enum Status { PROGRAMADA, ACTIVA, FINALIZADA }
+    /** Quién cerró la alerta: la Finalizada de Espacios o el vencimiento por vigenciaHasta. */
+    public enum FinalizationReason { ESPACIOS, VENCIMIENTO }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -59,6 +61,10 @@ public class ClimateAlert {
     @Column(name = "finalized_at")
     private Instant finalizedAt;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "finalization_reason", length = 16)
+    private FinalizationReason finalizationReason;
+
     @Column(name = "actor_sub", length = 100)
     private String actorSub;
 
@@ -70,4 +76,14 @@ public class ClimateAlert {
             joinColumns = @JoinColumn(name = "climate_alert_id"),
             inverseJoinColumns = @JoinColumn(name = "neighborhood_id"))
     private Set<Neighborhood> neighborhoods = new HashSet<>();
+
+    /** Vigencia ya terminada (now >= validUntil), aunque el job todavía no la haya finalizado. */
+    public boolean hasExpired(Instant now) {
+        return !validUntil.isAfter(now);
+    }
+
+    /** ACTIVA y dentro de su vigencia: es la única que bloquea, avisa y se muestra como activa. */
+    public boolean isInForce(Instant now) {
+        return status == Status.ACTIVA && !hasExpired(now);
+    }
 }

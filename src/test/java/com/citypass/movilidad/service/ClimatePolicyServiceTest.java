@@ -145,8 +145,46 @@ class ClimatePolicyServiceTest {
         alert.setPhenomenon(phenomenon);
         alert.setSeverity(severity);
         alert.setStatus(ClimateAlert.Status.ACTIVA);
+        alert.setValidUntil(java.time.Instant.now().plusSeconds(3600));
         alert.getNeighborhoods().add(neighborhood);
         return alert;
+    }
+
+    @Test
+    void activeAlertPastItsValidUntilNoLongerAppliesBeforeTheJobRuns() {
+        Neighborhood palermo = neighborhood("AR-CABA-PALERMO", "Palermo");
+        Station station = new Station();
+        station.setId(1L);
+        station.setNeighborhood(palermo);
+        ClimateAlert expired = alert("vencida", "TORMENTA_ELECTRICA", ClimateAlert.Severity.CRITICA, palermo);
+        expired.setValidUntil(java.time.Instant.now().minusSeconds(1));
+        when(repository.findByStatusAndNeighborhoodId(ClimateAlert.Status.ACTIVA, palermo.getId()))
+                .thenReturn(List.of(expired));
+        when(repository.findByStatus(ClimateAlert.Status.ACTIVA)).thenReturn(List.of(expired));
+
+        assertThat(service.effective(station)).isEmpty();
+        assertThat(service.affectedStationStatuses()).isEmpty();
+        verifyNoInteractions(stations);
+    }
+
+    @Test
+    void alertInForceWinsOverAMoreRestrictiveExpiredOneInTheSameNeighborhood() {
+        Neighborhood palermo = neighborhood("AR-CABA-PALERMO", "Palermo");
+        Station station = new Station();
+        station.setId(1L);
+        station.setNeighborhood(palermo);
+        ClimateAlert expired = alert("vencida", "TORMENTA_ELECTRICA", ClimateAlert.Severity.CRITICA, palermo);
+        expired.setValidUntil(java.time.Instant.now().minusSeconds(1));
+        ClimateAlert current = alert("vigente", "LLUVIA_INTENSA", ClimateAlert.Severity.MEDIA, palermo);
+        when(repository.findByStatusAndNeighborhoodId(ClimateAlert.Status.ACTIVA, palermo.getId()))
+                .thenReturn(List.of(expired, current));
+        when(repository.findByStatus(ClimateAlert.Status.ACTIVA)).thenReturn(List.of(expired, current));
+        when(stations.findByNeighborhood_IdInAndDeletedAtIsNull(Set.of(palermo.getId())))
+                .thenReturn(List.of(station));
+
+        assertThat(service.effective(station).map(effective -> effective.alert())).containsSame(current);
+        assertThat(service.affectedStationStatuses()).singleElement()
+                .satisfies(status -> assertThat(status.alerta().alertaId()).isEqualTo("vigente"));
     }
 
     @Test

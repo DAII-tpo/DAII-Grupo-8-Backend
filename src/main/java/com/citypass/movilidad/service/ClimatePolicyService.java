@@ -52,12 +52,19 @@ public class ClimatePolicyService {
         }
     }
 
+    /**
+     * Desde vigenciaHasta la alerta deja de aplicar aunque el job todavía no la haya finalizado. ClimateAlertEffects
+     * también pasa por acá al levantar: si vencen a la vez dos alertas del mismo barrio, la segunda no retiene
+     * las estaciones de la primera.
+     */
     public Optional<EffectiveClimate> effective(Station station) {
         if (station == null || station.getNeighborhood() == null) {
             return Optional.empty();
         }
+        Instant now = Instant.now();
         return alerts.findByStatusAndNeighborhoodId(ClimateAlert.Status.ACTIVA,
                         station.getNeighborhood().getId()).stream()
+                .filter(alert -> alert.isInForce(now))
                 .map(this::effectiveOf)
                 .max(MOST_RESTRICTIVE);
     }
@@ -75,7 +82,11 @@ public class ClimatePolicyService {
     @Transactional(readOnly = true)
     public List<StationClimateStatusResponse> affectedStationStatuses() {
         Map<String, EffectiveClimate> strongest = new HashMap<>();
+        Instant now = Instant.now();
         for (ClimateAlert alert : alerts.findByStatus(ClimateAlert.Status.ACTIVA)) {
+            if (!alert.isInForce(now)) {
+                continue;
+            }
             EffectiveClimate effective = effectiveOf(alert);
             alert.getNeighborhoods().forEach(neighborhood ->
                     strongest.merge(neighborhood.getId(), effective, STRONGEST));
