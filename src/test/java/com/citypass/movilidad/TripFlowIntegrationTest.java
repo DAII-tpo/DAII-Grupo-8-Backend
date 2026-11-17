@@ -153,8 +153,10 @@ class TripFlowIntegrationTest {
         assertThat(event.path("estacionFin").textValue()).isEqualTo(destination.getId().toString());
         assertThat(event.path("latitudFin").doubleValue()).isEqualTo(destination.getLatitude().doubleValue());
         assertThat(event.path("longitudFin").doubleValue()).isEqualTo(destination.getLongitude().doubleValue());
+        // started_at es DATETIME sin fracciones: MySQL redondea al segundo más cercano (hasta +0,5 s), así que
+        // un viaje que termina en el mismo segundo puede mostrar un inicio apenas posterior al fin.
         assertThat(Instant.parse(event.path("horaFinalizacion").asText()))
-                .isAfterOrEqualTo(Instant.parse(event.path("horaInicio").asText()));
+                .isAfterOrEqualTo(Instant.parse(event.path("horaInicio").asText()).minusSeconds(1));
         assertThat(event.path("createdAt").textValue()).isEqualTo(event.path("horaFinalizacion").textValue());
         assertThat(event.path("causaId").isNull()).isTrue();
         assertThat(event.path("causaTipo").isNull()).isTrue();
