@@ -61,6 +61,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         body.put("nivelCriticidad", alert.getSeverity().name());
         body.put("fenomeno", alert.getPhenomenon());
         body.put("vigenciaHasta", alert.getValidUntil());
+        body.put("accion", ex.getResponse().name());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 

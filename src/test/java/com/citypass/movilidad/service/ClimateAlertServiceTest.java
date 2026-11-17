@@ -19,6 +19,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,8 +32,10 @@ class ClimateAlertServiceTest {
     private final NeighborhoodRepository neighborhoods = mock(NeighborhoodRepository.class);
     private final ClimateAlertEffects effects = mock(ClimateAlertEffects.class);
     private final ClimateTripNotificationRepository notifications = mock(ClimateTripNotificationRepository.class);
+    private final AffectedStationsService affectedStations = mock(AffectedStationsService.class);
+    private final ClimateAffectedStations stationsInArea = mock(ClimateAffectedStations.class);
     private final ClimateAlertService service = new ClimateAlertService(repository, neighborhoods, effects,
-            notifications);
+            notifications, affectedStations, stationsInArea, new ClimatePolicyMatrix());
     private final ObjectMapper mapper = new ObjectMapper();
 
     @ParameterizedTest
@@ -55,7 +59,7 @@ class ClimateAlertServiceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(message);
 
         verify(repository, never()).saveAndFlush(any());
-        verifyNoInteractions(effects);
+        verifyNoInteractions(effects, affectedStations);
     }
 
     @Test
@@ -83,7 +87,7 @@ class ClimateAlertServiceTest {
         service.activateAlert(7L);
 
         verify(repository, never()).save(any());
-        verifyNoInteractions(effects);
+        verifyNoInteractions(effects, affectedStations);
     }
 
     @Test
@@ -110,7 +114,7 @@ class ClimateAlertServiceTest {
         service.finish(mapper.readTree("{\"alertaId\":\"unknown\"}"));
 
         verify(repository, never()).save(any());
-        verifyNoInteractions(effects);
+        verifyNoInteractions(effects, affectedStations);
     }
 
     @Test
@@ -126,19 +130,74 @@ class ClimateAlertServiceTest {
         assertThat(scheduled.getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
         assertThat(scheduled.getFinalizedAt()).isEqualTo(finishedAt);
         verify(repository).save(scheduled);
+        // No se publica AlertaClimaticaLevantada, pero sí se cierran las afectaciones preventivas para BI.
         verifyNoInteractions(effects);
+        verify(affectedStations).restoreClimateAlert("weather-1", finishedAt);
     }
 
     @Test
-    void visibleAlertsHideOnlyScheduledLowSeverityAlerts() {
+    void visibleAlertsHideOnlyScheduledAlertsWhoseResponseIsAPlainWarning() {
         ClimateAlert activeLow = visibleAlert("activa-baja", ClimateAlert.Status.ACTIVA, ClimateAlert.Severity.BAJA);
         ClimateAlert scheduledHigh = visibleAlert("programada-alta", ClimateAlert.Status.PROGRAMADA, ClimateAlert.Severity.ALTA);
         ClimateAlert scheduledLow = visibleAlert("programada-baja", ClimateAlert.Status.PROGRAMADA, ClimateAlert.Severity.BAJA);
+        // Lluvia MEDIA es solo AVISO; huracán BAJA ya pide confirmación y se anticipa.
+        ClimateAlert scheduledRain = visibleAlert("programada-lluvia", ClimateAlert.Status.PROGRAMADA,
+                ClimateAlert.Severity.MEDIA);
+        scheduledRain.setPhenomenon("LLUVIA_INTENSA");
+        ClimateAlert scheduledHurricane = visibleAlert("programada-huracan", ClimateAlert.Status.PROGRAMADA,
+                ClimateAlert.Severity.BAJA);
+        scheduledHurricane.setPhenomenon("HURACAN");
         when(repository.findByStatusIn(List.of(ClimateAlert.Status.PROGRAMADA, ClimateAlert.Status.ACTIVA)))
-                .thenReturn(List.of(activeLow, scheduledHigh, scheduledLow));
+                .thenReturn(List.of(activeLow, scheduledHigh, scheduledLow, scheduledRain, scheduledHurricane));
 
-        assertThat(service.visibleAlerts()).extracting(com.citypass.movilidad.dto.ClimateAlertResponse::alertaId)
-                .containsExactly("activa-baja", "programada-alta");
+        var visible = service.visibleAlerts();
+
+        assertThat(visible).extracting(com.citypass.movilidad.dto.ClimateAlertResponse::alertaId)
+                .containsExactly("activa-baja", "programada-alta", "programada-huracan");
+        assertThat(visible.get(1).accion()).isEqualTo("BLOQUEO");
+        assertThat(visible.get(1).bloqueaAlquiler()).isTrue();
+        assertThat(visible.get(2).accion()).isEqualTo("CONFIRMACION");
+        assertThat(visible.get(2).bloqueaAlquiler()).isFalse();
+    }
+
+    @Test
+    void currentBlockingAlertOpensBiAffectationsAndPublishesApplied() throws Exception {
+        var data = validEvent();
+        data.put("fenomeno", "TORMENTA_FUERTE");
+        data.put("nivelCriticidad", "ALTA");
+
+        service.confirm(data, Instant.now());
+
+        verify(affectedStations).blockForClimateAlert(any(ClimateAlert.class), anyList(), any(Instant.class));
+        verify(effects).applied(any(ClimateAlert.class), any(Instant.class));
+    }
+
+    @Test
+    void futureBlockingAlertOpensPreventiveAffectationsWithoutPublishingApplied() throws Exception {
+        var data = validEvent();
+        data.put("fenomeno", "TORMENTA_FUERTE");
+        data.put("nivelCriticidad", "ALTA");
+        data.put("vigenciaDesde", Instant.now().plusSeconds(1800).toEpochMilli());
+
+        service.confirm(data, Instant.now());
+
+        verify(affectedStations).blockForClimateAlert(any(ClimateAlert.class), anyList(), any(Instant.class));
+        verifyNoInteractions(effects);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"TORMENTA_ELECTRICA,MEDIA,true", "LLUVIA_INTENSA,ALTA,false", "OLA_DE_FRIO,CRITICA,false"})
+    void biAffectationsDependOnTheMatrixNotOnTheSeverity(String phenomenon, String severity, boolean blocks)
+            throws Exception {
+        var data = validEvent();
+        data.put("fenomeno", phenomenon);
+        data.put("nivelCriticidad", severity);
+
+        service.confirm(data, Instant.now());
+
+        verify(affectedStations, blocks ? org.mockito.Mockito.times(1) : never())
+                .blockForClimateAlert(any(), anyList(), any());
+        verify(effects).applied(any(ClimateAlert.class), any(Instant.class));
     }
 
     @Test
@@ -228,6 +287,7 @@ class ClimateAlertServiceTest {
         when(repository.findByExternalAlertId("weather-2")).thenReturn(Optional.of(saved.getValue()));
         service.confirm(data, Instant.now());
         verify(repository).saveAndFlush(any());
+        verify(affectedStations).blockForClimateAlert(eq(saved.getValue()), anyList(), any());
     }
 
     @Test
@@ -236,6 +296,8 @@ class ClimateAlertServiceTest {
         alert.setExternalAlertId("weather-3");
         alert.setStatus(ClimateAlert.Status.PROGRAMADA);
         alert.setId(3L);
+        alert.setPhenomenon("TORMENTA_FUERTE");
+        alert.setSeverity(ClimateAlert.Severity.ALTA);
         alert.setValidFrom(Instant.now().minusSeconds(30));
         when(repository.findByIdForUpdate(3L)).thenReturn(Optional.of(alert));
 
@@ -243,6 +305,8 @@ class ClimateAlertServiceTest {
 
         assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.ACTIVA);
         verify(effects).applied(any(ClimateAlert.class), any(Instant.class));
+        // Se vuelve a pedir el bloqueo (idempotente) para cubrir estaciones que pasaron a ACTIVE.
+        verify(affectedStations).blockForClimateAlert(eq(alert), anyList(), any(Instant.class));
 
         when(repository.findByExternalAlertId("weather-3")).thenReturn(Optional.of(alert));
         service.finish(mapper.readTree("""
@@ -251,5 +315,6 @@ class ClimateAlertServiceTest {
 
         assertThat(alert.getStatus()).isEqualTo(ClimateAlert.Status.FINALIZADA);
         verify(effects).lifted(any(ClimateAlert.class), any(Instant.class));
+        verify(affectedStations).restoreClimateAlert("weather-3", Instant.ofEpochMilli(1794011463871L));
     }
 }

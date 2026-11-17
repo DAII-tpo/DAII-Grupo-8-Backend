@@ -1,6 +1,7 @@
 package com.citypass.movilidad.repository;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import java.util.HashSet;
 import java.util.List;
@@ -20,6 +21,9 @@ public class StationAffectationRepository {
             LEFT JOIN festival_activity_changes a ON a.activity_id = t.activity_id
             WHERE f.cause_type = 'EVENTO_PUBLICO' AND
             """ + FESTIVAL_PROGRAMMED;
+    private static final RowMapper<Affectation> AFFECTATION = (rs, row) -> new Affectation(
+            rs.getString("affectation_id"), rs.getLong("station_id"), rs.getString("cause_id"),
+            rs.getString("cause_type"), rs.getString("origin_module"), rs.getString("correlation_id"));
     private final JdbcTemplate jdbc;
 
     public StationAffectationRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
@@ -29,10 +33,7 @@ public class StationAffectationRepository {
     }
 
     public List<Affectation> findAll() {
-        return jdbc.query("SELECT * FROM station_affectations ORDER BY station_id, cause_type, cause_id", (rs, row) ->
-                new Affectation(rs.getString("affectation_id"), rs.getLong("station_id"),
-                        rs.getString("cause_id"), rs.getString("cause_type"), rs.getString("origin_module"),
-                        rs.getString("correlation_id")));
+        return jdbc.query("SELECT * FROM station_affectations ORDER BY station_id, cause_type, cause_id", AFFECTATION);
     }
 
     public Optional<FestivalTransfer> findFestivalTransfer(long taskId, long stationId, long now) {
@@ -62,6 +63,30 @@ public class StationAffectationRepository {
     public Set<Long> festivalPickupRestrictions(long now) {
         return new HashSet<>(jdbc.queryForList("SELECT DISTINCT f.station_id " + OPEN_FESTIVAL
                 + " AND (t.start_epoch_ms IS NULL OR t.start_epoch_ms <= ?)", Long.class, now, now));
+    }
+
+    public boolean exists(Key key) {
+        Boolean exists = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM station_affectations
+                              WHERE station_id = ? AND cause_type = ? AND cause_id = ?)
+                """, Boolean.class, key.stationId(), key.causeType(), key.causeId());
+        return Boolean.TRUE.equals(exists);
+    }
+
+    public List<Affectation> findByCause(String causeType, String causeId) {
+        return jdbc.query("""
+                SELECT * FROM station_affectations WHERE cause_type = ? AND cause_id = ? ORDER BY station_id
+                """, AFFECTATION, causeType, causeId);
+    }
+
+    /** Afectaciones climáticas cuya alerta sigue PROGRAMADA o ACTIVA: el reconciliador no debe restaurarlas. */
+    public Set<String> openClimateAffectations() {
+        return new HashSet<>(jdbc.queryForList("""
+                SELECT f.affectation_id
+                FROM station_affectations f
+                JOIN climate_alerts c ON c.external_alert_id = f.cause_id COLLATE utf8mb4_bin
+                WHERE f.cause_type = 'EVENTO_CLIMATICO' AND c.status IN ('PROGRAMADA','ACTIVA')
+                """, String.class));
     }
 
     public record FestivalTransfer(String activityId, String correlationId, Long startMillis, long deadlineMillis) {}
