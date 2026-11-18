@@ -311,6 +311,33 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
+    @DisplayName("ReclamoActualizado con CERRADO cierra la obstrucción")
+    void procesarReclamoActualizado_cerrado_cierraObstruccion() {
+        CicloviaObstruction existing = CicloviaObstruction.builder()
+                .id(1L)
+                .reclamoId("rec-123")
+                .status(ObstructionStatus.ACTIVE)
+                .latitude(BigDecimal.valueOf(-34.6058478))
+                .longitude(BigDecimal.valueOf(-58.3807086))
+                .build();
+
+        when(obstructionRepository.findByReclamoId("rec-123")).thenReturn(Optional.of(existing));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReclamoActualizadoData data = new ReclamoActualizadoData(
+                "rec-123", "U000042", "RESUELTO", "CERRADO", "Gestión finalizada",
+                null, "admin-1", "req-corr-1", NOW.toEpochMilli());
+
+        Optional<CicloviaObstruction> resultado = service.procesarReclamoActualizado(data);
+
+        assertThat(resultado).isPresent();
+        assertThat(resultado.get().getStatus()).isEqualTo(ObstructionStatus.RESOLVED);
+        assertThat(resultado.get().getResolvedAt()).isEqualTo(NOW);
+        assertThat(resultado.get().getReclamoEstado()).isEqualTo("CERRADO");
+        verify(obstructionRepository).save(existing);
+    }
+
+    @Test
     @DisplayName("isStationAffected devuelve true si la estación está en una obstrucción activa")
     void isStationAffected_devuelveTrueSiEstaAfectada() {
         CicloviaObstruction activeObs = CicloviaObstruction.builder()

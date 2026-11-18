@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  * 3. Publica com.citypass.movilidad.MovilidadObstruccionEvaluada para EDA y Espacios Públicos (Grupo 7).
  * 4. Si la prioridad o riesgo es alto, publica com.citypass.movilidad.EmergenciaSolicitada para Emergencias (Grupo 6).
  * <p>
- * Al recibir com.citypass.reclamos.ReclamoActualizado con estadoNuevo = RESUELTO:
+ * Al recibir com.citypass.reclamos.ReclamoActualizado con estadoNuevo = RESUELTO o CERRADO:
  * 1. Marca la obstrucción como resuelta y normaliza la circulación ciclista.
  */
 @Service
@@ -194,11 +194,13 @@ public class CicloviaObstructionService {
         if (existing.isPresent()) {
             CicloviaObstruction obstruction = existing.get();
             obstruction.setReclamoEstado(data.estadoNuevo());
-            if ("RESUELTO".equalsIgnoreCase(data.estadoNuevo())) {
+            if ("RESUELTO".equalsIgnoreCase(data.estadoNuevo())
+                    || "CERRADO".equalsIgnoreCase(data.estadoNuevo())) {
                 obstruction.setStatus(ObstructionStatus.RESOLVED);
                 obstruction.setResolvedAt(clock.instant());
                 obstructionRepository.save(obstruction);
-                LOG.info("Obstrucción de ciclovía resuelta: reclamoId={}. Circulación ciclista normalizada.", data.reclamoId());
+                LOG.info("Obstrucción de ciclovía cerrada por estado {}: reclamoId={}. Circulación ciclista normalizada.",
+                        data.estadoNuevo(), data.reclamoId());
                 return Optional.of(obstruction);
             }
             obstructionRepository.save(obstruction);
