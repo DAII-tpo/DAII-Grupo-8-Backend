@@ -401,6 +401,25 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
+    void reclasificacionSinObstruccionExistenteAbreEvaluacionPendiente() {
+        when(obstructionRepository.findByReclamoId("nueva-reclasificacion")).thenReturn(Optional.empty());
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
+                .thenReturn(List.of());
+
+        var result = service.procesarReclamoReclasificado(reclasificado(
+                "nueva-reclasificacion", "CICLOVIA", true));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getStatus()).isEqualTo(ObstructionStatus.ACTIVE);
+        assertThat(result.get().getReclamoEstado()).isEqualTo("EN_REVISION");
+        assertThat(result.get().getLatitude()).isEqualByComparingTo("-34.6");
+        assertThat(result.get().getLongitude()).isEqualByComparingTo("-58.4");
+        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
+                eq("nueva-reclasificacion"), any());
+    }
+
+    @Test
     void reclasificacionQueDejaDeAfectarCicloviaCierraYPublicaEvaluacion() {
         CicloviaObstruction active = CicloviaObstruction.builder().reclamoId("fuera-de-alcance")
                 .status(ObstructionStatus.ACTIVE).barrio("Palermo")

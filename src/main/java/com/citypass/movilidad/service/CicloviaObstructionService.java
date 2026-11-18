@@ -222,18 +222,14 @@ public class CicloviaObstructionService {
 
         Optional<CicloviaObstruction> existing = obstructionRepository.findByReclamoId(data.reclamoId());
         if (existing.isEmpty()) {
-            // No conocemos el estado vigente porque ReclamoReclasificado no lo incluye.
-            // Se registra como pendiente; ReclamoActualizado con estado inicial habilitará el despacho.
-            ReclamoCreadoData reclamoActualizado = new ReclamoCreadoData(
-                    data.reclamoId(), data.ciudadanoId(), null, data.titulo(), data.descripcion(),
-                    data.categoriaNueva(), data.prioridadNueva(), "EN_REVISION", data.reclasificadoPor(), null,
-                    null, data.barrio(), data.latitud(), data.longitud(), data.objetoAfectadoNuevo(),
-                    data.afectaCirculacionNueva(), data.correlationId(), data.reclasificadoAt()
-            );
-            return procesarReclamoCreadoInterno(reclamoActualizado);
+            return procesarReclamoCreadoInterno(reclamoDesdeReclasificacion(data, null));
         }
 
-        CicloviaObstruction obstruction = existing.get();
+        return actualizarObstruccionReclasificada(data, existing.get());
+    }
+
+    private Optional<CicloviaObstruction> actualizarObstruccionReclasificada(
+            ReclamoReclasificadoData data, CicloviaObstruction obstruction) {
         if (obstruction.getStatus() != ObstructionStatus.ACTIVE) {
             LOG.info("Se ignora reclasificación de obstrucción no activa: reclamoId={}", data.reclamoId());
             return Optional.of(obstruction);
@@ -246,15 +242,46 @@ public class CicloviaObstructionService {
             return Optional.of(obstruction);
         }
 
-        ReclamoCreadoData reclamoActualizado = new ReclamoCreadoData(
-                data.reclamoId(), data.ciudadanoId(), null, data.titulo(), data.descripcion(),
-                data.categoriaNueva(), data.prioridadNueva(), safe(obstruction.getReclamoEstado()).isBlank()
-                        ? "EN_REVISION" : obstruction.getReclamoEstado(),
-                data.reclasificadoPor(), null, obstruction.getDireccion(), data.barrio(), lat, lon,
-                data.objetoAfectadoNuevo(), data.afectaCirculacionNueva(), data.correlationId(), data.reclasificadoAt()
-        );
+        ReclamoCreadoData reclamoActualizado = reclamoDesdeReclasificacion(data, obstruction, lat, lon);
+        actualizarDatosObstruccion(obstruction, data, lat, lon);
 
         obstruction.setCiudadanoId(data.ciudadanoId());
+
+        if (!esRelevanteParaCiclovia(reclamoActualizado)) {
+            return cerrarObstruccionReclasificada(data, obstruction, lat, lon);
+        }
+
+        return reevaluarObstruccionReclasificada(data, obstruction, reclamoActualizado, lat, lon);
+    }
+
+    private ReclamoCreadoData reclamoDesdeReclasificacion(ReclamoReclasificadoData data,
+                                                           CicloviaObstruction obstruction) {
+        if (obstruction == null) {
+            return new ReclamoCreadoData(data.reclamoId(), data.ciudadanoId(), null, data.titulo(),
+                    data.descripcion(), data.categoriaNueva(), data.prioridadNueva(), RECLAMO_EN_REVISION,
+                    data.reclasificadoPor(), null, null, data.barrio(), data.latitud(), data.longitud(),
+                    data.objetoAfectadoNuevo(), data.afectaCirculacionNueva(), data.correlationId(),
+                    data.reclasificadoAt());
+        }
+        double lat = data.latitud() != null ? data.latitud() : obstruction.getLatitude().doubleValue();
+        double lon = data.longitud() != null ? data.longitud() : obstruction.getLongitude().doubleValue();
+        return reclamoDesdeReclasificacion(data, obstruction, lat, lon);
+    }
+
+    private ReclamoCreadoData reclamoDesdeReclasificacion(ReclamoReclasificadoData data,
+                                                           CicloviaObstruction obstruction,
+                                                           double lat, double lon) {
+        String estado = safe(obstruction.getReclamoEstado()).isBlank()
+                ? RECLAMO_EN_REVISION : obstruction.getReclamoEstado();
+        String direccion = obstruction.getDireccion();
+        return new ReclamoCreadoData(data.reclamoId(), data.ciudadanoId(), null, data.titulo(), data.descripcion(),
+                data.categoriaNueva(), data.prioridadNueva(), estado, data.reclasificadoPor(), null,
+                direccion, data.barrio(), lat, lon, data.objetoAfectadoNuevo(), data.afectaCirculacionNueva(),
+                data.correlationId(), data.reclasificadoAt());
+    }
+
+    private void actualizarDatosObstruccion(CicloviaObstruction obstruction,
+                                            ReclamoReclasificadoData data, double lat, double lon) {
         obstruction.setTitulo(data.titulo());
         obstruction.setDescripcion(data.descripcion());
         if (data.barrio() != null) obstruction.setBarrio(data.barrio());
@@ -264,22 +291,27 @@ public class CicloviaObstructionService {
         obstruction.setReclamoPrioridad(data.prioridadNueva());
         obstruction.setObjetoAfectado(data.objetoAfectadoNuevo());
         obstruction.setAfectaCirculacion(data.afectaCirculacionNueva());
+    }
 
-        if (!esRelevanteParaCiclovia(reclamoActualizado)) {
-            obstruction.setStatus(ObstructionStatus.RESOLVED);
-            obstruction.setResolvedAt(clock.instant());
-            obstruction.setAffectedStationIds("");
-            obstruction.setImpactLevel(ObstructionImpactLevel.BAJO);
-            obstruction.setDetourDescription(null);
-            obstruction = obstructionRepository.save(obstruction);
-            eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, data.reclamoId(),
-                    new MovilidadObstruccionEvaluadaData(data.reclamoId(), data.correlationId(), lat, lon,
-                            obstruction.getDireccion(), obstruction.getBarrio(), false, List.of(), "BAJO", null,
-                            false, false, clock.millis()));
-            LOG.info("Reclasificación quitó el reclamo {} del alcance de Movilidad", data.reclamoId());
-            return Optional.of(obstruction);
-        }
+    private Optional<CicloviaObstruction> cerrarObstruccionReclasificada(
+            ReclamoReclasificadoData data, CicloviaObstruction obstruction, double lat, double lon) {
+        obstruction.setStatus(ObstructionStatus.RESOLVED);
+        obstruction.setResolvedAt(clock.instant());
+        obstruction.setAffectedStationIds("");
+        obstruction.setImpactLevel(ObstructionImpactLevel.BAJO);
+        obstruction.setDetourDescription(null);
+        obstruction = obstructionRepository.save(obstruction);
+        eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, data.reclamoId(),
+                new MovilidadObstruccionEvaluadaData(data.reclamoId(), data.correlationId(), lat, lon,
+                        obstruction.getDireccion(), obstruction.getBarrio(), false, List.of(), "BAJO", null,
+                        false, false, clock.millis()));
+        LOG.info("Reclasificación quitó el reclamo {} del alcance de Movilidad", data.reclamoId());
+        return Optional.of(obstruction);
+    }
 
+    private Optional<CicloviaObstruction> reevaluarObstruccionReclasificada(
+            ReclamoReclasificadoData data, CicloviaObstruction obstruction,
+            ReclamoCreadoData reclamoActualizado, double lat, double lon) {
         List<Long> affectedStationIds = findAffectedStations(lat, lon);
         ObstructionImpactLevel impactLevel = evaluateImpactLevel(reclamoActualizado, affectedStationIds.size());
         String detour = buildDetourSuggestion(reclamoActualizado);
