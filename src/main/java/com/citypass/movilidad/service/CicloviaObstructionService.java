@@ -261,7 +261,7 @@ public class CicloviaObstructionService {
 
         Optional<CicloviaObstruction> existing = obstructionRepository.findByReclamoId(data.reclamoId());
         if (existing.isEmpty()) {
-            return procesarReclamoCreadoInterno(reclamoDesdeReclasificacion(data, null));
+            return procesarReclamoCreadoInterno(reclamoDesdeReclasificacion(data));
         }
 
         return actualizarObstruccionReclasificada(data, existing.get());
@@ -301,18 +301,12 @@ public class CicloviaObstructionService {
         return reevaluarObstruccionReclasificada(data, obstruction, reclamoActualizado, lat, lon);
     }
 
-    private ReclamoCreadoData reclamoDesdeReclasificacion(ReclamoReclasificadoData data,
-                                                           CicloviaObstruction obstruction) {
-        if (obstruction == null) {
-            return new ReclamoCreadoData(data.reclamoId(), data.ciudadanoId(), null, data.titulo(),
-                    data.descripcion(), data.categoriaNueva(), data.prioridadNueva(), RECLAMO_EN_REVISION,
-                    data.reclasificadoPor(), null, null, data.barrio(), data.latitud(), data.longitud(),
-                    data.objetoAfectadoNuevo(), data.afectaCirculacionNueva(), data.correlationId(),
-                    data.reclasificadoAt());
-        }
-        double lat = data.latitud() != null ? data.latitud() : obstruction.getLatitude().doubleValue();
-        double lon = data.longitud() != null ? data.longitud() : obstruction.getLongitude().doubleValue();
-        return reclamoDesdeReclasificacion(data, obstruction, lat, lon);
+    private ReclamoCreadoData reclamoDesdeReclasificacion(ReclamoReclasificadoData data) {
+        return new ReclamoCreadoData(data.reclamoId(), data.ciudadanoId(), null, data.titulo(),
+                data.descripcion(), data.categoriaNueva(), data.prioridadNueva(), RECLAMO_EN_REVISION,
+                data.reclasificadoPor(), null, null, data.barrio(), data.latitud(), data.longitud(),
+                data.objetoAfectadoNuevo(), data.afectaCirculacionNueva(), data.correlationId(),
+                data.reclasificadoAt());
     }
 
     private ReclamoCreadoData reclamoDesdeReclasificacion(ReclamoReclasificadoData data,
@@ -368,11 +362,13 @@ public class CicloviaObstructionService {
         boolean requiresEmergency = isCriticalEmergency(reclamoActualizado);
         boolean requiresTow = isTowRequired(reclamoActualizado);
         boolean emergencyAlreadyDispatched = obstruction.isEmergencyDispatched();
+        boolean dispatchEmergency = requiresEmergency && !emergencyAlreadyDispatched
+                && RECLAMO_RECIBIDO.equalsIgnoreCase(safe(obstruction.getReclamoEstado()));
 
         obstruction.setImpactLevel(impactLevel);
         obstruction.setAffectedStationIds(joinIds(affectedStationIds));
         obstruction.setDetourDescription(detour);
-        obstruction.setEmergencyDispatched(emergencyAlreadyDispatched || requiresEmergency);
+        obstruction.setEmergencyDispatched(emergencyAlreadyDispatched || dispatchEmergency);
         obstruction = obstructionRepository.save(obstruction);
 
         eventPublisher.publish(EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA, AggregateType.INCIDENT, data.reclamoId(),
@@ -380,8 +376,7 @@ public class CicloviaObstructionService {
                         obstruction.getDireccion(), obstruction.getBarrio(), true, affectedStationIds,
                         impactLevel.name(), detour, requiresEmergency, requiresTow, clock.millis()));
 
-        if (requiresEmergency && !emergencyAlreadyDispatched
-                && RECLAMO_RECIBIDO.equalsIgnoreCase(safe(obstruction.getReclamoEstado()))) {
+        if (dispatchEmergency) {
             publicarEmergencia(obstruction, data.correlationId(), data.prioridadNueva(), lat, lon);
         }
         return Optional.of(obstruction);
@@ -497,8 +492,7 @@ public class CicloviaObstructionService {
     }
 
     private static boolean isClosedClaimState(String state) {
-        String normalized = safe(state).trim().toUpperCase(Locale.ROOT);
-        return "RECHAZADO".equals(normalized) || "CERRADO".equals(normalized);
+        return "RECHAZADO".equalsIgnoreCase(safe(state).trim());
     }
 
     private boolean isTowRequired(ReclamoCreadoData data) {
