@@ -116,6 +116,8 @@ class CicloviaObstructionServiceTest {
         EmergenciaSolicitadaData emergencia = captorEmergencia.getValue();
         assertThat(emergencia.reclamoId()).isEqualTo("rec-123");
         assertThat(emergencia.prioridad()).isEqualTo("ALTA");
+        assertThat(emergencia.descripcion()).isEqualTo(
+                "Auto estacionado sobre la ciclovia. Hay un auto arriba de la bicisenda en plena avenida");
     }
 
     @Test
@@ -176,8 +178,12 @@ class CicloviaObstructionServiceTest {
 
         assertThat(resultado).isPresent();
         assertThat(resultado.get().getImpactLevel()).isEqualTo(ObstructionImpactLevel.BAJO);
+        assertThat(resultado.get().getStatus()).isEqualTo(ObstructionStatus.PENDING_REVIEW);
+        assertThat(resultado.get().getAffectedStationIds()).isEmpty();
         assertThat(resultado.get().isEmergencyDispatched()).isFalse();
-        verify(eventPublisher, never()).publish(eq("EmergenciaSolicitada"), any(), any(), any());
+        verify(stationRepository, never()).findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                anyDouble(), anyDouble(), anyInt(), anyString(), anyInt());
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
     }
 
     @Test
@@ -220,7 +226,12 @@ class CicloviaObstructionServiceTest {
     void procesarReclamoActualizado_recibidoTrasRevision_solicitaEmergenciaSiCorresponde() {
         CicloviaObstruction existing = CicloviaObstruction.builder()
                 .reclamoId("rec-reviewed")
-                .status(ObstructionStatus.ACTIVE)
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .ciudadanoId("U000042")
+                .titulo("Auto sobre ciclovía")
+                .descripcion("Bloquea la ciclovía")
+                .direccion("Av. Córdoba 100")
+                .barrio("Palermo")
                 .reclamoEstado("EN_REVISION")
                 .reclamoPrioridad("ALTA")
                 .reclamoCategoria("TRANSITO")
@@ -233,6 +244,8 @@ class CicloviaObstructionServiceTest {
                 .build();
         when(obstructionRepository.findByReclamoId("rec-reviewed")).thenReturn(Optional.of(existing));
         when(obstructionRepository.save(any(CicloviaObstruction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
+                .thenReturn(List.of());
 
         service.procesarReclamoActualizado(new ReclamoActualizadoData(
                 "rec-reviewed", "U000042", "EN_REVISION", "RECIBIDO", "Revisión humana completada",
@@ -241,8 +254,94 @@ class CicloviaObstructionServiceTest {
 
         assertThat(existing.isEmergencyDispatched()).isTrue();
         assertThat(existing.getReclamoEstado()).isEqualTo("RECIBIDO");
+        assertThat(existing.getStatus()).isEqualTo(ObstructionStatus.ACTIVE);
+        ArgumentCaptor<MovilidadObstruccionEvaluadaData> evaluadaCaptor =
+                ArgumentCaptor.forClass(MovilidadObstruccionEvaluadaData.class);
+        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
+                eq("rec-reviewed"), evaluadaCaptor.capture());
+        assertThat(evaluadaCaptor.getValue().requiereIntervencionInmediata()).isTrue();
+        assertThat(evaluadaCaptor.getValue().requiereGrua()).isTrue();
         verify(eventPublisher).publish(eq("EmergenciaSolicitada"), eq(AggregateType.INCIDENT),
                 eq("rec-reviewed"), any(EmergenciaSolicitadaData.class));
+    }
+
+    @Test
+    @DisplayName("Al confirmar una revisión MEDIA publica la evaluación sin pedir emergencia")
+    void procesarReclamoActualizado_recibidoTrasRevisionMedia_noSolicitaEmergencia() {
+        CicloviaObstruction pending = CicloviaObstruction.builder()
+                .reclamoId("rec-reviewed-media")
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .titulo("Auto sobre ciclovía")
+                .descripcion("Bloquea el paso")
+                .reclamoEstado("EN_REVISION")
+                .reclamoPrioridad("MEDIA")
+                .reclamoCategoria("TRANSITO")
+                .objetoAfectado("CICLOVIA")
+                .afectaCirculacion(true)
+                .latitude(BigDecimal.valueOf(-34.5955))
+                .longitude(BigDecimal.valueOf(-58.4281))
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-reviewed-media")).thenReturn(Optional.of(pending));
+        when(obstructionRepository.save(any(CicloviaObstruction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
+                .thenReturn(List.of());
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-reviewed-media", "U000042", "EN_REVISION", "RECIBIDO", "Revisión completada",
+                "operador-1", "operador-1", "corr-reviewed-media", NOW.toEpochMilli()));
+
+        assertThat(pending.getStatus()).isEqualTo(ObstructionStatus.ACTIVE);
+        assertThat(pending.isEmergencyDispatched()).isFalse();
+        ArgumentCaptor<MovilidadObstruccionEvaluadaData> captor =
+                ArgumentCaptor.forClass(MovilidadObstruccionEvaluadaData.class);
+        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
+                eq("rec-reviewed-media"), captor.capture());
+        assertThat(captor.getValue().requiereIntervencionInmediata()).isFalse();
+        assertThat(captor.getValue().requiereGrua()).isTrue();
+        verify(eventPublisher, never()).publish(eq("EmergenciaSolicitada"), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Un reclamo pendiente rechazado termina sin activar alertas")
+    void procesarReclamoActualizado_rechazadoDuranteRevision_noActivaObstruccion() {
+        CicloviaObstruction pending = CicloviaObstruction.builder()
+                .reclamoId("rec-rejected-review")
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .reclamoEstado("EN_REVISION")
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-rejected-review")).thenReturn(Optional.of(pending));
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-rejected-review", "U000042", "EN_REVISION", "RECHAZADO", "No corresponde",
+                "operador-1", "operador-1", "corr-rejected-review", NOW.toEpochMilli()));
+
+        assertThat(pending.getStatus()).isEqualTo(ObstructionStatus.RESOLVED);
+        assertThat(pending.getResolvedAt()).isEqualTo(NOW);
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("La reclasificación de un reclamo pendiente actualiza los datos sin publicar eventos")
+    void procesarReclamoReclasificado_pendienteActualizaSinActivar() {
+        CicloviaObstruction pending = CicloviaObstruction.builder()
+                .reclamoId("rec-pending-reclassified")
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .reclamoEstado("EN_REVISION")
+                .latitude(BigDecimal.valueOf(-34.5955))
+                .longitude(BigDecimal.valueOf(-58.4281))
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-pending-reclassified")).thenReturn(Optional.of(pending));
+        when(obstructionRepository.save(any(CicloviaObstruction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.procesarReclamoReclasificado(reclasificado(
+                "rec-pending-reclassified", "CICLOVIA", true));
+
+        assertThat(pending.getStatus()).isEqualTo(ObstructionStatus.PENDING_REVIEW);
+        assertThat(pending.getReclamoEstado()).isEqualTo("EN_REVISION");
+        assertThat(pending.getReclamoCategoria()).isEqualTo("TRANSITO");
+        verify(stationRepository, never()).findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
+                anyDouble(), anyDouble(), anyInt(), anyString(), anyInt());
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
     }
 
     @Test
