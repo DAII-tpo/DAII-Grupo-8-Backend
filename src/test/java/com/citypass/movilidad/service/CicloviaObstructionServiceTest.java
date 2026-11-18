@@ -345,6 +345,33 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
+    @DisplayName("La reclasificación irrelevante cierra un pendiente sin publicar evaluación")
+    void procesarReclamoReclasificado_pendienteDejaDeSerRelevante_noPublica() {
+        CicloviaObstruction pending = CicloviaObstruction.builder()
+                .reclamoId("rec-pending-out-of-scope")
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .reclamoEstado("EN_REVISION")
+                .latitude(BigDecimal.valueOf(-34.5955))
+                .longitude(BigDecimal.valueOf(-58.4281))
+                .affectedStationIds("12,24")
+                .detourDescription("Desvío temporal")
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-pending-out-of-scope"))
+                .thenReturn(Optional.of(pending));
+        when(obstructionRepository.save(any(CicloviaObstruction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = service.procesarReclamoReclasificado(reclasificado(
+                "rec-pending-out-of-scope", "CALLE", false));
+
+        assertThat(result).contains(pending);
+        assertThat(pending.getStatus()).isEqualTo(ObstructionStatus.RESOLVED);
+        assertThat(pending.getAffectedStationIds()).isEmpty();
+        assertThat(pending.getDetourDescription()).isNull();
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("Reclamo que menciona ciclovía pero no la identifica como objeto afectado se omite")
     void procesarReclamoCreado_noRelevante_seOmite() {
         ReclamoCreadoData reclamo = new ReclamoCreadoData(
@@ -557,10 +584,11 @@ class CicloviaObstructionServiceTest {
                 .thenReturn(List.of());
 
         service.procesarReclamoReclasificado(reclasificado("ya-despachada", "CICLOVIA", true,
-                null, null));
+                null, null, "Recoleta"));
 
         assertThat(active.getLatitude()).isEqualByComparingTo("-34.6");
         assertThat(active.getLongitude()).isEqualByComparingTo("-58.4");
+        assertThat(active.getBarrio()).isEqualTo("Recoleta");
         assertThat(active.isEmergencyDispatched()).isTrue();
         verify(eventPublisher, never()).publish(eq("EmergenciaSolicitada"), any(), any(), any());
     }
@@ -600,8 +628,13 @@ class CicloviaObstructionServiceTest {
 
     private ReclamoReclasificadoData reclasificado(String id, String objeto, boolean afecta,
                                                    Double lat, Double lon) {
+        return reclasificado(id, objeto, afecta, lat, lon, null);
+    }
+
+    private ReclamoReclasificadoData reclasificado(String id, String objeto, boolean afecta,
+                                                   Double lat, Double lon, String barrio) {
         return new ReclamoReclasificadoData(id, "u-1", "TRANSITO", "TRANSITO", "MEDIA", "MEDIA",
-                "CICLOVIA", objeto, true, afecta, "Auto en ciclovía", "Bloquea el paso", null,
+                "CICLOVIA", objeto, true, afecta, "Auto en ciclovía", "Bloquea el paso", barrio,
                 lat, lon, "operador", "corr-1", NOW.toEpochMilli());
     }
 }
