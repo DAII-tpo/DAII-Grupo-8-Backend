@@ -500,7 +500,7 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
-    void reclasificacionSinObstruccionExistenteAbreEvaluacionPendiente() {
+    void reclasificacionSinObstruccionExistenteCreaRevisionPendiente() {
         when(obstructionRepository.findByReclamoId("nueva-reclasificacion")).thenReturn(Optional.empty());
         when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
@@ -510,12 +510,11 @@ class CicloviaObstructionServiceTest {
                 "nueva-reclasificacion", "CICLOVIA", true));
 
         assertThat(result).isPresent();
-        assertThat(result.get().getStatus()).isEqualTo(ObstructionStatus.ACTIVE);
+        assertThat(result.get().getStatus()).isEqualTo(ObstructionStatus.PENDING_REVIEW);
         assertThat(result.get().getReclamoEstado()).isEqualTo("EN_REVISION");
         assertThat(result.get().getLatitude()).isEqualByComparingTo("-34.6");
         assertThat(result.get().getLongitude()).isEqualByComparingTo("-58.4");
-        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
-                eq("nueva-reclasificacion"), any());
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
     }
 
     @Test
