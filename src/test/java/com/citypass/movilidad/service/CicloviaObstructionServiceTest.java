@@ -302,6 +302,118 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
+    @DisplayName("Un reclamo activo que vuelve a RECIBIDO despacha la emergencia si conserva prioridad crítica")
+    void procesarReclamoActualizado_recibidoEnObstruccionActiva_despachaEmergencia() {
+        CicloviaObstruction active = CicloviaObstruction.builder()
+                .reclamoId("rec-active-received")
+                .status(ObstructionStatus.ACTIVE)
+                .reclamoEstado("EN_PROCESO")
+                .reclamoPrioridad("CRITICA")
+                .reclamoCategoria("TRANSITO")
+                .objetoAfectado("CICLOVIA")
+                .afectaCirculacion(true)
+                .latitude(BigDecimal.valueOf(-34.6))
+                .longitude(BigDecimal.valueOf(-58.4))
+                .impactLevel(ObstructionImpactLevel.ALTO)
+                .affectedStationIds("12,24")
+                .detourDescription("Desvío preventivo")
+                .emergencyDispatched(false)
+                .titulo("Auto sobre ciclovía")
+                .descripcion("Bloqueo con riesgo")
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-active-received")).thenReturn(Optional.of(active));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-active-received", "u-1", "EN_PROCESO", "RECIBIDO", "Reabierto",
+                null, "operador-1", "corr-active-received", NOW.toEpochMilli()));
+
+        assertThat(active.getReclamoEstado()).isEqualTo("RECIBIDO");
+        assertThat(active.isEmergencyDispatched()).isTrue();
+        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
+                eq("rec-active-received"), any(MovilidadObstruccionEvaluadaData.class));
+        verify(eventPublisher).publish(eq("EmergenciaSolicitada"), eq(AggregateType.INCIDENT),
+                eq("rec-active-received"), any(EmergenciaSolicitadaData.class));
+    }
+
+    @Test
+    @DisplayName("No vuelve a despachar una emergencia ya enviada al pasar a RECIBIDO")
+    void procesarReclamoActualizado_recibidoEmergenciaYaDespachada_noDuplica() {
+        CicloviaObstruction active = CicloviaObstruction.builder()
+                .reclamoId("rec-already-dispatched")
+                .status(ObstructionStatus.ACTIVE)
+                .reclamoPrioridad("ALTA")
+                .emergencyDispatched(true)
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-already-dispatched")).thenReturn(Optional.of(active));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-already-dispatched", "u-1", "EN_PROCESO", "RECIBIDO", null,
+                null, null, "corr-already-dispatched", NOW.toEpochMilli()));
+
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("No solicita emergencia para una obstrucción activa de prioridad media")
+    void procesarReclamoActualizado_recibidoPrioridadMedia_noSolicitaEmergencia() {
+        CicloviaObstruction active = CicloviaObstruction.builder()
+                .reclamoId("rec-medium-received")
+                .status(ObstructionStatus.ACTIVE)
+                .reclamoPrioridad("MEDIA")
+                .emergencyDispatched(false)
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-medium-received")).thenReturn(Optional.of(active));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-medium-received", "u-1", "EN_PROCESO", "RECIBIDO", null,
+                null, null, "corr-medium-received", NOW.toEpochMilli()));
+
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+        assertThat(active.isEmergencyDispatched()).isFalse();
+    }
+
+    @Test
+    void procesarReclamoActualizado_estadoIntermedioObstruccionActiva_noSolicitaEmergencia() {
+        CicloviaObstruction active = CicloviaObstruction.builder()
+                .reclamoId("rec-in-progress")
+                .status(ObstructionStatus.ACTIVE)
+                .reclamoPrioridad("ALTA")
+                .emergencyDispatched(false)
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-in-progress")).thenReturn(Optional.of(active));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-in-progress", "u-1", "RECIBIDO", "EN_PROCESO", "Asignado",
+                null, "operador-1", "corr-in-progress", NOW.toEpochMilli()));
+
+        assertThat(active.getReclamoEstado()).isEqualTo("EN_PROCESO");
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
+    void procesarReclamoActualizado_estadoIntermedioPendienteSiguePendiente() {
+        CicloviaObstruction pending = CicloviaObstruction.builder()
+                .reclamoId("rec-pending-in-progress")
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .reclamoEstado("EN_REVISION")
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-pending-in-progress")).thenReturn(Optional.of(pending));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "rec-pending-in-progress", "u-1", "EN_REVISION", "EN_PROCESO", "Sigue en revisión",
+                null, "operador-1", "corr-pending-in-progress", NOW.toEpochMilli()));
+
+        assertThat(pending.getStatus()).isEqualTo(ObstructionStatus.PENDING_REVIEW);
+        assertThat(pending.getReclamoEstado()).isEqualTo("EN_PROCESO");
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("Un reclamo pendiente rechazado termina sin activar alertas")
     void procesarReclamoActualizado_rechazadoDuranteRevision_noActivaObstruccion() {
         CicloviaObstruction pending = CicloviaObstruction.builder()
@@ -341,6 +453,33 @@ class CicloviaObstructionServiceTest {
         assertThat(pending.getReclamoCategoria()).isEqualTo("TRANSITO");
         verify(stationRepository, never()).findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(),
                 anyDouble(), anyDouble(), anyInt(), anyString(), anyInt());
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("La reclasificación irrelevante cierra un pendiente sin publicar evaluación")
+    void procesarReclamoReclasificado_pendienteDejaDeSerRelevante_noPublica() {
+        CicloviaObstruction pending = CicloviaObstruction.builder()
+                .reclamoId("rec-pending-out-of-scope")
+                .status(ObstructionStatus.PENDING_REVIEW)
+                .reclamoEstado("EN_REVISION")
+                .latitude(BigDecimal.valueOf(-34.5955))
+                .longitude(BigDecimal.valueOf(-58.4281))
+                .affectedStationIds("12,24")
+                .detourDescription("Desvío temporal")
+                .build();
+        when(obstructionRepository.findByReclamoId("rec-pending-out-of-scope"))
+                .thenReturn(Optional.of(pending));
+        when(obstructionRepository.save(any(CicloviaObstruction.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        var result = service.procesarReclamoReclasificado(reclasificado(
+                "rec-pending-out-of-scope", "CALLE", false));
+
+        assertThat(result).contains(pending);
+        assertThat(pending.getStatus()).isEqualTo(ObstructionStatus.RESOLVED);
+        assertThat(pending.getAffectedStationIds()).isEmpty();
+        assertThat(pending.getDetourDescription()).isNull();
         verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
     }
 
@@ -410,6 +549,33 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
+    @DisplayName("ReclamoActualizado con CERRADO cierra la obstrucción")
+    void procesarReclamoActualizado_cerrado_cierraObstruccion() {
+        CicloviaObstruction existing = CicloviaObstruction.builder()
+                .id(1L)
+                .reclamoId("rec-123")
+                .status(ObstructionStatus.ACTIVE)
+                .latitude(BigDecimal.valueOf(-34.6058478))
+                .longitude(BigDecimal.valueOf(-58.3807086))
+                .build();
+
+        when(obstructionRepository.findByReclamoId("rec-123")).thenReturn(Optional.of(existing));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReclamoActualizadoData data = new ReclamoActualizadoData(
+                "rec-123", "U000042", "RESUELTO", "CERRADO", "Gestión finalizada",
+                null, "admin-1", "req-corr-1", NOW.toEpochMilli());
+
+        Optional<CicloviaObstruction> resultado = service.procesarReclamoActualizado(data);
+
+        assertThat(resultado).isPresent();
+        assertThat(resultado.get().getStatus()).isEqualTo(ObstructionStatus.RESOLVED);
+        assertThat(resultado.get().getResolvedAt()).isEqualTo(NOW);
+        assertThat(resultado.get().getReclamoEstado()).isEqualTo("CERRADO");
+        verify(obstructionRepository).save(existing);
+    }
+
+    @Test
     @DisplayName("isStationAffected devuelve true si la estación está en una obstrucción activa")
     void isStationAffected_devuelveTrueSiEstaAfectada() {
         CicloviaObstruction activeObs = CicloviaObstruction.builder()
@@ -473,6 +639,24 @@ class CicloviaObstructionServiceTest {
     }
 
     @Test
+    void reclasificacionSinObstruccionExistenteCreaRevisionPendiente() {
+        when(obstructionRepository.findByReclamoId("nueva-reclasificacion")).thenReturn(Optional.empty());
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
+                .thenReturn(List.of());
+
+        var result = service.procesarReclamoReclasificado(reclasificado(
+                "nueva-reclasificacion", "CICLOVIA", true));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getStatus()).isEqualTo(ObstructionStatus.PENDING_REVIEW);
+        assertThat(result.get().getReclamoEstado()).isEqualTo("EN_REVISION");
+        assertThat(result.get().getLatitude()).isEqualByComparingTo("-34.6");
+        assertThat(result.get().getLongitude()).isEqualByComparingTo("-58.4");
+        verify(eventPublisher, never()).publish(anyString(), any(), any(), any());
+    }
+
+    @Test
     void reclasificacionQueDejaDeAfectarCicloviaCierraYPublicaEvaluacion() {
         CicloviaObstruction active = CicloviaObstruction.builder().reclamoId("fuera-de-alcance")
                 .status(ObstructionStatus.ACTIVE).barrio("Palermo")
@@ -511,13 +695,66 @@ class CicloviaObstructionServiceTest {
         when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
                 .thenReturn(List.of());
 
-        service.procesarReclamoReclasificado(reclasificado("ya-despachada", "CICLOVIA", true,
-                null, null));
+        service.procesarReclamoReclasificado(new ReclamoReclasificadoData(
+                "ya-despachada", "u-1", "TRANSITO", "TRANSITO", "ALTA", "CRITICA",
+                "CICLOVIA", "CICLOVIA", true, true, "Auto en ciclovía", "Bloquea el paso",
+                "Recoleta", null, null, "operador", "corr-1", NOW.toEpochMilli()));
 
         assertThat(active.getLatitude()).isEqualByComparingTo("-34.6");
         assertThat(active.getLongitude()).isEqualByComparingTo("-58.4");
+        assertThat(active.getBarrio()).isEqualTo("Recoleta");
         assertThat(active.isEmergencyDispatched()).isTrue();
         verify(eventPublisher, never()).publish(eq("EmergenciaSolicitada"), any(), any(), any());
+    }
+
+    @Test
+    void reclasificacionActivaPrioridadMediaNoSolicitaEmergencia() {
+        CicloviaObstruction active = CicloviaObstruction.builder().reclamoId("media-reclasificada")
+                .status(ObstructionStatus.ACTIVE).reclamoEstado("RECIBIDO").reclamoPrioridad("MEDIA")
+                .emergencyDispatched(false).latitude(BigDecimal.valueOf(-34.6))
+                .longitude(BigDecimal.valueOf(-58.4)).build();
+        when(obstructionRepository.findByReclamoId("media-reclasificada")).thenReturn(Optional.of(active));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
+                .thenReturn(List.of());
+
+        service.procesarReclamoReclasificado(reclasificado("media-reclasificada", "CICLOVIA", true));
+
+        assertThat(active.isEmergencyDispatched()).isFalse();
+        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
+                eq("media-reclasificada"), any(MovilidadObstruccionEvaluadaData.class));
+        verify(eventPublisher, never()).publish(eq("EmergenciaSolicitada"), any(), any(), any());
+    }
+
+    @Test
+    void reclasificacionActivaCriticaEnProcesoNoDespachaEmergenciaAntesDeRecibido() {
+        CicloviaObstruction active = CicloviaObstruction.builder().reclamoId("critica-en-proceso")
+                .status(ObstructionStatus.ACTIVE).reclamoEstado("EN_PROCESO")
+                .reclamoPrioridad("MEDIA").emergencyDispatched(false)
+                .latitude(BigDecimal.valueOf(-34.6)).longitude(BigDecimal.valueOf(-58.4)).build();
+        when(obstructionRepository.findByReclamoId("critica-en-proceso")).thenReturn(Optional.of(active));
+        when(obstructionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stationRepository.findNearby(anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString(), anyInt()))
+                .thenReturn(List.of());
+
+        service.procesarReclamoReclasificado(new ReclamoReclasificadoData(
+                "critica-en-proceso", "u-1", "TRANSITO", "TRANSITO", "MEDIA", "CRITICA",
+                "CICLOVIA", "CICLOVIA", true, true, "Auto sobre ciclovía", "Bloquea el paso",
+                "Palermo", -34.6, -58.4, "operador", "corr-critica-en-proceso", NOW.toEpochMilli()));
+
+        assertThat(active.isEmergencyDispatched()).isFalse();
+        assertThat(active.getReclamoPrioridad()).isEqualTo("CRITICA");
+        verify(eventPublisher).publish(eq("MovilidadObstruccionEvaluada"), eq(AggregateType.INCIDENT),
+                eq("critica-en-proceso"), any(MovilidadObstruccionEvaluadaData.class));
+        verify(eventPublisher, never()).publish(eq("EmergenciaSolicitada"), any(), any(), any());
+
+        service.procesarReclamoActualizado(new ReclamoActualizadoData(
+                "critica-en-proceso", "u-1", "EN_PROCESO", "RECIBIDO", "Listo para despacho",
+                null, "operador-1", "corr-critica-en-proceso", NOW.toEpochMilli()));
+
+        assertThat(active.isEmergencyDispatched()).isTrue();
+        verify(eventPublisher).publish(eq("EmergenciaSolicitada"), eq(AggregateType.INCIDENT),
+                eq("critica-en-proceso"), any(EmergenciaSolicitadaData.class));
     }
 
     @Test
@@ -555,8 +792,13 @@ class CicloviaObstructionServiceTest {
 
     private ReclamoReclasificadoData reclasificado(String id, String objeto, boolean afecta,
                                                    Double lat, Double lon) {
+        return reclasificado(id, objeto, afecta, lat, lon, null);
+    }
+
+    private ReclamoReclasificadoData reclasificado(String id, String objeto, boolean afecta,
+                                                   Double lat, Double lon, String barrio) {
         return new ReclamoReclasificadoData(id, "u-1", "TRANSITO", "TRANSITO", "MEDIA", "MEDIA",
-                "CICLOVIA", objeto, true, afecta, "Auto en ciclovía", "Bloquea el paso", null,
+                "CICLOVIA", objeto, true, afecta, "Auto en ciclovía", "Bloquea el paso", barrio,
                 lat, lon, "operador", "corr-1", NOW.toEpochMilli());
     }
 }
