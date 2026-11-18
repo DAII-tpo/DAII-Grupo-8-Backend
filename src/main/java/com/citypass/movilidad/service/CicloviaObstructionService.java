@@ -51,6 +51,7 @@ public class CicloviaObstructionService {
     private static final int MAX_AFFECTED_STATIONS = 10;
     private static final String EVENT_MOVILIDAD_OBSTRUCCION_EVALUADA = "MovilidadObstruccionEvaluada";
     private static final String RECLAMO_EN_REVISION = "EN_REVISION";
+    private static final String RECLAMO_RECIBIDO = "RECIBIDO";
     private static final String OBJETO_CICLOVIA = "CICLOVIA";
     private static final String PRIORIDAD_CRITICA = "CRITICA";
 
@@ -204,7 +205,7 @@ public class CicloviaObstructionService {
                 return Optional.of(obstruction);
             }
             obstructionRepository.save(obstruction);
-            if ("RECIBIDO".equalsIgnoreCase(data.estadoNuevo())) {
+            if (RECLAMO_RECIBIDO.equalsIgnoreCase(data.estadoNuevo())) {
                 solicitarEmergenciaSiCorresponde(obstruction, data.correlationId());
             }
             return Optional.of(obstruction);
@@ -222,7 +223,7 @@ public class CicloviaObstructionService {
         Optional<CicloviaObstruction> existing = obstructionRepository.findByReclamoId(data.reclamoId());
         if (existing.isEmpty()) {
             // No conocemos el estado vigente porque ReclamoReclasificado no lo incluye.
-            // Se registra como pendiente; ReclamoActualizado con RECIBIDO habilitará el despacho.
+            // Se registra como pendiente; ReclamoActualizado con estado inicial habilitará el despacho.
             ReclamoCreadoData reclamoActualizado = new ReclamoCreadoData(
                     data.reclamoId(), data.ciudadanoId(), null, data.titulo(), data.descripcion(),
                     data.categoriaNueva(), data.prioridadNueva(), "EN_REVISION", data.reclasificadoPor(), null,
@@ -298,7 +299,7 @@ public class CicloviaObstructionService {
                         impactLevel.name(), detour, requiresEmergency, requiresTow, clock.millis()));
 
         if (requiresEmergency && !emergencyAlreadyDispatched
-                && "RECIBIDO".equalsIgnoreCase(safe(obstruction.getReclamoEstado()))) {
+                && RECLAMO_RECIBIDO.equalsIgnoreCase(safe(obstruction.getReclamoEstado()))) {
             publicarEmergencia(obstruction, data.correlationId(), data.prioridadNueva(), lat, lon);
         }
         return Optional.of(obstruction);
